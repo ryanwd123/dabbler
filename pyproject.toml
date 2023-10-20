@@ -1,0 +1,56 @@
+
+
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "dabbler"  # Required
+description = "A qt-gui tool to view database tables/queries integrated within an jupyter/ipython session"
+authors = [{name = "Ryan DeWitt", email = "ryan.w.dewitt@gmail.com"}]
+dynamic = ["version"]
+keywords = ["DuckDB", "SQL", "autocomplete", "intellisense", "lsp", "language server", "gui"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Topic :: Database",
+    "Topic :: Software Development",
+]
+requires-python = ">=3.9"
+license = {file = "LICENSE.txt"}
+
+dependencies = [
+  "duckdb",
+  "qtpy",
+  "sqlparse",
+  "sqlglot",
+  "lark",
+  "pygls",
+  "notebook"
+]
+
+
+[project.readme]
+text = """
+dabber is IPython extension that works with DuckDB.  This project is a work in progress and there could be many bugs.
+
+Main Features:
+- A window to view tables and queries
+- Auto completion for SQL text within python files (requires "dabbler" vscode extension)
+"""
+content-type = "text/markdown"
+
+
+
+[tool.setuptools.dynamic]
+version = {attr = "dabbler.__version__"}
+
+[project.urls]
+Homepage = "https://github.com/ryanwd123/dabbler"
+
+
+[tool.setuptools]
+packages = ["dabbler","dabbler.lsp"]

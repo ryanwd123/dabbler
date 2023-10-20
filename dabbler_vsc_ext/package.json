@@ -1,0 +1,144 @@
+{
+  "name": "dabbler",
+  "description": "language server for working with DuckDB sql within python files, requires dabbler python package",
+  "author": "Ryan DeWitt",
+  "repository": "https://github.com/ryanwd123/dabbler",
+  "license": "MIT",
+  "version": "0.0.1",
+  "publisher": "ryanwd123",
+  "engines": {
+    "node": ">=16.17.1",
+    "vscode": "^1.78.0"
+  },
+  "extensionDependencies": [
+    "ms-python.python"
+  ],
+  "categories": [
+    "Programming Languages"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "contributes": {
+    "commands": [
+      {
+        "command": "dabbler.server.restart",
+        "title": "Restart Language Server",
+        "category": "dabbler"
+      },
+      {
+        "command": "dabbler.server.executeCommand",
+        "title": "Execute Command",
+        "category": "dabbler"
+      },
+      {
+        "command": "dabbler.server.dbDabblerFormatCurrentStatement",
+        "title": "Format current sql statement",
+        "category": "dabbler"
+      },
+      {
+        "command": "dabbler.server.sendSqltoDbDabblerCommand",
+        "title": "Run current select node in dabbler window",
+        "category": "dabbler"
+      }
+    ],
+    "grammars": [
+      {
+          "path": "./syntaxes/inline-sql.json",
+          "scopeName": "inline-sql.injection",
+          "injectTo": [
+              "source.python"
+          ],
+          "embeddedLanguages": {
+              "meta.embedded.sql": "sql"
+          }
+      }],
+    "configuration": [
+      {
+        "type": "object",
+        "title": "Json Server Configuration",
+        "properties": {
+          "dabbler.exampleConfiguration": {
+            "scope": "resource",
+            "type": "string",
+            "default": "You can override this message"
+          }
+        }
+      },
+      {
+        "type": "object",
+        "title": "Server Configuration",
+        "properties": {
+          "dabbler.server.cwd": {
+            "scope": "window",
+            "type": "string",
+            "description": "The working directory from which to launch the server.",
+            "markdownDescription": "The working directory from which to launch the server.\nIf blank, this will default to the `examples/servers` directory."
+          },
+          "dabbler.server.launchScript": {
+            "scope": "window",
+            "type": "string",
+            "default": "dabbler.lsp",
+            "description": "The python script to run when launching the server."
+          },
+          "dabbler.trace.server": {
+            "scope": "window",
+            "type": "string",
+            "default": "off",
+            "enum": [
+              "off",
+              "verbose"
+            ],
+            "description": "Controls if LSP messages send to/from the server should be logged.",
+            "enumDescriptions": [
+              "do not log any lsp messages",
+              "log all lsp messages sent to/from the server"
+            ]
+          }
+        }
+      },
+      {
+        "type": "object",
+        "title": "Client Configuration",
+        "properties": {
+          "dabbler.client.documentSelector": {
+            "scope": "window",
+            "type": "array",
+            "items": {
+              "type": "object"
+            },
+            "default": [
+              {
+                "scheme": "file",
+                "language": "python"
+              }
+            ],
+            "description": "The client uses this to decide which documents the server is able to help with.",
+            "markdownDescription": "The client uses this to decide which documents the server is able to help with.\n See [DocumentSelector](https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/#documentFilter) in the LSP Specification for more details."
+          }
+        }
+      }
+    ]
+  },
+  "main": "./out/extension",
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p .",
+    "watch": "tsc -p . -w"
+  },
+  "devDependencies": {
+    "@types/node": "^16.11.6",
+    "@types/semver": "^7.5.0",
+    "@types/vscode": "^1.78.0",
+    "@typescript-eslint/eslint-plugin": "^5.3.0",
+    "@typescript-eslint/parser": "^5.3.0",
+    "eslint": "^8.2.0",
+    "typescript": "^5.1.0"
+  },
+  "dependencies": {
+    "@vscode/python-extension": "^1.0.4",
+    "semver": "^7.5.4",
+    "vscode-languageclient": "^8.1.0",
+    "zeromq": "^5.3.1"
+  }
+}

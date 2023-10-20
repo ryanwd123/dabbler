@@ -1,0 +1,24 @@
+// A launch configuration that compiles the extension and then opens it inside a new window
+{
+    "version": "0.1",
+    "configurations": [
+        {
+            "name": "Launch Client",
+            "type": "extensionHost",
+            "request": "launch",
+            "runtimeExecutable": "${execPath}",
+            "args": [
+                "--extensionDevelopmentPath=${workspaceRoot}",
+                // "--folder-uri=${workspaceRoot}/../test_files",
+                "--folder-uri=${workspaceRoot}/../test_files",
+            ],
+            "outFiles": [
+                "${workspaceRoot}/out/**/*.js"
+            ],
+            // "preLaunchTask": {
+            //     "type": "npm",
+            //     "script": "compile"
+            // },
+        },
+    ],
+}
