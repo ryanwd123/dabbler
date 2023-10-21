@@ -23,7 +23,7 @@ requires-python = ">=3.9"
 license = {file = "LICENSE.txt"}
 
 dependencies = [
-  "duckdb > 0.8.1",
+  "duckdb",
   "qtpy",
   "sqlparse",
   "sqlglot",

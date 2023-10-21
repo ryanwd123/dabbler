@@ -1,4 +1,6 @@
 .vscode
+node_modules
+src/
 .gitignore
 client/out/*.map
 client/src/
@@ -6,7 +8,7 @@ tsconfig.json
 tslint.json
 package.json
 package-lock.json
-node_modules/
+*.bat
 .pytest_cache
 *.vsix
 *.py

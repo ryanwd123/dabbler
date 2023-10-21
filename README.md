@@ -27,7 +27,7 @@ Intellisnse / autocomplete:
 - In vscode python settings enable line magics for python files:
     - open settings by pressing: `ctr+,`
     - search for "line magic" and check the box:
-       >![screenshot of text box](images/line_magic_checkbox.png)
+       >![screenshot of text box](https://raw.githubusercontent.com/ryanwd123/dabbler/master/images/line_magic_checkbox.png)
 - Use the line magic to load dabbler after making the duckdb connection as shown below.  Run the cell to start the "Interactive Window" in vscode. *note: If the file is run as a normal script the line-magic does not get executed*
     ```py
     #%%
