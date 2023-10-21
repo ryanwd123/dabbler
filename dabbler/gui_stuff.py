@@ -7,7 +7,8 @@ capture_types = {
     "<class 'pandas.core.frame.DataFrame'>":'pandas',
     "<class 'polars.dataframe.frame.DataFrame'>":'polars',
     "<class 'pyarrow.lib.Table'>":'arrow',
-    "<class 'duckdb.DuckDBPyRelation'>":'duckdb_rel'
+    "<class 'duckdb.DuckDBPyRelation'>":'duckdb_rel',
+    "<class 'duckdb.duckdb.DuckDBPyRelation'>":'duckdb_rel',
 }
 
 

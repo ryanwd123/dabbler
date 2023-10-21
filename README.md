@@ -19,6 +19,11 @@ Intellisnse / autocomplete:
     - 🔲file paths
 - Send/Execute SQL query from vscode editor window to dabbler window to and page through outputs
 
+### Current Limitations
+- In vscode language server will fail to start if you try to open a 2nd vscode window
+- The parser does not support every SQL feature in the duckdb dialect and it will fail to provide autocompletion if it cannot parse the SQL, this problem can be avoided in some cases by seperating statements into different blocks of text
+
+
 ### Install / Setup
 - `pip install dabbler`
 - install "dabbler" vscode extension
@@ -42,8 +47,21 @@ Intellisnse / autocomplete:
 
 
 ### Overview
-- The dabbler python package inlcudes a pygls language server. 
+- The dabbler python package inlcudes a pygls language server.
+    - The vscode extension starts the language server by running: `py -m dabbler.lsp`
 - The language server communicates with ipython/jupyter to get table and column names using zmq
+    - the IPython extension checks for updates to the database/dataframes each time cells are exectued using the ipython pre_run_cell and post_run_cell events
+    - table/column information is sent from IPython to the language server upon the initial connection and after cell execution (if there are changes)
+- The language server includes an SQL parser created from using lark package
+    - Within the python document ranges SQL text are idenitified using regular expressions:
+        ```py
+        re_patterns = [
+            r'([^\n]*?"""--sql[^\n]*?\n)(?P<sql>.*?)(""")',
+            r'(.(sql|execute|executemany)\(")(?P<sql>.*?)("\s*(\)|,))',
+            r"(.(sql|execute|executemany)\(')(?P<sql>.*?)('\s*(\)|,))",
+            ]
+        ```
+    - If changes are made to the document within an sql text range the only that range of text is parsed and if there is an error that is published to the client.  Since the parse is not 100% complete at this point the parser could return errors that due parse in DuckDb.
 
 
 
