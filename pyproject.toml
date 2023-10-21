@@ -35,7 +35,7 @@ dependencies = [
 
 [project.readme]
 text = """
-dabber is IPython extension that works with DuckDB.  This project is a work in progress and there could be many bugs.
+A IPython extension for interactive programming with python and DuckDB.  This project is a work in progress and there could be many bugs.
 
 Main Features:
 - A window to view tables and queries
