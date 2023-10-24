@@ -3,6 +3,7 @@ from pathlib import Path
 from enum import Enum
 from lark import Lark, Transformer, v_args, Discard, Visitor, Tree, UnexpectedToken, Token
 import duckdb
+import logging
 
 lark_cache = Path(__file__).parent.joinpath('lark_cache')
 
@@ -175,7 +176,7 @@ class GetQueries(Visitor):
             col_names.append(col.children[1].children[0].value)
             continue
          if col.children[0].data == 'col_ref':
-            col_names.append(col.children[0].children[3].value)
+            col_names.append(col.children[0].children[1].value)
             continue
       return [(x,None) for x in col_names]
 
@@ -279,10 +280,13 @@ class GetQueries(Visitor):
 
 class SqlParserNew:
     
-    def __init__(self, db: duckdb.DuckDBPyConnection = None, ls = None) -> None:
+    def __init__(self, db: duckdb.DuckDBPyConnection = None, ls = None, logger:logging.Logger = None) -> None:
         self.db = db
         self.projection_cache = {}
         self.ls = ls
+        self.log = logger.getChild('sql_parser')
+        self.log_describe = logger.getChild('sql_describe')
+        self.log_query_output = logger.getChild('query_output')
         pass
 
     def show_message(self,msg):
@@ -293,7 +297,18 @@ class SqlParserNew:
 
     def parse_sql(self, sql: str):
 
-        tree = sql_parser.parse(sql,on_error=parser_error_handler)
+        
+        try:
+            tree = sql_parser.parse(sql,on_error=parser_error_handler)
+        except UnexpectedToken as e:
+            self.log.exception(['failed to parse, Unexpected Token',sql,e,e.token,e.accepts])
+            return
+        except Exception as e:
+            self.log.exception(['failed to parse',sql,e])
+            return
+            # noqa: E722
+        if not tree:
+            return
         queries = GetQueries(sql)
         queries.visit(tree)
 
@@ -357,7 +372,7 @@ class SqlParserNew:
         
         
         # self.show_message(f'done running db queries {queries.queries_list}')
-        
+        self.log_query_output.debug(queries)
         return queries
     
 
@@ -372,6 +387,6 @@ class SqlParserNew:
             data = [(x[0],x[1]) for x in rec]
             self.projection_cache[sql] = data
             return data
-        except:  # noqa: E722
-            # self.show_message(f'error running sql')
+        except Exception as e:  # noqa: E722
+            self.log.exception(['failed to run describe',sql,e])
             return

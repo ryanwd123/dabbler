@@ -1,3 +1,7 @@
+import sys
+import logging
+import pprint
+from logging.handlers import SocketHandler
 import re as regex
 import zmq
 from dataclasses import dataclass
@@ -9,7 +13,7 @@ from dabbler.lsp.db_data import make_db, make_completion_map
 from dabbler.lsp.sql_utils import strip_sql_whitespace, SelectNode, CmpItem
 from dabbler.lsp.completion import duckdb_extensions,duckdb_settings,duckdb_pragmas,duckdb_types
 from dabbler.lsp.parser import SqlParserNew
-from dabbler.common import FromLangServer, ToLangServer
+from dabbler.common import FromLangServer, ToLangServer, KeyFile, PprintSocketHandler
 
 # from dabbler.lsp.completer import CmpItem 
 from lsprotocol.types import (
@@ -30,11 +34,46 @@ class InlineSqlLangServer(LanguageServer):
 
     def __init__(self, *args):
         super().__init__(*args)
+
+
         
         self.create_sockets2()
         self.completer:'SqlCompleter' = None
         self.socket_connected = False
         self.socket_created = False
+        self.key_file:KeyFile = None
+        
+        
+        
+        self.log = logging.getLogger('dabbler_lsp')
+        self.debug = False
+
+
+    def start_logging(self):
+        if self.debug:
+            return
+        self.debug = True
+        self.log.setLevel(1)  # to send all records to cutelog
+        socket_handler = PprintSocketHandler('127.0.0.1', 19996)  # default listening address
+        # socket_handler.setFormatter(LogFmt())
+        self.log.addHandler(socket_handler)
+        self.log.info('logging started')
+        # self.log.debug(f'workspace documents {pprint.pformat(self.workspace.documents)}')
+
+
+    def log_workspace_info(self):
+        if self.debug is False:
+            return
+        if self.workspace is None:
+            self.log.debug(f'workspace is None')
+            return
+        workspace_info = {
+            "root_uri": self.workspace.root_uri,
+            "root_path": self.workspace.root_path,
+            "folders": self.workspace.folders,
+            "documents": self.workspace.documents,
+        }
+        self.log.debug(["workspace_info",workspace_info])
   
         
     
@@ -42,18 +81,33 @@ class InlineSqlLangServer(LanguageServer):
         # self.msg_q = janus.Queue().sync_q
         ctx1 = Context().instance()
         self.socket = ctx1.socket(zmq.PAIR)
-        self.socket.connect("tcp://127.0.0.1:55557")
+        self.main_port=55557
+        self.handshake_port=55558
+        
+        
+        self.socket.connect(f"tcp://127.0.0.1:{self.main_port}")
 
         ctx2 = Context().instance()
         self.handshake_socket = ctx2.socket(zmq.PAIR)    
-        self.handshake_socket.bind("tcp://127.0.0.1:55558")
-    
+        self.handshake_socket.bind(f"tcp://127.0.0.1:{self.handshake_port}")
+
         self.loop.create_task(self.zmq_recv(self.socket))
         self.loop.create_task(self.zmq_recv(self.handshake_socket))
         
         self.zmq_send({'cmd':'db_data_update'},True)
+
     
-    
+    def save_key_file(self):
+        if self.key_file:
+            return
+        if self.workspace is None:
+            self.log.debug(f'workspace is None, keyfile not saved')
+            return
+        self.key_file = KeyFile()
+        self.key_file.add_connection(str(self.workspace.root_path),{'workspace_path':str(self.workspace.root_path),'main_port':self.main_port,'handshake_port':self.handshake_port})
+        self.log.debug(f'key_file {self.key_file.connections}')
+
+
     
     async def zmq_recv(self,socket:AsyncSocket):
         # self.show_message_log('zmq_recv started')
@@ -91,6 +145,10 @@ class InlineSqlLangServer(LanguageServer):
                 
             if msg['cmd'] == 'no_update':
                 self.show_message_log("check update: no update")
+                
+            if msg['cmd'] == "debug":
+                if msg['data']:
+                    self.start_logging()
                 
             
     
@@ -135,8 +193,10 @@ class SqlCompleter:
         self.completion_map = make_completion_map(self.db,db_data)
         self.db_data = db_data
         self.ls = ls
+        self.log = ls.log.getChild('completer')
+        self.log_comp_map = self.log.getChild('comp_map')   
         # self.parsed_times_cache = PasredItemsCache(99,0,0,0,{})
-        self.parser2 = SqlParserNew(self.db, self.ls)
+        self.parser2 = SqlParserNew(self.db, self.ls, ls.log)
 
   
     def show_message_log(self,msg):
@@ -147,6 +207,8 @@ class SqlCompleter:
     
     def get_queries(self, pos, sql):
         queries = self.parser2.parse_sql(sql)
+        if not queries:
+            return None, None
         queries.queries_list.sort(key=lambda x: x.end_pos - x.start_pos)
         if len(queries.queries_list) == 0:
             return None, None
@@ -163,7 +225,8 @@ class SqlCompleter:
         comp_map['root_namespace'] = []
         
         q, queries = self.get_queries(pos, sql)
-
+        if q is None:
+            return comp_map
         for k,v in q.from_refs.items():
             
             if v.kind.name == 'subquery':
@@ -208,6 +271,7 @@ class SqlCompleter:
                 
         comp_map['root_namespace'].extend(col_to_add)
                 
+        self.log_comp_map.debug(comp_map)
         return comp_map
 
     def get_comp_map(self,cursor_pos,sql_rng:SelectNode):
@@ -242,7 +306,9 @@ class SqlCompleter:
         try:
             parsed_items:dict[str,list[CmpItem]] = self.parse_sql2(cursor_pos,sql_rng.txt)
         except Exception as e:
-            # self.show_message_log(f'parser_error {e}')
+            self.log.debug(['parsed_items_error',e])
+            # self.log.debug('parsed_items_error')
+            
             parsed_items = {'root_namespace':[]}
         # self.show_message_log(f'{parsed_items}')
         # comp_map:dict[str,list[CmpItem]] = {}
@@ -263,10 +329,11 @@ class SqlCompleter:
         m = regex.match('.*(^| )(join |from |pivot |unpivot |alter table )(\w+( \w+)?, )*(?P<dotitems>(\w+\.)+)$',sql_left_of_cur,flags=regex.IGNORECASE)
         if m and trigger == '.':
             key = m.group('dotitems').strip('.')
-            if key not in comp_map:
-                return None
-            items = [x.comp for x in comp_map[key] if x.obj_type in table_types]
-            items += [x.comp for x in parsed_items[key] if x.obj_type in table_types]
+            items = []
+            if key in comp_map:
+                items = [x.comp for x in comp_map[key] if x.obj_type in table_types]
+            if key in parsed_items:
+                items += [x.comp for x in parsed_items[key] if x.obj_type in table_types]
             return CompletionList(is_incomplete=False, items=items)
         
         

@@ -14,6 +14,7 @@
 # See the License for the specific language governing permissions and      #
 # limitations under the License.                                           #
 ############################################################################
+import sys
 import asyncio
 from typing import Optional
 import sqlglot
@@ -35,7 +36,9 @@ from dabbler.lsp.sql_utils import (
 )
 
 
-asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+
+if sys.platform == 'win32':
+    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 sql_server = InlineSqlLangServer("pygls-json-example", "v0.1")
 
 
@@ -147,6 +150,11 @@ def did_change(ls: InlineSqlLangServer, params: lsp.DidChangeTextDocumentParams)
     else:
         ls.publish_diagnostics(params.text_document.uri, [])
 
+@sql_server.feature(lsp.TEXT_DOCUMENT_DID_OPEN)
+async def did_open(ls: InlineSqlLangServer, params: lsp.DidOpenTextDocumentParams):
+    ls.log_workspace_info()
+    ls.save_key_file()
+
 
 @sql_server.command(InlineSqlLangServer.CMD_SEND_SQL_TO_GUI)
 def send_sql_to_gui(ls: InlineSqlLangServer, *args):
@@ -182,7 +190,10 @@ def send_sql_to_gui(ls: InlineSqlLangServer, *args):
         )
 
     pos_in_range = sql_rng.cur_idx - sql_rng.start
-    q, queries = ls.completer.get_queries(pos_in_range,sql_rng.txt)
+    try:
+        q, queries = ls.completer.get_queries(pos_in_range,sql_rng.txt)
+    except Exception as e:
+        ls.log.debug(['error getting queries',e])
 
     if not q:
         ls.show_message_log("did not find query")

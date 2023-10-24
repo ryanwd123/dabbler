@@ -36,7 +36,7 @@ for f in files:
 # db.executemany("create or replace view db_executemany as select * from t_medicare")
 # db.sql('create or replace view sql_single_quote as select * from t_medicare')
 db.execute("attach './../../sample_data/imdb.duckdb'")
-#!%load_ext dabbler.ext
+#!%load_ext dabbler.ext_debug
 # from dabbler.lsp.db_data import get_db_data_new,make_db,make_completion_map
 
 class FakeLS:
@@ -49,7 +49,17 @@ class FakeLS:
 # parser = SqlParser(db2)
 # completer = SqlCompleter(db_data,FakeLS())
 #%%
+from urllib.parse import urlparse, unquote
+uri = 'file:///c%3A/Projects/db_dabbler/src/test_files/tst_load_ext2.py'
 
+unquote(uri)
+
+
+path = Path(unquote(uri[8:]))
+path.is_file()
+
+import pprint
+pprint.pprint(globals())
 
 #%%
 db.sql("show tables")
@@ -91,7 +101,7 @@ sql_txt = (
     select
         k.numVotes,
         sum(k.averageRating),
-            
+        k.category
     from cine k 
     """)
 
@@ -101,11 +111,51 @@ db.sql(
     with qq as (from athlete_events select *),
     qq2 as (from qq select *),
     qq3 as (from qq2 select * exclude (Age, Sex, ID, Height))
-    from qq q select q.City
+    from qq3 q select q.City
     """)
 
 #%%
 
+db.sql(
+    """--sql
+    with crew_count as (
+        from imdb.main.crew c
+        select
+            c.title_id,
+            count() as crew_count
+        group by all
+    ),
+    prin_count as (
+        from imdb.main.principals p
+        select
+            p.tconst as title_id,
+            count() as prin_count
+        group by all
+    ),
+    t_count as (
+        select * from crew_count
+        union all
+        select * from prin_count
+    )
+    from imdb.main.titles t
+        join imdb.main.ratings r on r.tconst = t.title_id
+        join crew_count c on c.title_id = t.title_id
+        join prin_count p on p.title_id = t.title_id    
+    select
+        t.title_id,
+        t.primary_title,
+        r.averageRating,
+        r.numVotes,
+        c.crew_count,
+        p.prin_count,
+        c.crew_count + p.prin_count as total_count
+    order by r.numVotes desc
+    
+    """)
+
+
+
+#%%
 
 
 
@@ -116,3 +166,9 @@ db.sql(
         i.
     
     """)
+#%%
+from dabbler.common import KeyFile
+# %%
+k = KeyFile()
+# %%
+print(k.file.read_text())

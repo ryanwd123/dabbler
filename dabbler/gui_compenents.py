@@ -1,9 +1,9 @@
 from queue import Queue
-
+import pprint
 # from PyQt6 import QtWidgets, QtCore, QtGui
 # from PyQt6.QtCore import pyqtSlot as Slot, pyqtSignal as Signal
-from dabbler.common import FromLangServer, ToLangServer
-
+from dabbler.common import FromLangServer, ToLangServer, PprintSocketHandler
+import logging
 # from PySide6 import QtWidgets, QtCore, QtGui
 # from PySide6.QtCore import Slot, Signal
 from qtpy import QtWidgets, QtCore, QtGui
@@ -132,6 +132,8 @@ class ZmqServer(QtCore.QObject):
         super().__init__(parent)
         self.app = parent
         self.db = db.cursor()
+        self.log:logging.Logger = self.app.log.getChild("gui_zmq")
+        self.log.info("zmq server started")
         self.connected = False
         self.connection_id: int = None
         self.new_data = False
@@ -146,7 +148,8 @@ class ZmqServer(QtCore.QObject):
 
         if self.socket.poll(100):
             self.rec_manual()
-
+            self.start_lsp_logger()
+            
         self.rep_server = RepChannel(self.socket)
         self.rep_thread = QtCore.QThread()
         self.rep_server.moveToThread(self.rep_thread)
@@ -164,6 +167,8 @@ class ZmqServer(QtCore.QObject):
 
         if self.data_sent is False:
             self.handshake_send({"cmd": "ip_python_started", "data": 1})
+            if self.app.debug:
+                self.handshake_send({"cmd": "debug", "data": True})
 
         # self.rep_server.set_connected.connect(self.set_connected)
         self.rep_thread.start()
@@ -217,7 +222,12 @@ class ZmqServer(QtCore.QObject):
             self.app.update_tables()
             # print('updated tables')
 
-    def respond(self, msg, no_block=False):
+    def start_lsp_logger(self):
+        if self.app.debug:
+            self.log.info("tell lang server debug mode")
+            self.respond({"cmd": "debug", "data": True})
+
+    def respond(self, msg:ToLangServer, no_block=False):
         buff = pickle.dumps(msg)
 
         if no_block:
@@ -229,22 +239,22 @@ class ZmqServer(QtCore.QObject):
             return
 
         if self.connected:
-            # print(f'responding {msg}')
+            self.log.debug(msg)
             self.socket.send(buff)
         else:
-            pass
-            # print('not connected')
+            self.log.error(f"try to send message when not connected {msg['cmd']}")
 
     def rec_manual(self):
         buff = self.socket.recv()
         data = pickle.loads(buff)
-        # print(f'zmq server rec at start {data}')
+        self.log.debug(f'zmq server rec at start {data}')
         self.socket_reply(data)
 
     @Slot(object)
     def socket_reply(self, msg: FromLangServer):
         if not self.connected:
             self.connected = True
+            self.start_lsp_logger()
             # print('connected')
 
         if msg["cmd"] == "connection_id":
@@ -257,6 +267,7 @@ class ZmqServer(QtCore.QObject):
 
         if msg["cmd"] == "db_data_update":
             self.send_db_data()
+            self.start_lsp_logger()
             return
 
         if msg["cmd"] == "check_for_update":

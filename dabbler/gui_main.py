@@ -1,6 +1,8 @@
 from queue import Queue
 import time
-
+import logging
+from dabbler.common import PprintSocketHandler
+from logging.handlers import SocketHandler
 from IPython import get_ipython
 from qtpy import QtWidgets, QtCore, QtGui
 import duckdb
@@ -471,13 +473,22 @@ class mainWindow(QtWidgets.QWidget):
 
 class MyApp(QtWidgets.QApplication):
     def __init__(
-        self, argv, db=None, style1=None, q: Queue = None, in_thread: bool = False
+        self, argv, db=None, style1=None, q: Queue = None, in_thread: bool = False, debug = False
+        
     ) -> None:
         super().__init__(argv)
         self.db = db
         self.windows: list[mainWindow] = []
         self.in_thread = in_thread
         self.stylesheet = gui_style
+        self.debug = debug
+        self.log = logging.getLogger("dabbler_gui")
+        if self.debug:
+            self.log.setLevel(1)
+            socket_handler = PprintSocketHandler('127.0.0.1', 19996)
+            # socket_handler.setFormatter(LogFmt)
+            self.log.addHandler(socket_handler)
+            self.log.info("debugging")
         self.zmq = ZmqServer(self, self.db)
         # self.q_handler = MsgHandler(q=q,signal_to_emit=self.msg_routing)
         # self.focusWindowChanged.connect(self.update_tables)

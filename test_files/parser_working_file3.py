@@ -9,7 +9,7 @@ db = duckdb.connect()
 
 
 db.read_csv(
-    "./../sample_data/austin/Issued_Tree_Permits.csv", header=True, normalize_names=True
+    "./../../sample_data/austin/Issued_Tree_Permits.csv", header=True, normalize_names=True
 ).create("tree_permits")
 
 
@@ -37,6 +37,8 @@ for f in tst_files[:]:
 print(f"pass: {pass_test}, fail: {fail_test}")
 # %%
 
+db.sql("select 'aaa'[(2-1):(3-1)]")
+#%%
 
 sql = """
 with cte1 as (from b select a),cte2 as ((((select a from cte1))) union all select b from jjj union all select ggg from hhh),
@@ -49,15 +51,17 @@ from xy_zjy as x
    join my_table_macro('a') tm on (x.id = tm.id)
    join (select * from ddd) z on (x.id = z.id)
 , abc
-where x = 1 and y = 2;
-
-attach 'ttt.db';
-with qq as (select a1, sum(a2), sum(a3) as a3 from xyz)
-select -1,b.b.aa,c from abc where qq = 2 and by = 5
 """
+
+import pprint
+parser = SqlParserNew(db)
+queries = parser.parse_sql(sql)
+print(len(queries.queries_list))
+pprint.pprint(queries.queries_list)
+
 #%%
 
-sql = "select a,b,c from my_table join (Pivot abc on f using sum(g)) dd on (a = b) where a = 1"
+# sql = "select a,b,c from my_table join (Pivot abc on f using sum(g)) dd on (a = b) where a = 1"
 
 #%%
 import sqlparse
@@ -67,11 +71,6 @@ print(sqlparse.format(sql,reindent=True,keyword_case='upper'))
 
 #%%
 ## !%%timeit
-import pprint
-parser = SqlParserNew(db)
-queries = parser.parse_sql(sql)
-print(len(queries.queries_list))
-pprint.pprint(queries.queries_list)
 
 #%%
 
