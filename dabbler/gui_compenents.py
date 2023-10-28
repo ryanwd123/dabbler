@@ -138,7 +138,7 @@ class ZmqServer(QtCore.QObject):
         self.connection_id: int = None
         self.new_data = False
         self.data_sent = False
-        self.db_data = get_db_data_new(self.db)
+        self.db_data = get_db_data_new(self.db, self.app.file_search_path)
 
         self.context = zmq.Context()
         self.socket = self.context.socket(zmq.PAIR)
@@ -205,16 +205,21 @@ class ZmqServer(QtCore.QObject):
         self.check_for_update()
 
     def check_for_update(self):
-        data2 = get_db_data_new(self.db)
-
+        data2 = get_db_data_new(self.db, self.app.file_search_path)
+        self.log.debug(['checking for updated db data', data2])
         # qq = (self.db_data['data'] != data2['data']
         # or self.db_data['dataframes'] != data2['dataframes'])
         # print(f'checking for updated db data {qq}')
 
-        if (
-            self.db_data["data"] != data2["data"]
-            or self.db_data["dataframes"] != data2["dataframes"]
-        ):
+        need_update = False
+        
+        for k,v in data2.items():
+            if self.db_data[k] != v:
+                need_update = True
+                break
+    
+        
+        if need_update:
             self.new_data = True
             self.db_data = data2
             # print('data changed')

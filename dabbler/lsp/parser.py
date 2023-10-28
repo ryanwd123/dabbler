@@ -1,3 +1,4 @@
+import os
 from dataclasses import dataclass
 from pathlib import Path
 from enum import Enum
@@ -15,8 +16,12 @@ def parser_error_handler(e:UnexpectedToken):
         e.interactive_parser.feed_token(Token('_AS', 'AS'))
         e.interactive_parser.feed_token(Token('NAME', 'placeholder'))
         e.interactive_parser.feed_token(e.token)
-        
         return True
+    
+    if e.token == Token('$END', '') and 'NAME' in e.accepts:
+        e.interactive_parser.feed_token(Token('NAME', 'xyz'))
+        return True
+    
     if 'NAME' in e.accepts:
         e.interactive_parser.feed_token(Token('NAME', 'xyz'))
         e.interactive_parser.feed_token(e.token)
@@ -86,12 +91,14 @@ class FromRef:
     name: str
     sql: str = None
     start_pos: int = None
+    projection: list[tuple[str,str]] = None
 
 
 class TransformFromClause(Transformer):
-    def __init__(self, sql: str) -> None:
+    def __init__(self, sql: str, parser:'SqlParserNew') -> None:
         super().__init__()
         self.sql = sql
+        self.parser = parser
         self.map = {}
 
     def db_table(self, value):
@@ -115,11 +122,15 @@ class TransformFromClause(Transformer):
 
     def table_function(self, value):
         if value[1]:
+            
+            sql = self.sql[value[0].meta.start_pos : value[0].meta.end_pos]
+            
             self.map[value[1]] = FromRef(
                 kind=FromRefKind.table_function,
                 alias=value[1],
                 name=value[0],
-                sql=self.sql[value[0].meta.start_pos : value[0].meta.end_pos],
+                sql=sql,
+                projection=self.parser.db_describe_columns(f'select * from {sql}')
             )
             # self.sql[value[0].meta.start_pos:value[0].meta.end_pos]
 
@@ -153,16 +164,17 @@ class QueryToSql(Transformer):
 
 
 class GetQueries(Visitor):
-   def __init__(self, sql: str) -> None:
+   def __init__(self, sql: str, parser:'SqlParserNew') -> None:
       super().__init__()
       self.sql = sql
+      self.parser = parser
       self.queries: dict[int, Query] = {}
       self.queries_list: list[Query] = []
       self.q_start_end:list[tuple[int,int]] = []
 
    def get_from_tables(self, tree: Tree):
       s1 = QueryToSql(self.sql).transform(tree)
-      fr = TransformFromClause(self.sql)
+      fr = TransformFromClause(self.sql,self.parser)
       fr.transform(s1).pretty()
       return fr.map
 
@@ -280,10 +292,11 @@ class GetQueries(Visitor):
 
 class SqlParserNew:
     
-    def __init__(self, db: duckdb.DuckDBPyConnection = None, ls = None, logger:logging.Logger = None) -> None:
+    def __init__(self, db: duckdb.DuckDBPyConnection = None, ls = None, logger:logging.Logger = None, file_search_path:str = None) -> None:
         self.db = db
         self.projection_cache = {}
         self.ls = ls
+        self.file_search_path = file_search_path
         self.log = logger.getChild('sql_parser')
         self.log_describe = logger.getChild('sql_describe')
         self.log_query_output = logger.getChild('query_output')
@@ -309,7 +322,7 @@ class SqlParserNew:
             # noqa: E722
         if not tree:
             return
-        queries = GetQueries(sql)
+        queries = GetQueries(sql,self)
         queries.visit(tree)
 
 
@@ -372,7 +385,7 @@ class SqlParserNew:
         
         
         # self.show_message(f'done running db queries {queries.queries_list}')
-        self.log_query_output.debug(queries)
+        self.log_query_output.debug(queries.queries_list)
         return queries
     
 
@@ -383,10 +396,12 @@ class SqlParserNew:
 
         try:
             db = self.db.cursor()
+            if self.file_search_path and len(self.file_search_path)>0:
+                db.execute(f"set file_search_path = '{self.file_search_path}';")
             rec = db.execute(f'describe ({sql})').fetchall()
             data = [(x[0],x[1]) for x in rec]
             self.projection_cache[sql] = data
             return data
         except Exception as e:  # noqa: E722
-            self.log.exception(['failed to run describe',sql,e])
+            self.log.exception(['failed to run describe',sql,e,os.getcwd()])
             return

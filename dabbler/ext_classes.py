@@ -9,11 +9,15 @@ class DbDabbler(Magics):
         super(DbDabbler, self).__init__(ipython)
         for item in ipython.ev("dir()"):
             if "duckdb.DuckDBPyConnection" in str(type(ipython.ev(item))):
-                db = ipython.ev(item).cursor()
+                db = ipython.ev(item)
+                file_search_path = db.execute(
+                    "select current_setting('file_search_path')"
+                ).fetchone()[0]
+                db = db.cursor()
                 break
         if db:
             self.q = None
-            self.app = MyApp([], db, debug=debug)
+            self.app = MyApp([], db, debug=debug, file_search_path=file_search_path)
             ipython.run_line_magic("gui", "qt")
             from IPython.lib.guisupport import start_event_loop_qt4
 

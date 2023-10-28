@@ -128,9 +128,13 @@ def make_db(db_data:dict):
     db2.execute('\n'.join([x[1] for x in db_data['dataframes']]))
 
     for schema, item, sql, cols in db_data['data']:
-        db2.execute(f'use {schema}; {sql}')
+        col_txt = ',\n'.join([f'"{c[0]}" {c[1]}' for c in cols])
+        sql2 = f'create table {item}({col_txt})'
+        db2.execute(f'use {schema}; {sql2}')
 
     db2.execute(f"use {db_data['current_schema']};")
+    if db_data['file_search_path']:
+        db2.execute(f"""set file_search_path to '{db_data['file_search_path']}';""")
     
     return db2
 

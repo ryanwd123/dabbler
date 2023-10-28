@@ -473,13 +473,14 @@ class mainWindow(QtWidgets.QWidget):
 
 class MyApp(QtWidgets.QApplication):
     def __init__(
-        self, argv, db=None, style1=None, q: Queue = None, in_thread: bool = False, debug = False
+        self, argv, db=None, file_search_path = None, debug = False
         
     ) -> None:
         super().__init__(argv)
         self.db = db
         self.windows: list[mainWindow] = []
-        self.in_thread = in_thread
+        self.in_thread = False
+        self.file_search_path = file_search_path
         self.stylesheet = gui_style
         self.debug = debug
         self.log = logging.getLogger("dabbler_gui")

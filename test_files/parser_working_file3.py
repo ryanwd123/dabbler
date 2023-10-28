@@ -3,7 +3,7 @@ from pathlib import Path
 import time
 from dabbler.lsp.parser import get_parser, SqlParserNew
 import duckdb
-
+import re
 from lark import Lark, Token, UnexpectedToken
 db = duckdb.connect()
 
@@ -11,6 +11,11 @@ db = duckdb.connect()
 db.read_csv(
     "./../../sample_data/austin/Issued_Tree_Permits.csv", header=True, normalize_names=True
 ).create("tree_permits")
+
+
+db.sql("create or replace view tp as select * from tree_permits")
+
+
 
 
 sql_parser = get_parser()
@@ -97,12 +102,49 @@ queries.queries[175].projection
 
 # %%
 
-def parser_error_handler(e):
+
+#%%
+
+
+#%%
+
+
+#%%
+#%%
+def parser_error_handler(e:UnexpectedToken):
+    assert isinstance(e, UnexpectedToken)
+    print(e.token,e.token.type)
+    print(e.accepts)   
+
+
+    
+    if '_AS' in e.accepts and e.token.type == 'RPAREN':
+        e.interactive_parser.feed_token(Token('_AS', 'AS'))
+        e.interactive_parser.feed_token(Token('NAME', 'placeholder'))
+        e.interactive_parser.feed_token(e.token)
+        print('added as name')    
+        return True
+    
+    if e.token == Token('$END', '') and 'NAME' in e.accepts:
+        e.interactive_parser.feed_token(Token('NAME', 'xyz'))
+        # e.interactive_parser.feed_token(e.token)
+        print('end add name')
+        return True
+
+    if 'NAME' in e.accepts:
+        e.interactive_parser.feed_token(Token('NAME', 'QQ'))
+        e.interactive_parser.feed_token(e.token)
+        print('added name')
+        return True
+    
+
     # print(e.token)
     # e.interactive_parser.feed_eof() 
     # e.interactive_parser.feed_token(Token('NAME', 'xyz'))
     # e.interactive_parser.feed_token(e.token)
-    return True
+    return False
+
+
 
 sql_grammer = Path("./../dabbler/lsp/sql3b.lark").read_text()
 
@@ -114,72 +156,30 @@ test_parser = Lark(
     maybe_placeholders=True,
     debug=False,
 )
-#%%
-sql2 = """
 
-from jjj j
-select
-    * replace (a)
+
+
+
+
+sql2 = """
+    with qq as (from Issued_Tree_Permits i select i.APPENDIX_F_REMOVED, i.APPLICATION_TYPE) 
+    from 
 
 
 
 """
 
 try:
-    sql_parser.parse(sql2)
+    t = test_parser.parse(sql2, on_error=parser_error_handler)
+    print(t.pretty())
 except Exception as e:
     ee = e
     print(e)
 
-#%%
-dir(ee)
-print(ee.__str__().split('\n')[0])
-type(ee)
-if isinstance(ee, UnexpectedToken):
-    print(f'Unexpected Token "{ee.token}"')
 
-print(ee.token)
-
-
-#%%
-ee.token_history
-#%%
-def parser_error_handler(e:UnexpectedToken):
-    assert isinstance(e, UnexpectedToken)
-    print(e.token,e.token.type)
-    print(e.accepts)   
-
-    
-    if '_AS' in e.accepts and e.token.type == 'RPAREN':
-        e.interactive_parser.feed_token(Token('_AS', 'AS'))
-        e.interactive_parser.feed_token(Token('NAME', 'placeholder'))
-        e.interactive_parser.feed_token(e.token)
-        
-        return True
-    if 'NAME' in e.accepts:
-        e.interactive_parser.feed_token(Token('NAME', 'xyz'))
-        e.interactive_parser.feed_token(e.token)
-        return True
-    
-    # print(e.token)
-    # e.interactive_parser.feed_eof() 
-    # e.interactive_parser.feed_token(Token('NAME', 'xyz'))
-    # e.interactive_parser.feed_token(e.token)
-    return False
-
-
-# q = test_parser.parse_interactive(sql2)
-# q.feed_eof() 
-p = test_parser.parse(sql2,on_error=parser_error_handler)
-# p = test_parser.parse(sql2,on_error=parser_error_handler)
-print(p.pretty())
-#%%
-Token('NAME', 'xyz').type
-
-
-
-
-
+# dir(ee)
+# ee.accepts
+# ee.token_history
 
 #%%
 test_parser.parse(sql2)
@@ -211,3 +211,42 @@ WHERE
 
 #%%
 
+from dabbler.db_stuff import get_db_data_new
+from dabbler.lsp.db_data import make_db
+db.execute("set file_search_path to 'C:\\scripts\\duckdb_comb_perm_test'")
+db_data = get_db_data_new(db)
+db_data
+db2 = make_db(db_data)
+
+
+db_data['file_search_path']
+
+
+
+#%%
+Path(r'C:\scripts')
+
+
+# %%
+file_path_completion_pattern = r'''.*('./)([A-Za-z0-9./_,]+)?$'''
+file_path_completion_regex = re.compile(file_path_completion_pattern)
+from dabbler.lsp.completion import PathCompleter
+
+pc = PathCompleter(db_data['cwd'],db_data['file_search_path'])
+
+
+txt = "read_csv('./"
+
+m = file_path_completion_regex.match(txt)
+if m:
+    items = pc.get_items(m.group(2))
+
+items
+
+#%%
+m.group(2)
+# %%
+
+
+#%%
+a,b = ''.rsplit('/',1)

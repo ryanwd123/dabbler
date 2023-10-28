@@ -32,8 +32,8 @@ query.5: _select_node
 
 _select_node: ["DESCRIBE"i] [cte] _select_from _optional_clauses
         | [cte] pivot_clause  [group_by] [order_by]
-        | select_clause
-        | from_clause 
+        | [cte] select_clause
+        | [cte] from_clause 
         | cte
 
 pivot_clause: (PIVOT|PIVOT_WIDER) (table_name|subquery) ON expression ("," expression)* USING col_exp ("," col_exp)*
@@ -110,7 +110,7 @@ replace: REPLACE "(" [(col_replace ",")*] col_replace ")"
 // col_ref:[NAME "." [NAME "." [NAME "."]]] NAME  -> col_ref
 
 expression.3: [NAME "."] NAME  -> col_ref
-        |NAME "." -> _z9_incomplete_col_ref
+        |[NAME "."] NAME "." -> _z9_incomplete_col_ref
         |STRING -> string
         |NUMBER -> number
         |SIGNED_NUMBER -> number
@@ -118,8 +118,8 @@ expression.3: [NAME "."] NAME  -> col_ref
         |FALSE -> false
         // |negative_number -> number
         |DATE STRING -> date
-        | NAME "("[DISTINCT] [(expression ",")*] expression ")" [window_form] -> function
-        | NAME "(" ["*"] ")" [window_form] -> function
+        | NAME "("[DISTINCT] [(expression ",")*] expression ")" [window_form] [filter] -> function
+        | NAME "(" ["*"] ")" [window_form] [filter] -> function
         | expression math expression -> operation
         | expression comp expression -> comparison
         | between
@@ -140,12 +140,13 @@ expression.3: [NAME "."] NAME  -> col_ref
         | EXTRACT "("NAME FROM expression")" -> extract
         | INTERVAL expression NAME -> interval
         | expression "[" expression [":" expression] "]" -> slice
-        | expression "." NAME "("[DISTINCT] [[(expression ",")*] expression] ")" [window_form] 
+        | expression "." NAME "("[DISTINCT] [[(expression ",")*] expression] ")" [window_form]  -> dot_function
         // | SUBSTRING "(" expression FROM expression [FOR expression] ")" -> substring
         // | "EXTRACT"i "(" IDENT FROM expression ")" -> extract
         // | expression (IS [NOT] NULL|"ISNULL"i|"NOTNULL"i) -> is_null
 
 
+filter: FILTER "(" WHERE expression ")" -> filter
 
 between.6: expression [NOT] BETWEEN expression AND expression
 combine.5: expression (AND|OR) expression -> combine
@@ -222,7 +223,7 @@ type:  DOUBLE
 
 
 
-
+FILTER: "FILTER"i
 LPAREN: "("
 RPAREN: ")"
 // COMMA: ","

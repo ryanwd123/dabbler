@@ -49,7 +49,7 @@ sql_server = InlineSqlLangServer("pygls-json-example", "v0.1")
 @sql_server.feature(
     lsp.TEXT_DOCUMENT_COMPLETION,
     lsp.CompletionOptions(
-        trigger_characters=[":", "."," "], all_commit_characters=[]
+        trigger_characters=[":", "."," ",'/'], all_commit_characters=[]
     ),  # all_commit_characters=[":"]
 )
 def completions(

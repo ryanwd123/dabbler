@@ -5,6 +5,7 @@ import pandas as pd
 sys.path.append(str(Path(__file__).parent.parent))
 import duckdb
 db = duckdb.connect()
+# db.execute("set file_search_path to 'C:\\scripts'")
 
 df1 = pd.DataFrame({'a':[1,2,3],'b':[4,5,6]})
 
@@ -101,7 +102,7 @@ sql_txt = (
     select
         k.numVotes,
         sum(k.averageRating),
-        k.category
+        k.averageRating,
     from cine k 
     """)
 
@@ -111,7 +112,7 @@ db.sql(
     with qq as (from athlete_events select *),
     qq2 as (from qq select *),
     qq3 as (from qq2 select * exclude (Age, Sex, ID, Height))
-    from qq3 q select q.City
+    from qq3 q select q.City, q.Medal, q.NOC
     """)
 
 #%%
@@ -147,23 +148,57 @@ db.sql(
         r.averageRating,
         r.numVotes,
         c.crew_count,
+        c.crew_count,
         p.prin_count,
         c.crew_count + p.prin_count as total_count
     order by r.numVotes desc
     
     """)
+#%%
+db.execute("set file_search_path to 'C:\\scripts'")
+df7 = pd.DataFrame({'a':[1,2,3],'b':[4,5,6]})
+db.sql("select current_setting('file_search_path')").fetchone()[0]
+#%%
+import os
+os.chdir(r'C:\scripts')
 
+df9 = pd.DataFrame({'a':[1,2,3],'b':[4,5,6]})
+
+db.sql(
+    """--sql
+    from read_csv_auto('./bases.csv',header=true,normalize_names=true) w
+    select w
+    """)
 
 
 #%%
 
-
-
 db.sql(
     """--sql
+    with exp as (from Issued_Tree_Permits i
+    select
+        i.PERMIT_NUMBER,
+        i.TRUNK_DIAMETER,
+        unnest(regexp_extract_all(i.TRUNK_DIAMETER,'\d+([.]\d+)?'))::DOUBLE as trunk
+    ),
+    tree_info as (
+        from exp e
+        select 
+            e.PERMIT_NUMBER,
+            sum(e.trunk) as total_trees_diameter,
+            count() as tree_count
+        group by all
+    )
     from Issued_Tree_Permits i
+        join tree_info t on t.PERMIT_NUMBER = i.PERMIT_NUMBER
     select 
-        i.
+        t.total_trees_diameter, 
+        t.tree_count,
+        i.*
+    order by
+        t.total_trees_diameter desc
+        
+        --regexp_replace(q.trunk,'(\d+([.]\d)*)',''),
     
     """)
 #%%
