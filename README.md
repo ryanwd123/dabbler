@@ -65,7 +65,10 @@ Intellisnse / autocomplete:
     - If changes are made to the document within an sql text range the only that range of text is parsed and if there is an error that is published to the client.  Since the parse is not 100% complete at this point the parser could return errors that due parse in DuckDb.
 
 
-
+### Next steps
+- Updates to vs_code extension
+    - make configuration option to set default python env
+    - better handling of server failing to start when dabbler not installed in python env
 
 
 
