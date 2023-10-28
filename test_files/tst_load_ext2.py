@@ -39,16 +39,23 @@ for f in files:
 db.execute("attach './../../sample_data/imdb.duckdb'")
 #!%load_ext dabbler.ext_debug
 # from dabbler.lsp.db_data import get_db_data_new,make_db,make_completion_map
+#%%
+db.execute("alter table avocado rename abc to abad")
 
-class FakeLS:
-    def show_message_log(a,b):
-        pass
+#%%
 
-# db_data = get_db_data_new(db)
-# db2 = make_db(db_data)
-# comp_map = make_completion_map(db2,db_data)
-# parser = SqlParser(db2)
-# completer = SqlCompleter(db_data,FakeLS())
+
+import os
+os.chdir(r'C:\scripts')
+
+df9 = pd.DataFrame({'a':[1,2,3],'b':[4,5,6]})
+df10 = pd.DataFrame({'a':[1,2,3],'b':[4,5,6]})
+
+db.sql(
+    """--sql
+    from read_csv_auto('./bases.csv',header=true,normalize_names=true) w
+    select w
+    """)
 #%%
 from urllib.parse import urlparse, unquote
 uri = 'file:///c%3A/Projects/db_dabbler/src/test_files/tst_load_ext2.py'
@@ -159,16 +166,7 @@ db.execute("set file_search_path to 'C:\\scripts'")
 df7 = pd.DataFrame({'a':[1,2,3],'b':[4,5,6]})
 db.sql("select current_setting('file_search_path')").fetchone()[0]
 #%%
-import os
-os.chdir(r'C:\scripts')
 
-df9 = pd.DataFrame({'a':[1,2,3],'b':[4,5,6]})
-
-db.sql(
-    """--sql
-    from read_csv_auto('./bases.csv',header=true,normalize_names=true) w
-    select w
-    """)
 
 
 #%%
@@ -207,3 +205,6 @@ from dabbler.common import KeyFile
 k = KeyFile()
 # %%
 print(k.file.read_text())
+#%%
+import sys
+sys.executable == 'c:\\Projects\\db_dabbler\\db_dabbler_env\\Scripts\\python.exe'

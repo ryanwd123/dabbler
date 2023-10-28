@@ -14,22 +14,23 @@ Intellisnse / autocomplete:
 - Auto completion for:
     - ✔️tables 
     - ✔️columns 
-    - ✔️functions 
+        - should work for tables, views, CTEs, table functions, and subqueries
+    - ✔️functions names
+    - ✔️file paths (triggered by characters **`'./`**  )
+    - 🔲function signature / parameters
     - 🔲keywords
-    - 🔲file paths
-- Send/Execute SQL query from vscode editor window to dabbler window to and page through outputs
+- Send/Execute SQL query from vscode editor to view in dabbler window
 
 ### Current Limitations
-- In vscode language server will fail to start if you try to open a 2nd vscode window
-- The parser does not support every SQL feature in the duckdb dialect and it will fail to provide autocompletion if it cannot parse the SQL, this problem can be avoided in some cases by seperating statements into different blocks of text
+- The parser does not yet support every SQL feature in the duckdb dialect and it will fail to provide autocompletion if it cannot parse the SQL, this problem can be avoided in some cases by seperating statements into different blocks of text
 
 
 ### Install / Setup
 - `pip install dabbler`
 - install "dabbler" vscode extension
-- install PySide or PyQt e.g. `pip install PySide6`
+- install PySide or PyQt e.g. `pip install PySide6`  (note: pyqt5 seems to work better on Linux)
 - For the language server to work in VScode you need to have dabbler installed in the python enviornment that is active in VScode.  
-- In vscode python settings enable line magics for python files:
+- In vscode python settings you can enable line magics for python files:
     - open settings by pressing: `ctr+,`
     - search for "line magic" and check the box:
        >![screenshot of text box](https://raw.githubusercontent.com/ryanwd123/dabbler/master/images/line_magic_checkbox.png)
@@ -86,7 +87,6 @@ Intellisnse / autocomplete:
     - Autocomplete for files
     - Add Notebook support
     - Tailor the syntax highlighting to DuckDB, I think this can be done by modifying a copy of this file: https://github.com/microsoft/vscode/blob/fa99dace5ee3b35a070ca4970422621af07c2781/extensions/sql/syntaxes/sql.tmLanguage.json
-
 
 
 ![dabblers in flight](images/dabblers.jpg)

@@ -1,5 +1,6 @@
 #%%
 import duckdb
+import os
 from IPython import get_ipython
 from dabbler.gui_stuff import capture_types
 
@@ -17,7 +18,7 @@ if capture_types == 1:
 
 duckdb_keyworkds = set(x[0] for x in duckdb.execute("select keyword_name from duckdb_keywords() where keyword_category = 'reserved'").fetchall())
 
-def get_db_data_new(db:duckdb.DuckDBPyConnection):
+def get_db_data_new(db:duckdb.DuckDBPyConnection, file_search_path:str=None):
     """gets the data to send to the language server"""
     db_items = db.execute("""
             with
@@ -91,7 +92,10 @@ def get_db_data_new(db:duckdb.DuckDBPyConnection):
             'dataframes':dataframes,
             'databases':databases,
             'schemas':schemas,
-            'current_schema':current_schema}
+            'current_schema':current_schema,
+            'cwd':os.getcwd(),
+            'file_search_path':file_search_path,
+            }
 
     return db_data
 

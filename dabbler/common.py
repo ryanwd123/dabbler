@@ -36,20 +36,21 @@ class PprintSocketHandler(SocketHandler):
         return slen + s
 
 class FromLangServer(TypedDict):
-    cmd: Literal['run_sql', 'db_data_update', 'check_for_update','connection_id']
+    cmd: Literal['run_sql', 'db_data_update', 'check_for_update','connection_id','heartbeat']
     data: Union[str,dict,int]
+    con_id: int
     
 
 class ToLangServer(TypedDict):
-    cmd: Literal['db_data','ip','no_update','connection_id','ip_python_started','debug']
+    cmd: Literal['db_data','ip','no_update','connection_id','ip_python_started','debug','heartbeat']
     data: Union[str,dict,int,bool]
-    
+    con_id: int
     
 class ConnInfo(TypedDict):
     workspace_path: str
     main_port: int
     handshake_port: int
-    id: int
+    con_id: int
 
 
 class Connections(TypedDict):
@@ -72,10 +73,14 @@ class KeyFile:
         self.connections = json.loads(self.file.read_text())
         
     def add_connection(self, name: str, conn_info: ConnInfo):
-        conn_info['id'] = uuid.uuid4().int
+        conn_info['con_id'] = uuid.uuid4().int
         self.connections[name] = conn_info
         self.save()
         return conn_info
+
+    def delete_connection(self, name: str):
+        del self.connections[name]
+        self.save()
         
     def get_connection(self, file: Path) -> ConnInfo:
         workspaces = [Path(x) for x in self.connections if Path(x).exists() and Path(x) in file.parents]

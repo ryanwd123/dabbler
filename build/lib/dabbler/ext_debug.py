@@ -13,5 +13,5 @@ def load_ipython_extension(ipython):
     # app = .instance()
     # if app is None:
 
-    magics = DbDabbler(ipython)
+    magics = DbDabbler(ipython,debug=True)
     ipython.register_magics(magics)

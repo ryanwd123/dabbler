@@ -244,9 +244,27 @@ if m:
 items
 
 #%%
+import re
+pat = '(\w+[.])([\s),])'
+incomplete_col_ref = re.compile('(\w+[.])([\n\s),])')
+txt = '''select a,b, c.ak.from my_table join (select a,b from dsd) dd on (a = b) where a = 1'''
+if incomplete_col_ref.search(txt):
+    print('found')
+else:
+    print('not found')
+
+#%%
 m.group(2)
 # %%
 
 
 #%%
 a,b = ''.rsplit('/',1)
+
+#%%
+q = []
+
+q.append(1)
+q[-1]
+q.append(22)
+q[-1]
