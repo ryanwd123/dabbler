@@ -53,8 +53,8 @@ df10 = pd.DataFrame({'a':[1,2,3],'b':[4,5,6]})
 
 db.sql(
     """--sql
-    from read_csv_auto('./bases.csv',header=true,normalize_names=true) w
-    select w
+    from read_csv_auto('./rates.csv',header=true,normalize_names=true) z
+    select z.oh_ce
     """)
 #%%
 from urllib.parse import urlparse, unquote
@@ -177,7 +177,7 @@ db.sql(
     select
         i.PERMIT_NUMBER,
         i.TRUNK_DIAMETER,
-        unnest(regexp_extract_all(i.TRUNK_DIAMETER,'\d+([.]\d+)?'))::DOUBLE as trunk
+        unnest(regexp_extract_all(i.TRUNK_DIAMETER,'\d+([.]\d+)?'))::DOUBLE as trunk,
     ),
     tree_info as (
         from exp e
@@ -199,6 +199,22 @@ db.sql(
         --regexp_replace(q.trunk,'(\d+([.]\d)*)',''),
     
     """)
+
+#%%
+
+db.sql(
+    """--sql
+    from (VALUES 
+            (1,2,3),
+            (4,4,5),
+            (4,4,5),
+            (4,4,5),
+            (4,4,5),
+        ) a(a,b,c)
+    
+    
+    """)
+
 #%%
 from dabbler.common import KeyFile
 # %%

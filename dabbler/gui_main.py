@@ -251,6 +251,7 @@ class TableSelectionArea(QtWidgets.QWidget):
             # highlighted_query_text = highlight(sqlparse.format(_stmt_z,reindent_aligned=True))
             _highlighted_query_text = highlight(_stmt_z)
             _self_z.main.sql_doc.setHtml(_highlighted_query_text)
+            _self_z.next_page()
 
         except Exception as e:
             _self_z.main.status.setText(f"Exception executing query:\n{e}")
@@ -259,7 +260,6 @@ class TableSelectionArea(QtWidgets.QWidget):
             )
             _self_z.main.sql_doc.setHtml(_highlighted_query_text)
 
-        _self_z.next_page()
 
     def get_col_fmt(self, col_type, col_index, data):
         try:

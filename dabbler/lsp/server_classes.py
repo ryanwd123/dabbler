@@ -130,9 +130,9 @@ class InlineSqlLangServer(LanguageServer):
                 "handshake_port": self.handshake_port,
             },
         )
-        self.con_id = connection['con_id']
+        self.connection_info = connection
         self.log.debug(f"key_file {self.key_file.connections}")
-        self.zmq_send({"cmd": "db_data_update","con_id":self.con_id})
+        self.zmq_send({"cmd": "db_data_update","con_id":self.connection_info['server_id']})
 
     async def zmq_recv(self, poller: Poller):
         # self.show_message_log('zmq_recv started')
@@ -181,6 +181,13 @@ class InlineSqlLangServer(LanguageServer):
                 if msg["cmd"] == "heartbeat":
                     self.handshake_socket.send(pickle.dumps({"cmd": "heartbeat"}))
                 
+                if msg["cmd"] == "connection_id":
+                    con_id = msg["data"]
+                    if con_id == self.connection_info["client_id"]:
+                        self.handshake_socket.send(pickle.dumps({"cmd": "connection_id", "data": self.connection_info["server_id"]}))
+                    else:
+                        self.log.debug(f"connection_id {con_id} != {self.connection_info['client_id']}")
+                        self.show_message_log(f"connection_id {con_id} != {self.connection_info['client_id']}")
 
 
 

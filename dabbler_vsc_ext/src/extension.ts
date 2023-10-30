@@ -160,22 +160,21 @@ async function startLangServer() {
         await stopLangServer()
     }
 
+    
     const pythonPath = await getPythonPath()
+
+
     if (!pythonPath) {
         clientStarting = false
         return
     }
 
-    const cwd = getCwd()
-    const serverPath = getServerPath()
-    
 
-    logger.info(`cwd: '${cwd}'`)
-    logger.info(`server: '${serverPath}'`)
+    logger.info(`launching server: '${pythonPath}' -m dabbler.lsp`)
 
     const serverOptions: ServerOptions = {
         command: pythonPath,
-        args: ["-m",serverPath],
+        args: ["-m","dabbler.lsp"],
         // options: { cwd },
     };
 
@@ -319,6 +318,16 @@ function getServerPath(): string {
     return server
 }
 
+function getDefaultPyEnv(): string {
+    const config = vscode.workspace.getConfiguration("dabbler.server")
+    const env = config.get<string>('default_py_env')
+    return env
+}
+
+
+
+
+
 /**
  * This uses the official python extension to grab the user's currently
  * configured environment.
@@ -330,6 +339,13 @@ async function getPythonPath(): Promise<string | undefined> {
         return
     }
 
+    const defaultPyEnv = getDefaultPyEnv()
+    if (defaultPyEnv) {
+        logger.info(`Using default environment: ${defaultPyEnv}`)
+        return defaultPyEnv
+    } else {
+        logger.info(`No default environment configured`)
+    }
     // Use whichever python interpreter the user has configured.
     const activeEnvPath = python.environments.getActiveEnvironmentPath()
     logger.info(`Using environment: ${activeEnvPath.id}: ${activeEnvPath.path}`)

@@ -50,7 +50,8 @@ class ConnInfo(TypedDict):
     workspace_path: str
     main_port: int
     handshake_port: int
-    con_id: int
+    server_id: int
+    client_id: int
 
 
 class Connections(TypedDict):
@@ -73,7 +74,8 @@ class KeyFile:
         self.connections = json.loads(self.file.read_text())
         
     def add_connection(self, name: str, conn_info: ConnInfo):
-        conn_info['con_id'] = uuid.uuid4().int
+        conn_info['server_id'] = uuid.uuid4().int
+        conn_info['client_id'] = uuid.uuid4().int
         self.connections[name] = conn_info
         self.save()
         return conn_info

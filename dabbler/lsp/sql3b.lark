@@ -43,7 +43,7 @@ cte_exp: NAME [cte_col_alias] _AS "(" query ")" -> cte_expression
 cte_name: NAME
 cte_col_alias: "(" NAME ("," NAME)* ")" -> cte_col_alias
 
-values: VALUES value ("," value)* -> values
+values: VALUES value ("," value)*[","] -> values
 value: "(" expression ("," expression)* ")"
 
 _select_from: select_clause from_clause
@@ -77,6 +77,7 @@ from_ref.3: table_ref [join*]
 table_ref.2: table_name [[_AS] alias [col_alias]] -> db_table
         | "(" query ")" [[_AS] alias [col_alias]] -> subquery
         |table_func [[_AS] alias [col_alias]] -> table_function
+        |"(" values ")" [[_AS] alias [col_alias]] -> values
 
 table_func:NAME "(" [expression ("," expression)*] ")"
 

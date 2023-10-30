@@ -69,6 +69,12 @@ Intellisnse / autocomplete:
 - Updates to vs_code extension
     - make configuration option to set default python env
     - better handling of server failing to start when dabbler not installed in python env
+- SQL features missing:
+    - select COLUMNS ()
+    - Alter table
+    - atler view
+    - create table (except for create table/view as select...)
+
 
 
 

@@ -394,7 +394,7 @@ class SqlParserNew:
         if sql in self.projection_cache:
             return self.projection_cache[sql]
         
-        if incomplete_col_ref.search(sql):
+        if incomplete_col_ref.search(f'{sql} '):
             self.log.debug(['skipping describe col, incomplete col ref',sql])
             return
 

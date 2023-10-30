@@ -8,7 +8,11 @@ class DbDabbler(Magics):
     def __init__(self, ipython, debug=False):
         super(DbDabbler, self).__init__(ipython)
         db = None
-        file = ipython.ev('__file__')
+        ev_dir = ipython.ev("dir()")
+        if '__file__' in ev_dir:
+            file = ipython.ev('__file__')
+        else:
+            file = ipython.ev('__vsc_ipynb_file__')
         for item in ipython.ev("dir()"):
             if "duckdb.DuckDBPyConnection" in str(type(ipython.ev(item))):
                 db = ipython.ev(item)

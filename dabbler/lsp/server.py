@@ -162,6 +162,7 @@ def send_sql_to_gui(ls: InlineSqlLangServer, *args):
     It won't `block` the main thread, which can be tested by trying to show
     completion items.
     """
+    q = None
     try:
         uri_data = args[0][0]
         pos = args[0][1]

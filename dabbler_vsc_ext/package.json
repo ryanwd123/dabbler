@@ -4,7 +4,7 @@
   "author": "Ryan DeWitt",
   "repository": "https://github.com/ryanwd123/dabbler",
   "license": "MIT",
-  "version": "0.0.6",
+  "version": "0.0.8",
   "publisher": "ryanwd123",
   "engines": {
     "node": ">=16.17.1",
@@ -57,17 +57,6 @@
     "configuration": [
       {
         "type": "object",
-        "title": "Json Server Configuration",
-        "properties": {
-          "dabbler.exampleConfiguration": {
-            "scope": "resource",
-            "type": "string",
-            "default": "You can override this message"
-          }
-        }
-      },
-      {
-        "type": "object",
         "title": "Server Configuration",
         "properties": {
           "dabbler.server.cwd": {
@@ -81,6 +70,12 @@
             "type": "string",
             "default": "dabbler.lsp",
             "description": "The python script to run when launching the server."
+          },
+          "dabbler.server.default_py_env": {
+            "scope": "window",
+            "type": "string",
+            "default": "",
+            "description": "The python environment to use when launching the server. If blank, this will default to the current python environment."
           },
           "dabbler.trace.server": {
             "scope": "window",

@@ -1,5 +1,6 @@
 #%%
 from pathlib import Path
+import pprint
 import time
 from dabbler.lsp.parser import get_parser, SqlParserNew
 import duckdb
@@ -162,12 +163,9 @@ test_parser = Lark(
 
 
 sql2 = """
-    with qq as (from Issued_Tree_Permits i select i.APPENDIX_F_REMOVED, i.APPLICATION_TYPE) 
-    from 
-
-
-
-"""
+    from tree_permits t
+    select
+        sum(t.abc),"""
 
 try:
     t = test_parser.parse(sql2, on_error=parser_error_handler)
@@ -175,11 +173,51 @@ try:
 except Exception as e:
     ee = e
     print(e)
+#%%
 
 
-# dir(ee)
-# ee.accepts
-# ee.token_history
+sql2 = """
+    from tree_permits t
+    select
+        t.abc,
+    where t.a"""
+ 
+ 
+
+
+#%%
+p = test_parser.parse_interactive(sql2)
+prior = 'start'
+for j in p.iter_parse():
+    choices = list(p.choices().keys())
+    pprint.pprint({prior:choices})
+    # pprint(f'{choices}')
+    prior = j
+#%%
+p.choices().keys()
+p.accepts()
+j.type in p.choices().keys()
+#%%
+c = p.copy()
+r = c.feed_eof()
+print(r.pretty())
+#%%
+j.end_pos
+#%%
+
+p.exhaust_lexer()
+i = p.accepts()
+       
+i
+        
+
+#%%
+#!%%timeit
+
+#%%
+
+
+
 
 #%%
 test_parser.parse(sql2)
@@ -245,9 +283,9 @@ items
 
 #%%
 import re
-pat = '(\w+[.])([\s),])'
+pat = '(\w+[.])([\s\),]|$)'
 incomplete_col_ref = re.compile('(\w+[.])([\n\s),])')
-txt = '''select a,b, c.ak.from my_table join (select a,b from dsd) dd on (a = b) where a = 1'''
+txt = "select a,b, c.ak. "
 if incomplete_col_ref.search(txt):
     print('found')
 else:
@@ -262,9 +300,3 @@ m.group(2)
 a,b = ''.rsplit('/',1)
 
 #%%
-q = []
-
-q.append(1)
-q[-1]
-q.append(22)
-q[-1]
