@@ -8,6 +8,7 @@ import duckdb
 import logging
 
 lark_cache = Path(__file__).parent.joinpath('lark_cache')
+lark_file = Path(__file__).parent.joinpath('sql3b.lark')
 
 def parser_error_handler(e:UnexpectedToken):
     # assert isinstance(e, UnexpectedToken)
@@ -36,7 +37,7 @@ def parser_error_handler(e:UnexpectedToken):
 
 
 def get_parser():
-    sql_grammer = Path(__file__).parent.joinpath('sql3b.lark').read_text()
+    sql_grammer = lark_file.read_text()
     sql_parser = Lark(
         sql_grammer,
         parser="lalr",
@@ -302,7 +303,8 @@ class SqlParserNew:
         self.log = logger.getChild('sql_parser')
         self.log_describe = logger.getChild('sql_describe')
         self.log_query_output = logger.getChild('query_output')
-        pass
+        self.log_interactive_parser = logger.getChild('interactive_parser')
+        
 
     def show_message(self,msg):
         if self.ls:
@@ -310,20 +312,21 @@ class SqlParserNew:
 
 
 
-    def parse_sql(self, sql: str):
+    def parse_sql(self, sql: str, pos:int):
 
         
         try:
-            tree = sql_parser.parse(sql,on_error=parser_error_handler)
+            tree, choices_pos = interactive_parse(sql,pos,self.log_interactive_parser)
+            # tree = sql_parser.parse(sql,on_error=parser_error_handler)
         except UnexpectedToken as e:
             self.log.exception(['failed to parse, Unexpected Token',sql,e,e.token,e.accepts])
-            return
+            return None, None
         except Exception as e:
             self.log.exception(['failed to parse',sql,e])
-            return
+            return None, None
             # noqa: E722
         if not tree:
-            return
+            return None, choices_pos
         queries = GetQueries(sql,self)
         queries.visit(tree)
 
@@ -387,7 +390,7 @@ class SqlParserNew:
         
         
         self.log_query_output.debug(queries.queries_list)
-        return queries
+        return queries, choices_pos
     
 
     def db_describe_columns(self, sql):
@@ -409,3 +412,75 @@ class SqlParserNew:
         except Exception as e:  # noqa: E722
             self.log.exception(['failed to run describe',sql,e,os.getcwd()])
             return
+        
+
+
+check_choices = (
+    ('RPAREN', ')'),
+    ('NAME', 'placeholder'),
+)
+
+
+def find_end(p):
+    choices = list(p.choices().keys())
+    if '$END' in choices:
+        try:
+            return p.feed_eof()
+        except:
+            pass
+    # for typ, value in check_choices:
+    #     if typ in choices:
+    #         t = Token(typ, value)
+    #         print(f'feeding {t}')
+    #         p.feed_token(t)
+    #         return find_end(p)
+
+
+def interactive_parse(sql:str,pos:int,logger:logging.Logger):
+
+    p = sql_parser.parse_interactive(sql)
+    tokens = p.iter_parse()
+    token_history = []
+    # tk = next(lex)
+    choices_pos = []
+    logger.debug(['interactive_parse',sql,pos])
+        
+    while True:
+        token = None
+        try:
+            token = next(tokens)
+        except StopIteration:
+            break
+        except UnexpectedToken as e:
+            print('unexpected token', e.token, e.token.type)
+            if e.token == '$END':
+                print('end')
+                break
+            choices = p.choices().keys()
+            if 'col_replace' in choices and e.token == ')':
+                if not '_AS' in choices:
+                    p.feed_token(Token('NAME', 'placeholder'))
+                p.feed_token(Token('_AS', 'as'))
+                p.feed_token(Token('NAME', 'placeholder'))
+                p.feed_token(e.token)
+                continue
+            
+            if 'col_exclude' in choices and e.token == ')':
+                p.feed_token(Token('NAME', 'placeholder'))
+                p.feed_token(e.token)
+                continue
+            
+        except Exception as e:
+            logger.exception(['failed to parse',sql,e])
+        
+        if not choices_pos and token and token.end_pos == pos:
+            choices_pos = list(p.choices().keys())
+            print(f'choices, {token}')
+        token_history.append(token)
+        
+    if not choices_pos:
+        choices_pos = list(p.choices().keys())
+    tree = find_end(p)
+    logger.debug({'choices_pos':choices_pos})
+    logger.debug({'tree':tree})
+    return tree, choices_pos

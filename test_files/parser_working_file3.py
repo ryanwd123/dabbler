@@ -5,8 +5,9 @@ import time
 from dabbler.lsp.parser import get_parser, SqlParserNew
 import duckdb
 import re
-from lark import Lark, Token, UnexpectedToken
+from lark import Lark, Token, UnexpectedToken, exceptions as lark_exceptions
 db = duckdb.connect()
+
 
 
 db.read_csv(
@@ -18,13 +19,13 @@ db.sql("create or replace view tp as select * from tree_permits")
 
 
 
-
 sql_parser = get_parser()
 parse2 = sql_parser.parse
 
 pass_test = 0
 fail_test = 0
 
+start = time.time()
 
 tst_files = list(Path("./sql_tst").glob("*.sql"))
 
@@ -32,7 +33,6 @@ for f in tst_files[:]:
     txt = f.read_text()
     # print(f.name, duckdb_parse(txt)["error"])
     try:
-        start = time.time()
         parse2(txt)
         pass_test += 1
         # print(f'{time.time() - start:.4f} seconds')
@@ -40,77 +40,9 @@ for f in tst_files[:]:
         print(f.name,e)
         fail_test += 1
 
-print(f"pass: {pass_test}, fail: {fail_test}")
-# %%
-
-db.sql("select 'aaa'[(2-1):(3-1)]")
-#%%
-
-sql = """
-with cte1 as (from b select a),cte2 as ((((select a from cte1))) union all select b from jjj union all select ggg from hhh),
-   cte3 as (select a,b,c from my_table join (select a,b from dsd) dd on (a = b) where a = 1),
-   cte4 as (Pivot abc on f using sum(g))
-
-select x, y, z 
-from xy_zjy as x 
-   join cat.scm.qst as q on (x.id = q.id)
-   join my_table_macro('a') tm on (x.id = tm.id)
-   join (select * from ddd) z on (x.id = z.id)
-, abc
-"""
-
-import pprint
-parser = SqlParserNew(db)
-queries = parser.parse_sql(sql)
-print(len(queries.queries_list))
-pprint.pprint(queries.queries_list)
-
-#%%
-
-# sql = "select a,b,c from my_table join (Pivot abc on f using sum(g)) dd on (a = b) where a = 1"
-
-#%%
-import sqlparse
-print(sqlparse.format(sql,reindent=True,keyword_case='upper'))
-
-#%%
-
-#%%
-## !%%timeit
-
-#%%
+print(f"pass: {pass_test}, fail: {fail_test}, duration: {time.time() - start:.2f} seconds")
 
 
-sql =   """--sql
-    with qq as (select *, project_id as gg from tree_permits)
-    from qq q select *"""
-parser = SqlParserNew(db)
-queries = parser.parse_sql(sql)
-print(len(queries.queries_list))
-pprint.pprint(queries.queries_list)
-# pprint.
-#%%
-
-pos = 155
-
-queries.queries_list.sort(key=lambda x: x.end_pos - x.start_pos)
-q = [x for x in queries.queries_list if x.start_pos <= pos <= x.end_pos][0]
-
-q.cte_sibblings
-q.from_refs['dd'].kind.name
-
-queries.queries[175].projection
-
-# %%
-
-
-#%%
-
-
-#%%
-
-
-#%%
 #%%
 def parser_error_handler(e:UnexpectedToken):
     assert isinstance(e, UnexpectedToken)
@@ -173,130 +105,243 @@ try:
 except Exception as e:
     ee = e
     print(e)
+
+ 
+ 
+
+
 #%%
 
+check_choices = (
+    ('RPAREN', ')'),
+    ('NAME', 'placeholder'),
+)
 
-sql2 = """
-    from tree_permits t
+
+def find_end(p):
+    choices = list(p.choices().keys())
+    if '$END' in choices:
+        try:
+            return p.feed_eof()
+        except:
+            pass
+    # for typ, value in check_choices:
+    #     if typ in choices:
+    #         t = Token(typ, value)
+    #         print(f'feeding {t}')
+    #         p.feed_token(t)
+    #         return find_end(p)
+
+
+def interactive_parse(sql:str,pos:int):
+
+    p = test_parser.parse_interactive(sql)
+    tokens = p.iter_parse()
+    token_history = []
+    # tk = next(lex)
+    choices_pos = None
+    
+        
+    while True:
+        try:
+            token = next(tokens)
+        except StopIteration:
+            break
+        except UnexpectedToken as e:
+            print('unexpected token', e.token, e.token.type)
+            if e.token == '$END':
+                print('end')
+                break
+            choices = p.choices().keys()
+            if 'col_replace' in choices and e.token == ')':
+                p.feed_token(Token('NAME', 'placeholder'))
+                p.feed_token(Token('_AS', 'as'))
+                p.feed_token(Token('NAME', 'placeholder'))
+                p.feed_token(e.token)
+                continue
+            
+            if 'col_exclude' in choices and e.token == ')':
+                p.feed_token(Token('NAME', 'placeholder'))
+                p.feed_token(e.token)
+                continue
+            
+            raise e
+        except Exception as e:
+            print(e)
+            raise e
+        
+        if not choices_pos and token.end_pos > pos:
+            choices_pos = list(p.choices().keys())
+            print(f'choices, {token}')
+        token_history.append(token)
+        
+    tree = find_end(p)
+    if not tree and not choices_pos:
+        choices_pos = list(p.choices().keys())
+    return tree, choices_pos
+#%%
+
+Token('RPAREN', ')') == ')'
+
+
+sql2 = """--sql
+    with qq as (
     select
-        t.abc,
-    where t.a"""
- 
- 
+        t.date, from tree_permits t
+    where t.a in (from jj j select j.))
+    select q.*,  from qq q
+    """
+# sql2 = 'set '
+
+# txt = 't.date, '
+pos = sql2.find(txt) + len(txt)
+sql2[0:pos]
 
 
+p,c = interactive_parse(sql2,pos)
+# if p:
+    # print(p.pretty())
+
+
+print(p.pretty())
+c
+#%%
+
+from dabbler.common import check_name
+check_name('date')
+
+
+#%%
+l = test_parser.lex(sql2)
+dir(test_parser)
+
+t = next(l)
+print(t)
+
+t.type
 #%%
 p = test_parser.parse_interactive(sql2)
-prior = 'start'
-for j in p.iter_parse():
-    choices = list(p.choices().keys())
-    pprint.pprint({prior:choices})
-    # pprint(f'{choices}')
-    prior = j
+i = p.iter_parse()
 #%%
-p.choices().keys()
-p.accepts()
-j.type in p.choices().keys()
+t = next(i)
+print(t)
+print(p.choices().keys())
+#%%
+t
+dir(p.pretty())
+p.__dict__
+p.parser.parse_table.end_states
+p.parser.parse_table.start_states
+p.parser.parse_table.states
+#%%
+p.parser.parse_table.states[192]
+
+#%%
+dir(p.parser.debug)
+dir(p.parser_state)
+p.parser_state.state_stack
+p.parser_state.value_stack[0]
+#%%
+p.feed_token(Token('NAME', 'placeholder'))
+p.feed_token(Token('_AS', 'as'))
+p.feed_token(Token('NAME', 'placeholder'))
+p.feed_token(Token('RPAREN', ')'))
+p.feed_eof()
+
+#%%
+print(p.pretty())
+list(p.choices())
+
+
+#%%
+p.feed_token(Token('NAME', 'placeholder'))
+print(p.pretty())
 #%%
 c = p.copy()
-r = c.feed_eof()
-print(r.pretty())
-#%%
-j.end_pos
-#%%
-
-p.exhaust_lexer()
-i = p.accepts()
-       
-i
-        
-
-#%%
-#!%%timeit
+tree = c.feed_eof()
+print(tree.pretty())
 
 #%%
 
+pass_test = 0
+fail_test = 0
 
+start = time.time()
+
+tst_files = list(Path("./sql_tst").glob("*.sql"))
+
+for f in tst_files[:]:
+    txt = f.read_text()
+    # print(f.name, duckdb_parse(txt)["error"])
+    try:
+        interactive_parser(txt)
+        pass_test += 1
+        # print(f'{time.time() - start:.4f} seconds')
+    except Exception as e:
+        print(f.name,e)
+        fail_test += 1
+
+print(f"pass: {pass_test}, fail: {fail_test}, duration: {time.time() - start:.2f} seconds")
 
 
 #%%
-test_parser.parse(sql2)
+from dabbler.lsp.parser import lark_file
 #%%
-i = test_parser.parse_interactive(sql2)
-
-for t in i.iter_parse():
-    if not t.type in i.accepts():
-        break
-    print(t,t.type)
-
-print(i.choices())
-i.parser_state
-#%%
-test_parser.get_terminal('NAME')
-#%%
+from pathlib import Path
 import re
+grammer_txt = (Path(__file__).parent.parent / 'dabbler' / 'lsp' / 'sql3b.lark').read_text()
+reg = re.compile(r'''([A-Z_]+)\s*:\s*"[A-Z_]+"''')
+defined_kw = set(reg.findall(grammer_txt))
 
-pat = re.compile(r'\b(?!QUALIFY\b|AUTHORIZATION\b|DO\b|CAST\b|ISNULL\b|LIKE\b|REFERENCES\b|ASC\b|ILIKE\b|ALL\b|WINDOW\b|FOR\b|INNER\b|GRANT\b|INITIALLY\b|OR\b|LEFT\b|ANALYZE\b|COLLATE\b|CASE\b|FETCH\b|IN\b|CONCURRENTLY\b|SEMI\b|UNPIVOT\b|BINARY\b|FROM\b|VARIADIC\b|ARRAY\b|IS\b|ANALYSE\b|AND\b|HAVING\b|UNION\b|COLUMN\b|ON\b|GLOB\b|SOME\b|AS\b|VERBOSE\b|TRAILING\b|END\b|ANY\b|TABLESAMPLE\b|INTERSECT\b|NATURAL\b|CREATE\b|OFFSET\b|CROSS\b|ELSE\b|FULL\b|SELECT\b|USING\b|CONSTRAINT\b|FOREIGN\b|OVERLAPS\b|ORDER\b|INTO\b|NOT\b|TABLE\b|ANTI\b|CHECK\b|ASYMMETRIC\b|LATERAL\b|DEFERRABLE\b|BOTH\b|RIGHT\b|COLLATION\b|UNIQUE\b|SYMMETRIC\b|TO\b|RETURNING\b|SIMILAR\b|NOTNULL\b|LIMIT\b|ASOF\b|JOIN\b|THEN\b|ONLY\b|FREEZE\b|WITH\b|DESC\b|WHERE\b|OUTER\b|WHEN\b|DISTINCT\b|LEADING\b|EXCEPT\b)([a-zA-Z_]\w*|\d+[a-zA-Z_]+\w*)\b')
+used_kw_reg = reg = re.compile(r'''([A-Z_]+)''')
+used_kw = set(used_kw_reg.findall(grammer_txt))
 
-pat.findall("""SELECT
-    o_orderpriority,
-    count(*) AS order_count
-FROM
-    orders
-WHERE
-    o_orderdate >= CAST('1993-07-01' AS date)
-    AND o_orderdate < CAST('1993-10-01' AS date)""")
+ignore = ['FACTORIAL',
+ 'DESCRIBE',
+ 'KEY',
+ 'ESCAPED_STRING',
+ 'BITWISE_OR',
+ 'AS',
+ 'LESS_THAN_OR_EQUAL',
+ 'S',
+ 'ORDER',
+ 'BITWISE_SHIFT_LEFT',
+ 'WS',
+ 'VIRTUAL',
+ 'COMMA',
+ 'EQUAL',
+ '_',
+ 'PLUS',
+ 'BITWISE_SHIFT_RIGHT',
+ 'AND_OP',
+ 'EXPONENT',
+ 'STAR',
+ 'LESS_THAN',
+ 'NUMBER',
+ 'A',
+ 'IDENT',
+ 'DOT',
+ 'CNAME',
+ 'SIGNED_NUMBER',
+ 'COMMENT',
+ 'BITWISE_AND',
+ 'DIVIDE',
+ 'BITWISE_NOT',
+ 'NOT_EQUALS',
+ 'STORED',
+ 'GREATER_THAN',
+ 'INTEGER_DIVIDE',
+ 'STRING',
+ 'ALWAYS',
+ 'MODULO',
+ 'MINUS',
+ 'Z_',
+ 'CONCAT',
+ 'LPAREN',
+ 'RPAREN',
+ 'GREATER_THAN_OR_EQUAL',
+ 'CAST_OP']
 
-#%%
 
-from dabbler.db_stuff import get_db_data_new
-from dabbler.lsp.db_data import make_db
-db.execute("set file_search_path to 'C:\\scripts\\duckdb_comb_perm_test'")
-db_data = get_db_data_new(db)
-db_data
-db2 = make_db(db_data)
-
-
-db_data['file_search_path']
-
-
-
-#%%
-Path(r'C:\scripts')
-
-
+[x for x in used_kw if x not in defined_kw and x not in ignore]
 # %%
-file_path_completion_pattern = r'''.*('./)([A-Za-z0-9./_,]+)?$'''
-file_path_completion_regex = re.compile(file_path_completion_pattern)
-from dabbler.lsp.completion import PathCompleter
-
-pc = PathCompleter(db_data['cwd'],db_data['file_search_path'])
-
-
-txt = "read_csv('./"
-
-m = file_path_completion_regex.match(txt)
-if m:
-    items = pc.get_items(m.group(2))
-
-items
-
-#%%
-import re
-pat = '(\w+[.])([\s\),]|$)'
-incomplete_col_ref = re.compile('(\w+[.])([\n\s),])')
-txt = "select a,b, c.ak. "
-if incomplete_col_ref.search(txt):
-    print('found')
-else:
-    print('not found')
-
-#%%
-m.group(2)
-# %%
-
-
-#%%
-a,b = ''.rsplit('/',1)
-
-#%%

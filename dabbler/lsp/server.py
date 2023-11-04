@@ -192,7 +192,7 @@ def send_sql_to_gui(ls: InlineSqlLangServer, *args):
 
     pos_in_range = sql_rng.cur_idx - sql_rng.start
     try:
-        q, queries = ls.completer.get_queries(pos_in_range,sql_rng.txt)
+        q, queries, choices_pos = ls.completer.get_queries(pos_in_range,sql_rng.txt)
     except Exception as e:
         ls.log.debug(['error getting queries',e])
 

@@ -4,9 +4,11 @@ from itertools import chain
 import duckdb
 import sqlparse
 import re as regex
+from dabbler.common import check_name
 
 from lsprotocol.types import (
     CompletionItem,
+    CompletionItemKind,
     CompletionItemLabelDetails,
 )
 
@@ -38,19 +40,6 @@ class SqlTxtRange:
     end:str
     cur_idx:int
 
-duckdb_keyworkds = set(x[0] for x in duckdb.execute("select keyword_name from duckdb_keywords() where keyword_category = 'reserved'").fetchall())
-
-
-def check_name(col):
-    if col:
-        if (' ' in col or
-            '-' in col or
-            '.' in col or
-            ':' in col or
-            col in duckdb_keyworkds):
-            return f'"{col}"'
-        return col
-
 
 @dataclass
 class CmpItem:
@@ -73,8 +62,13 @@ class CmpItem:
     
     @property    
     def comp(self):
+        if self.kind == CompletionItemKind.Keyword:
+            label = self.label
+        else:
+            label = label=check_name(self.label.strip('"'))
+        
         return CompletionItem(
-            label=check_name(self.label.strip('"')),
+            label=label,
             kind=self.kind,
             sort_text=self.sort,
             filter_text=self.label.lower(),

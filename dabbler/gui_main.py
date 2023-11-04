@@ -12,7 +12,7 @@ from pathlib import Path
 from pygments.formatters import HtmlFormatter
 import datetime
 from dabbler.gui_stuff import (
-    capture_types,
+    check_dataframe_type,
     apply_fmt,
     format_map,
     fmt_types,
@@ -180,16 +180,17 @@ class TableSelectionArea(QtWidgets.QWidget):
             self.df_list = set()
             for item in ipython.ev("dir()"):
                 i_type = str(type(ipython.ev(item)))
-
-                if i_type in capture_types and item[0] != "_":
+                df_type = check_dataframe_type(i_type)
+                
+                if df_type and item[0] != "_":
                     dbs["dataframes"].addChild(
                         TreeItem(
-                            [item, capture_types[i_type]],
-                            item_type=capture_types[i_type],
+                            [item, df_type],
+                            item_type=df_type,
                         )
                     )
                     self.df_list.add(item)
-                    self.table_list[item] = capture_types[i_type]
+                    self.table_list[item] = df_type
 
         added_items = [self.current_db, "dataframes"]
         sys_info = dbs.pop("system_info")
@@ -222,6 +223,7 @@ class TableSelectionArea(QtWidgets.QWidget):
 
     def query_db(_self_z, _stmt_z: str, _tbl_click=False):
         _self_z.db = _self_z.db.cursor()
+        _self_z.db.execute(f"set file_search_path to '{_self_z.main.app.file_search_path}'")
 
         # if _self_z.selected_table in _self_z.df_list and _tbl_click:
         #     _ip_z = get_ipython()
@@ -233,17 +235,32 @@ class TableSelectionArea(QtWidgets.QWidget):
         _ipython_z = get_ipython()
         for _item_z in _ipython_z.ev("dir()"):
             _i_type_z = str(type(_ipython_z.ev(_item_z)))
-
-            if _i_type_z in capture_types and _item_z[0] != "_":
+            _df_type = check_dataframe_type(_i_type_z)
+            
+            
+            if _df_type and _item_z[0] != "_":
                 locals().__setitem__(_item_z, _ipython_z.ev(_item_z))
 
         try:
             _start = time.time()
+            
             _desc = _self_z.db.execute(f"Describe {_stmt_z}").fetchall()
+            
+            # desc_stmt = f"{_self_z.main.app.db_name}.execute('''Describe {_stmt_z}''').fetchall()"
+            # _self_z.main.app.log.info(desc_stmt)
+            # _desc = _ipython_z.ev(desc_stmt)
+            
             _self_z.headers = [f"{x[0]}\n{x[1]}" for x in _desc]
             _self_z.dtypes = [x[1] for x in _desc]
             _self_z.htypes = [fmt_types.get(x, "STRING") for x in _self_z.dtypes]
+            
             _self_z.result = _self_z.db.execute(_stmt_z)
+            
+            # exec_stmt = f"{_self_z.main.app.db_name}.execute('''{_stmt_z}''')"
+            # _self_z.result = _ipython_z.ev(exec_stmt)
+            
+            
+            
             _self_z.query = _stmt_z
             _duration = time.time() - _start
             _self_z.main.status.setText(f"{_duration:.2f} sec to execute")
@@ -473,11 +490,12 @@ class mainWindow(QtWidgets.QWidget):
 
 class MyApp(QtWidgets.QApplication):
     def __init__(
-        self, argv, db=None, file_search_path = None, debug = False, file:str = None
+        self, argv, db=None, file_search_path = None, debug = False, file:str = None, db_name:str = None
         
     ) -> None:
         super().__init__(argv)
         self.db = db
+        self.db_name = db_name
         self.windows: list[mainWindow] = []
         self.in_thread = False
         self.file_search_path = file_search_path

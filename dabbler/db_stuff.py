@@ -2,21 +2,9 @@
 import duckdb
 import os
 from IPython import get_ipython
-from dabbler.gui_stuff import capture_types
+from dabbler.gui_stuff import check_dataframe_type
+from dabbler.common import check_name
 
-def check_name(col):
-    if col:
-        if (' ' in col or
-            '-' in col or
-            '.' in col or
-            col in duckdb_keyworkds):
-            return f'"{col}"'
-        return col
-
-if capture_types == 1:
-    db = duckdb.connect()
-
-duckdb_keyworkds = set(x[0] for x in duckdb.execute("select keyword_name from duckdb_keywords() where keyword_category = 'reserved'").fetchall())
 
 def get_db_data_new(db:duckdb.DuckDBPyConnection, file_search_path:str=None):
     """gets the data to send to the language server"""
@@ -67,8 +55,9 @@ def get_db_data_new(db:duckdb.DuckDBPyConnection, file_search_path:str=None):
     ipython = get_ipython()
     for item in (ipython.ev('dir()')):
         i_type = str(type(ipython.ev(item)))
+        df_type = check_dataframe_type(i_type)
         
-        if i_type in capture_types and item[0] != '_' and item not in taken_table_names:
+        if df_type and item[0] != '_' and item not in taken_table_names:
             unique_name = f'my_item_zz_{item}'
             locals().__setitem__(unique_name,ipython.ev(item))
             try:

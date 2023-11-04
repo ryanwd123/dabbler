@@ -2,12 +2,41 @@ from pathlib import Path
 import tempfile
 import json
 import uuid
+import duckdb
 from typing import Literal, TypedDict, Union
 import logging
 from logging.handlers import SocketHandler
 import pprint
 import pickle
 import struct
+import re
+from dabbler.lsp.parser import lark_file
+
+def get_grammer_kw():
+    grammer_txt = lark_file.read_text()
+    reg = re.compile(r'''([A-Z_]+)\s*:\s*"[A-Z_]+"i''')
+    return reg.findall(grammer_txt)
+
+
+duckdb_keyworkds = set(x[0].upper() for x in duckdb.execute("select keyword_name from duckdb_keywords() where keyword_category = 'reserved'").fetchall())
+# duckdb_keyworkds_all = set(x[0].upper() for x in duckdb.execute("select keyword_name from duckdb_keywords()").fetchall())
+duckdb_keyworkds.update([
+    'DATE',
+    ])
+
+
+grammer_kw = get_grammer_kw()
+
+
+
+def check_name(col:str):
+    if col:
+        if (' ' in col or
+            '-' in col or
+            '.' in col or
+            col.upper() in duckdb_keyworkds):
+            return f'"{col}"'
+        return col
 
 
 

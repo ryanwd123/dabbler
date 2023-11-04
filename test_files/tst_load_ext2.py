@@ -40,10 +40,90 @@ db.execute("attach './../../sample_data/imdb.duckdb'")
 #!%load_ext dabbler.ext_debug
 # from dabbler.lsp.db_data import get_db_data_new,make_db,make_completion_map
 #%%
-db.execute("alter table avocado rename abc to abad")
+import logging
+log = logging.getLogger('test')
+txt = """--sql
+
+    
+    """
+from dabbler.lsp.parser import interactive_parse
+find_txt = 'a as j w'
+pos = txt.find(find_txt)+len(find_txt)
+txt.find(find_txt)
+txt[:pos]
+
+interactive_parse(txt,pos,log)
+
 
 #%%
 
+db.execute("force checkpoint")
+
+db.execute("""--sql
+    FORCE CHECKPOINT;
+    DROP VIEW if EXISTS my_view2;
+    DROP TABLE if EXISTS my_table2;
+    CREATE OR REPLACE TABLE my_table (
+        id INTEGER PRIMARY KEY,
+        wbs VARCHAR UNIQUE,
+        amt DOUBLE,
+        description VARCHAR,
+        gen GENERATED ALWAYS AS (1),
+        CHECK(amt > 0),
+    ) ;
+    INSERT INTO my_table VALUES (1, 'wbs1', 1.9, 'abc'), (2, 'wbs2', 2.9, 'def');
+    SELECT * FROM my_table;
+    CREATE or REPLACE VIEW my_view AS (SELECT * from my_table);
+    SELECT v.description, v.amt FROM my_view v;
+    ALTER VIEW my_view RENAME TO my_view2;
+    CREATE OR REPLACE SEQUENCE my_seq;
+    CREATE or REPLACE TABLE imdb.main.my_tb (
+        id INTEGER,
+        name VARCHAR,
+    );
+    CREATE SCHEMA IF NOT EXISTS my_schema;
+    ALTER TABLE my_table RENAME TO my_table2;
+    ALTER TABLE my_table2 RENAME id to id2;
+    ALTER TABLE imdb.main.my_tb ALTER COLUMN id TYPE VARCHAR;
+    CHECKPOINT;
+    CHECKPOINT imdb;
+    SELECT * from Issued_Tree_Permits;
+    
+    """)
+
+#%%
+db.execute("""--sql
+    ALTER TABLE medicare RENAME TO asea;
+    
+    """)
+
+#%%
+
+txt = """--sql
+    
+
+    
+    """
+db.sql(txt)
+
+#%%
+from dabbler.lsp.parser import interactive_parse
+find_txt = 'abc s'
+pos = txt.find(find_txt)+len(find_txt)
+txt.find(find_txt)
+txt[:pos]
+
+interactive_parse(txt,pos,log)
+
+
+
+
+#%%
+
+#%%
+globals()['__vsc_ipynb_file__']
+
+#%%
 
 import os
 os.chdir(r'C:\scripts')
@@ -214,6 +294,10 @@ db.sql(
     
     
     """)
+
+#%%
+
+
 
 #%%
 from dabbler.common import KeyFile

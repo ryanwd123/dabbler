@@ -15,15 +15,18 @@ class DbDabbler(Magics):
             file = ipython.ev('__vsc_ipynb_file__')
         for item in ipython.ev("dir()"):
             if "duckdb.DuckDBPyConnection" in str(type(ipython.ev(item))):
+                db_name = item
                 db = ipython.ev(item)
                 file_search_path = db.execute(
                     "select current_setting('file_search_path')"
                 ).fetchone()[0]
                 db = db.cursor()
+                if file_search_path:
+                    db.execute(f"set file_search_path to '{file_search_path}'")
                 break
         if db:
             self.q = None
-            self.app = MyApp([], db, debug=debug, file_search_path=file_search_path, file=file)
+            self.app = MyApp([], db, debug=debug, file_search_path=file_search_path, file=file, db_name=db_name)
             ipython.run_line_magic("gui", "qt")
             from IPython.lib.guisupport import start_event_loop_qt4
 

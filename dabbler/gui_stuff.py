@@ -3,13 +3,19 @@ from pygments.lexers import SqlLexer
 from pygments.formatters import HtmlFormatter
 
 
-capture_types = {
-    "<class 'pandas.core.frame.DataFrame'>":'pandas',
-    "<class 'polars.dataframe.frame.DataFrame'>":'polars',
-    "<class 'pyarrow.lib.Table'>":'arrow',
-    "<class 'duckdb.DuckDBPyRelation'>":'duckdb_rel',
-    "<class 'duckdb.duckdb.DuckDBPyRelation'>":'duckdb_rel',
+dataframe_types = {
+    "pandas.core.frame.DataFrame":'pandas',
+    "polars.dataframe.frame.DataFrame":'polars',
+    "pyarrow.lib.Table":'arrow',
+    "duckdb.DuckDBPyRelation":'duckdb_rel',
+    # "duckdb.duckdb.DuckDBPyRelation":'duckdb_rel',
 }
+
+def check_dataframe_type(type_str:str):
+    for k,v in dataframe_types.items():
+        if k in type_str:
+            return v
+    
 
 
 gui_style = """

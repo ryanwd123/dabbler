@@ -22,7 +22,7 @@ from dabbler.lsp.completion import (
     file_path_completion_regex,
 )
 from dabbler.lsp.parser import SqlParserNew
-from dabbler.common import FromLangServer, ToLangServer, KeyFile, PprintSocketHandler
+from dabbler.common import FromLangServer, ToLangServer, KeyFile, PprintSocketHandler, grammer_kw
 
 # from dabbler.lsp.completer import CmpItem
 from lsprotocol.types import (
@@ -243,24 +243,37 @@ class SqlCompleter:
             self.ls.show_message_log(msg)
 
     def get_queries(self, pos, sql):
-        queries = self.parser2.parse_sql(sql)
+        queries, choices_pos = self.parser2.parse_sql(sql, pos)
         if not queries:
-            return None, None
+            return None, None, choices_pos
         queries.queries_list.sort(key=lambda x: x.end_pos - x.start_pos)
         if len(queries.queries_list) == 0:
-            return None, None
+            return None, None, choices_pos
         filtered = [x for x in queries.queries_list if x.start_pos <= pos <= x.end_pos]
         if len(filtered) == 0:
-            return None, None
+            return None, None, choices_pos
         q = filtered[0]
-        return q, queries
+        return q, queries, choices_pos
 
     def parse_sql2(self, pos, sql: str):
         comp_map = {}
         comp_map["root_namespace"] = []
 
-        q, queries = self.get_queries(pos, sql)
+        q, queries, choices_pos = self.get_queries(pos, sql)
+        
+        if choices_pos:
+            kw_comps = []
+            for c in choices_pos:
+                if c in grammer_kw:
+                    kw_comps.append(
+                        CmpItem(c, CompletionItemKind.Keyword, None, "keyword", "3", "keyword")
+                    )
+            
+            comp_map["root_namespace"].extend(kw_comps)
+        
+        
         if q is None:
+            self.log_comp_map.debug(comp_map)
             return comp_map
         for k, v in q.from_refs.items():
             if v.kind.name == "subquery":
@@ -350,14 +363,17 @@ class SqlCompleter:
         comp_map["root_namespace"].extend(col_to_add)
 
         self.log_comp_map.debug(comp_map)
+        
+
+        
         return comp_map
 
-    def get_comp_map(self, cursor_pos, sql_rng: SelectNode):
-        parsed_items = self.parse_sql2(cursor_pos, sql_rng.txt)
-        comp_map: dict[str, list[CmpItem]] = {}
-        comp_map.update(parsed_items)
-        comp_map.update(self.completion_map)
-        return comp_map
+    # def get_comp_map(self, cursor_pos, sql_rng: SelectNode):
+    #     parsed_items = self.parse_sql2(cursor_pos, sql_rng.txt)
+    #     comp_map: dict[str, list[CmpItem]] = {}
+    #     comp_map.update(parsed_items)
+    #     comp_map.update(self.completion_map)
+    #     return comp_map
 
     def route_completion2(
         self,
@@ -408,7 +424,7 @@ class SqlCompleter:
                 cursor_pos, sql_rng.txt
             )
         except Exception as e:
-            self.log.debug(["parsed_items_error", e])
+            self.log.exception(["parsed_items_error", e])
             # self.log.debug('parsed_items_error')
 
             parsed_items = {"root_namespace": []}
@@ -420,7 +436,7 @@ class SqlCompleter:
         comp_map = self.completion_map
 
         if regex.match(
-            ".*(^| )(join |from |pivot |unpivot |alter table )(\w+( \w+)?, )*\w?$",
+            ".*(^| )(join |from |pivot |unpivot |alter table |insert into )(\w+( \w+)?, )*\w?$",
             sql_left_of_cur,
             flags=regex.IGNORECASE,
         ):
@@ -439,7 +455,7 @@ class SqlCompleter:
             return
 
         m = regex.match(
-            ".*(^| )(join |from |pivot |unpivot |alter table )(\w+( \w+)?, )*(?P<dotitems>(\w+\.)+)$",
+            ".*(^| )(join |from |pivot |unpivot |alter table |insert into )(\w+( \w+)?, )*(?P<dotitems>(\w+\.)+)$",
             sql_left_of_cur,
             flags=regex.IGNORECASE,
         )

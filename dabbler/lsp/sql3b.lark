@@ -2,15 +2,23 @@ start: statement (";" statement)* [";"] -> statements
 
 statement: query -> select_statement
         |PRAGMA expression -> pragma_statement
-        |[FORCE] CHECKPOINT [NAME] -> checkpoint_statement
+        |[FORCE] CHECKPOINT [IDENT] -> checkpoint_statement
         |INSTALL STRING -> install_ext_statement
         |LOAD STRING -> load_ext_statement
-        |SET [(LOCAL|GLOBAL|SESSION)] NAME (EQUAL|TO) (NAME|STRING|NUMBER) -> set_statement
-        |RESET [(LOCAL|GLOBAL|SESSION)] NAME -> reset_statement
+        |SET [(LOCAL|GLOBAL|SESSION)] IDENT (EQUAL|TO) (IDENT|STRING|NUMBER) -> set_statement
+        |RESET [(LOCAL|GLOBAL|SESSION)] IDENT -> reset_statement
         |ATTACH [DATABASE] databse_name [_AS alias] [attach_options ("," attach_options)*] -> attach_statement
         |DETACH [DATABASE [IF EXISTS]] databse_name -> detach_statement
-        |create_table_view_as query -> create_statement
-
+        |create_view -> create_view
+        |alter_view -> alter_view
+        |create_table -> create_table
+        |create_sequence -> create_sequence
+        |drop_statement -> drop_statement
+        |insert_statement -> insert_statement
+        |alter_table -> alter_table
+        |CALL IDENT "(" [expression ("," expression)*] ")" -> call_statement
+        |USE IDENT ["." IDENT] -> use_statement
+        |create_schema -> create_schema
 
 databse_name:STRING
 
@@ -20,7 +28,76 @@ attach_options: READ_ONLY (TRUE|FALSE) -> read_only
 
 // select_statement: query
 
-create_table_view_as: CREATE [OR REPLACE] [(TEMP|TEMPORARY)] (TABLE|VIEW) [IF NOT EXISTS] table_name _AS
+create_or_replace: CREATE [OR REPLACE] [(TEMP|TEMPORARY)]
+
+drop_statement: DROP drop_item [IF EXISTS] [IDENT "."] IDENT [(CASCADE|RESTRICT)]
+
+drop_item: FUNCTION
+        |INDEX
+        |MACRO [TABLE]
+        |SCHEMA
+        |SEQUENCE
+        |TABLE
+        |VIEW
+        |TYPE
+
+create_schema: CREATE SCHEMA [IF NOT EXISTS] IDENT ["." IDENT]
+
+begin_insert: INSERT [(OR REPLACE|OR IGNORE)] INTO table_name [_AS table_name] [col_names] [(BY POSITION|BY NAME)]
+on_conflict_clause: ON CONFLICT [col_names] [WHERE expression] (DO NOTHING|DO UPDATE SET (IDENT "=" expression) ("," IDENT "=" expression)* [WHERE expression])
+returning_clause: RETURNING ["*"] [col_exps]
+insert_statement: begin_insert (values|query|DEFAULT VALUES) [on_conflict_clause] [returning_clause]
+
+
+create_table: create_or_replace TABLE [IF NOT EXISTS] table_name (_AS query|col_defintions)
+
+col_defintions: "(" col_defintion ("," col_defintion)* [","] [table_constraints]  ")" 
+
+col_defintion: IDENT type [col_constraint]
+        | IDENT generated_col
+
+generated_col: [type] [GENERATED ALWAYS] _AS "(" expression ")" [(VIRTUAL|STORED)]
+
+col_constraint: PRIMARY KEY
+        |[NOT] NULL
+        |UNIQUE
+        |CHECK "(" expression ")"
+        |DEFAULT ("(" expression ")"|expression)
+        |REFERENCES table_name col_names
+        |COLLATE IDENT
+
+table_constraints: table_constraint ("," table_constraint)* [","]
+
+table_constraint: (PRIMARY KEY|UNIQUE) col_names
+        |CHECK "(" expression ")"
+        |FOREIGN KEY col_names REFERENCES table_name col_names
+
+alter_table: ALTER TABLE table_name alter_table_cmd
+
+alter_table_cmd: ADD [COLUMN] [IF NOT EXISTS] IDENT type [col_constraint]
+        | DROP [COLUMN] [IF EXISTS] alter_col_name
+        | ALTER [COLUMN] alter_col_name alter_col_options
+        | RENAME [COLUMN] alter_col_name TO IDENT
+        | RENAME TO IDENT
+
+alter_col_options: [SET DATA] TYPE type [COLLATE IDENT] [USING expression]
+                |SET DEFAULT expression
+                |DROP DEFAULT
+
+
+
+alter_col_name: IDENT
+
+
+create_view: create_or_replace VIEW table_name [col_names] _AS query
+
+alter_view: ALTER VIEW table_name RENAME TO table_name
+
+col_names: "(" IDENT ("," IDENT)* ")"
+
+create_sequence: create_or_replace SEQUENCE sequence_name [INCREMENT [BY] NUMBER] [(NO MINVALUE|MINVALUE NUMBER)] [(NO MAXVALUE|MAXVALUE NUMBER)] [START [WITH] NUMBER] [[NO] CYCLE] -> create_sequence
+
+sequence_name: IDENT
 
 query.5: _select_node
         | "(" query ")" -> query
@@ -39,9 +116,9 @@ _select_node: ["DESCRIBE"i] [cte] _select_from _optional_clauses
 pivot_clause: (PIVOT|PIVOT_WIDER) (table_name|subquery) ON expression ("," expression)* USING col_exp ("," col_exp)*
 
 cte: WITH [RECURSIVE] cte_exp ("," cte_exp)* -> cte
-cte_exp: NAME [cte_col_alias] _AS "(" query ")" -> cte_expression
-cte_name: NAME
-cte_col_alias: "(" NAME ("," NAME)* ")" -> cte_col_alias
+cte_exp: IDENT [cte_col_alias] _AS "(" query ")" -> cte_expression
+cte_name: IDENT
+cte_col_alias: "(" IDENT ("," IDENT)* ")" -> cte_col_alias
 
 values: VALUES value ("," value)*[","] -> values
 value: "(" expression ("," expression)* ")"
@@ -79,48 +156,54 @@ table_ref.2: table_name [[_AS] alias [col_alias]] -> db_table
         |table_func [[_AS] alias [col_alias]] -> table_function
         |"(" values ")" [[_AS] alias [col_alias]] -> values
 
-table_func:NAME "(" [expression ("," expression)*] ")"
+table_func:IDENT "(" [expression ("," expression)*] ")"
 
 subquery.5: "(" query ")" 
 
-table_name:  [NAME "." [NAME "."]] NAME  -> table_name
+table_name:  [IDENT "." [IDENT "."]] IDENT  -> table_name
 
-// table_name:  [NAME "." [NAME "."]] NAME  -> table_name
+// table_name:  [IDENT "." [IDENT "."]] IDENT  -> table_name
 
 
-col_alias: "(" [(NAME ",")*] NAME ")"
+col_alias: "(" [(IDENT ",")*] IDENT ")"
 
 join.2: join_type JOIN table_ref [ON expression]
-        | join_type JOIN table_ref USING "(" NAME [("," NAME)*] ")"
+        | join_type JOIN table_ref USING "(" IDENT [("," IDENT)*] ")"
 
 join_type.2: CROSS
         | POSITIONAL
         | [(NATURAL|ASOF)] [(INNER|(LEFT|RIGHT|FULL)[OUTER])]
 
-alias: NAME
+alias: IDENT
 
 col_exps: col_exp [("," col_exp)*] [","]
 col_exp: expression [[_AS] alias]
         | star_options
 
-star_options.9: [NAME "."] STAR [exclude] [replace] 
-col_replace: expression _AS NAME
-exclude: EXCLUDE "(" [(NAME ",")*] NAME ")"
+star_options.9: [IDENT "."] STAR [exclude] [replace] 
+col_replace: expression _AS IDENT
+col_exclude: IDENT
+exclude: EXCLUDE "(" [(col_exclude ",")*] col_exclude ")"
 replace: REPLACE "(" [(col_replace ",")*] col_replace ")"
 
-// col_ref:[NAME "." [NAME "." [NAME "."]]] NAME  -> col_ref
 
-expression.3: [NAME "."] NAME  -> col_ref
-        |[NAME "."] NAME "." -> _z9_incomplete_col_ref
+
+// col_ref:[IDENT "." [IDENT "." [IDENT "."]]] IDENT  -> col_ref
+
+// expression.3: [IDENT "."] IDENT  -> col_ref
+expression.3: _col_ref  -> col_ref
+        // |[IDENT "."] IDENT "." -> z9_incomplete_col_ref
+        |_z9_incomplete_col_ref -> z9_incomplete_col_ref
         |STRING -> string
         |NUMBER -> number
         |SIGNED_NUMBER -> number
         |TRUE -> true
         |FALSE -> false
         // |negative_number -> number
-        |DATE STRING -> date
-        | NAME "("[DISTINCT] [(expression ",")*] expression ")" [window_form] [filter] -> function
-        | NAME "(" ["*"] ")" [window_form] [filter] -> function
+        // |DATE STRING -> date
+        |_date -> date
+        | IDENT "("[DISTINCT] [(expression ",")*] expression ")" [window_form] [filter] -> function
+        | IDENT "(" ["*"] ")" [window_form] [filter] -> function
         | expression math expression -> operation
         | expression comp expression -> comparison
         | between
@@ -138,14 +221,17 @@ expression.3: [NAME "."] NAME  -> col_ref
         | expression IS [NOT] NULL -> is_null
         | [NOT] EXISTS "(" query ")" -> exists
         | COALESCE "(" expression ("," expression)* ")" -> coalesce
-        | EXTRACT "("NAME FROM expression")" -> extract
-        | INTERVAL expression NAME -> interval
+        | EXTRACT "("IDENT FROM expression")" -> extract
+        | INTERVAL expression IDENT -> interval
         | expression "[" expression [":" expression] "]" -> slice
-        | expression "." NAME "("[DISTINCT] [[(expression ",")*] expression] ")" [window_form]  -> dot_function
+        | expression "." IDENT "("[DISTINCT] [[(expression ",")*] expression] ")" [window_form]  -> dot_function
         // | SUBSTRING "(" expression FROM expression [FOR expression] ")" -> substring
         // | "EXTRACT"i "(" IDENT FROM expression ")" -> extract
         // | expression (IS [NOT] NULL|"ISNULL"i|"NOTNULL"i) -> is_null
 
+_col_ref: [IDENT "."] IDENT
+_z9_incomplete_col_ref: [IDENT "."] IDENT "."
+_date: DATE STRING
 
 filter: FILTER "(" WHERE expression ")" -> filter
 
@@ -351,6 +437,12 @@ EXCEPT: "EXCEPT"i
 
 
 //unreserved keywords
+INCREMENT: "INCREMENT"i
+MINVALUE: "MINVALUE"i
+MAXVALUE: "MAXVALUE"i
+CYCLE: "CYCLE"i
+START: "START"i
+NO: "NO"i
 BETWEEN: "BETWEEN"i
 BIGINT: "BIGINT"i
 BIT: "BIT"i
@@ -472,10 +564,33 @@ READ_ONLY: "READ_ONLY"i
 TYPE: "TYPE"i
 SQLITE: "SQLITE"i
 DETACH: "DETACH"i
-
+SEQUENCE: "SEQUENCE"i
+DROP: "DROP"i
+CASCADE: "CASCADE"i
+INDEX: "INDEX"i
+RESTRICT: "RESTRICT"i
+MACRO: "MACRO"i
+SCHEMA: "SCHEMA"i    
+FUNCTION: "FUNCTION"i
+NAME: "NAME"i
+INSERT: "INSERT"i
+IGNORE: "IGNORE"i
+UPDATE: "UPDATE"i
+NOTHING: "NOTHING"i
+CONFLICT: "CONFLICT"i
+ALTER: "ALTER"i
+RENAME: "RENAME"i
+ALWAYS: "ALWAYS"i
+STORED: "STORED"i
+VIRTUAL: "VIRTUAL"i
+KEY: "KEY"i
+ADD: "ADD"i
+USE: "USE"i
+CALL: "CALL"i
+DATA: "DATA"i
 
 COMMENT: /--.*/ |  /\/\*[\s\S]*?\*\//
-NAME: CNAME | ESCAPED_STRING
+IDENT: CNAME | ESCAPED_STRING
 CNAME: /\b(?!QUALIFY\b|AUTHORIZATION\b|DO\b|CAST\b|ISNULL\b|LIKE\b|REFERENCES\b|ASC\b|ILIKE\b|ALL\b|WINDOW\b|FOR\b|INNER\b|GRANT\b|INITIALLY\b|OR\b|LEFT\b|ANALYZE\b|COLLATE\b|CASE\b|FETCH\b|IN\b|CONCURRENTLY\b|SEMI\b|UNPIVOT\b|BINARY\b|FROM\b|VARIADIC\b|ARRAY\b|IS\b|ANALYSE\b|AND\b|HAVING\b|UNION\b|COLUMN\b|ON\b|GLOB\b|SOME\b|AS\b|VERBOSE\b|TRAILING\b|END\b|ANY\b|TABLESAMPLE\b|INTERSECT\b|NATURAL\b|CREATE\b|OFFSET\b|CROSS\b|ELSE\b|FULL\b|SELECT\b|USING\b|CONSTRAINT\b|FOREIGN\b|OVERLAPS\b|ORDER\b|INTO\b|NOT\b|TABLE\b|ANTI\b|CHECK\b|ASYMMETRIC\b|LATERAL\b|DEFERRABLE\b|BOTH\b|RIGHT\b|COLLATION\b|UNIQUE\b|SYMMETRIC\b|TO\b|RETURNING\b|SIMILAR\b|NOTNULL\b|LIMIT\b|ASOF\b|JOIN\b|THEN\b|ONLY\b|FREEZE\b|WITH\b|DESC\b|WHERE\b|OUTER\b|WHEN\b|DISTINCT\b|LEADING\b|EXCEPT\b)([a-zA-Z_]\w*|\d+[a-zA-Z_]+\w*)\b/i
 STRING: /'([^']|\s)+'|''/
 SIGNED_NUMBER.-1: ["+"|"-"] NUMBER

@@ -230,7 +230,10 @@ class ZmqServer(QtCore.QObject):
         self.ex_monitor.trigger.connect(self.msg_routing)
         self.cell_monitor_thread.start()
 
-    def clear_conn_info(self):
+    def clear_conn_info(self,delete=False):
+        if delete:
+            self.key_file.delete_connection(self.connection["workspace_path"])
+        self.log.debug("deleted connection info from keyfile")
         self.connection = None
         self.key_file = None
         self.main_port = None
@@ -250,6 +253,7 @@ class ZmqServer(QtCore.QObject):
             self.main_port = self.connection["main_port"]
             self.handshake_port = self.connection["handshake_port"]
         else:
+            self.log.debug("connection info not found in keyfile")
             return
 
         self.log.debug(f"connecting to main port {self.main_port}")
@@ -271,7 +275,8 @@ class ZmqServer(QtCore.QObject):
 
         if not self.handeshake_socket.poll(1000):
             self.log.error("handshake socket not connected")
-            self.clear_conn_info()
+            self.clear_conn_info(True)
+            self.connect_sockets()
             return
 
         handshake_response_buff = self.handeshake_socket.recv()
@@ -282,7 +287,8 @@ class ZmqServer(QtCore.QObject):
             and handshake_response["data"] == self.connection["server_id"]
         ):
             self.log.error("handshake response not correct")
-            self.clear_conn_info()
+            # self.key_file.delete_connection(self.connection["workspace_path"])
+            # self.clear_conn_info()
             return
 
         self.log.debug("handshake sockets connected")

@@ -6,19 +6,7 @@ from pathlib import Path
 from dabbler.lsp.sql_utils import CmpItem
 import duckdb
 import json
-
-
-duckdb_keyworkds = set(x[0].upper() for x in duckdb.execute("select keyword_name from duckdb_keywords() where keyword_category = 'reserved'").fetchall())
-
-def check_name(col:str):
-    """checks if a column name needs to be quoted"""
-    if col:
-        if (' ' in col or
-            '-' in col or
-            '.' in col or
-            col.upper() in duckdb_keyworkds):
-            return f'"{col}"'
-        return col
+from dabbler.common import check_name
 
 
 
@@ -128,6 +116,8 @@ def make_db(db_data:dict):
     db2.execute('\n'.join([x[1] for x in db_data['dataframes']]))
 
     for schema, item, sql, cols in db_data['data']:
+        if not cols:
+            continue
         col_txt = ',\n'.join([f'"{c[0]}" {c[1]}' for c in cols])
         sql2 = f'create table {item}({col_txt})'
         db2.execute(f'use {schema}; {sql2}')
