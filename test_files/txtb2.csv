@@ -1,0 +1,20 @@
+[
+	{"id2":1,"wbs":"wbs1","amt":1.9,"description":"abc","gen":1},
+	{"id2":2,"wbs":"wbs2","amt":2.9,"description":"def","gen":1},
+	{"id2":1,"wbs":"wbs1","amt":1.9,"description":"abc","gen":1},
+	{"id2":2,"wbs":"wbs2","amt":2.9,"description":"def","gen":1},
+	{"id2":1,"wbs":"wbs1","amt":1.9,"description":"abc","gen":1},
+	{"id2":2,"wbs":"wbs2","amt":2.9,"description":"def","gen":1},
+	{"id2":1,"wbs":"wbs1","amt":1.9,"description":"abc","gen":1},
+	{"id2":2,"wbs":"wbs2","amt":2.9,"description":"def","gen":1},
+	{"id2":1,"wbs":"wbs1","amt":1.9,"description":"abc","gen":1},
+	{"id2":2,"wbs":"wbs2","amt":2.9,"description":"def","gen":1},
+	{"id2":1,"wbs":"wbs1","amt":1.9,"description":"abc","gen":1},
+	{"id2":2,"wbs":"wbs2","amt":2.9,"description":"def","gen":1},
+	{"id2":1,"wbs":"wbs1","amt":1.9,"description":"abc","gen":1},
+	{"id2":2,"wbs":"wbs2","amt":2.9,"description":"def","gen":1},
+	{"id2":1,"wbs":"wbs1","amt":1.9,"description":"abc","gen":1},
+	{"id2":2,"wbs":"wbs2","amt":2.9,"description":"def","gen":1},
+	{"id2":1,"wbs":"wbs1","amt":1.9,"description":"abc","gen":1},
+	{"id2":2,"wbs":"wbs2","amt":2.9,"description":"def","gen":1}
+]

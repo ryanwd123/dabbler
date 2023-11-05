@@ -88,12 +88,18 @@ db.execute("""--sql
     CHECKPOINT;
     CHECKPOINT imdb;
     SELECT * from Issued_Tree_Permits;
+
     
     """)
 
 #%%
+db.sql("""--sql
+    select * from medicare USING SAMPLE 2
+    
+    """)
+#%%
 db.execute("""--sql
-    ALTER TABLE medicare RENAME TO asea;
+    create table t_test as select * from 'txtb.csv';
     
     """)
 

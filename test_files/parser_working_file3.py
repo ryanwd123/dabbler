@@ -343,5 +343,7 @@ ignore = ['FACTORIAL',
  'CAST_OP']
 
 
-[x for x in used_kw if x not in defined_kw and x not in ignore]
+update = [x for x in used_kw if x not in defined_kw and x not in ignore]
+update = [f'{x}: "{x}"i' for x in update]
+print('\n'.join(update))
 # %%

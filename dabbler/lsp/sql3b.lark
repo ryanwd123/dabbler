@@ -19,11 +19,77 @@ statement: query -> select_statement
         |CALL IDENT "(" [expression ("," expression)*] ")" -> call_statement
         |USE IDENT ["." IDENT] -> use_statement
         |create_schema -> create_schema
+        |copy_statement -> copy_statement
 
 databse_name:STRING
 
 attach_options: READ_ONLY (TRUE|FALSE) -> read_only
         | TYPE SQLITE -> sqlite
+
+copy_statement: COPY (table_name| "(" query ")" ) [col_names] TO filename [[WITH] "(" copy_to_options ("," copy_to_options)* ")"]
+       | COPY (table_name| "(" query ")" ) [col_names] FROM filename [[WITH] "(" copy_from_options ("," copy_from_options)* ")"]
+
+filename: STRING
+
+
+copy_from_options: FORMAT format_type
+        | DELIMITER STRING
+        | DELIM STRING
+        | SEP STRING
+        | NULL STRING
+        | HEADER [(TRUE|FALSE)]
+        | QUOTE STRING
+        | ESCAPE STRING
+        | DATEFORMAT STRING
+        | TIMESTAMPFORMAT STRING
+        | FORCE_NOT_NULL col_names
+        | ENCODING STRING
+        | AUTO_DETECT [(TRUE|FALSE)]
+        | SAMPLE_SIZE NUMBER
+        | ALL_VARCHAR [(TRUE|FALSE)]
+        | COMPRESSION compression_type
+        | CODEC compression_type
+        | IDENT (IDENT|STRING|NUMBER)
+
+
+copy_to_options: FORMAT format_type
+        | ALLOW_OVERWRITE [(TRUE|FALSE)]
+        | PARTITION_BY col_names
+        | PER_THREAD_OUTPUT [(TRUE|FALSE)]
+        | USE_TMP_FILE [(TRUE|FALSE)]
+        | COMPRESSION compression_type
+        | FORCE_QUOTE col_names
+        | DELIMITER STRING
+        | DATEFORMAT STRING
+        | DELIM STRING
+        | SEP STRING
+        | TIMESTAMPFORMAT STRING
+        | ESCAPE STRING
+        | HEADER [(TRUE|FALSE)]
+        | NULLSTR STRING
+        | QUOTE STRING
+        | ROW_GROUP_SIAE NUMBER
+        | ROW_GROUP_BYTES NUMBER
+        | FIELD_IDS struct
+        | ARRAY [(TRUE|FALSE)]
+        | IDENT (IDENT|STRING|NUMBER)
+
+
+struct: "{" IDENT ":"  "{" struct_item ("," struct_item)* "}"
+struct_item: (IDENT|NUMBER|STRING) ":" (IDENT|NUMBER|STRING)
+
+
+compression_type: UNCOMPRESSED
+        | SNAPPY
+        | GZIP
+        | ZSTD
+
+
+format_type: CSV
+        |PARQUET
+        |JSON
+
+
 
 
 // select_statement: query
@@ -151,10 +217,20 @@ from_clause: FROM from_ref [("," from_ref)*]
 
 from_ref.3: table_ref [join*]
 
-table_ref.2: table_name [[_AS] alias [col_alias]] -> db_table
-        | "(" query ")" [[_AS] alias [col_alias]] -> subquery
-        |table_func [[_AS] alias [col_alias]] -> table_function
+table_ref.2: table_name [[_AS] alias [col_alias]] [sample_clause] -> db_table
+        | "(" query ")" [[_AS] alias [col_alias]] [sample_clause]-> subquery
+        |table_func [[_AS] alias [col_alias]] [sample_clause]-> table_function
         |"(" values ")" [[_AS] alias [col_alias]] -> values
+
+sample_clause: (TABLESAMPLE|USING SAMPLE) [sample_method] "(" NUMBER [("%"|PERCENT|ROWS)] ")" [REPEATABLE "(" NUMBER ")"]
+        | (TABLESAMPLE|USING SAMPLE) NUMBER [("%"|PERCENT|ROWS)]   ["(" sample_method [ "," NUMBER] ")"] 
+
+
+sample_method: SYSTEM
+        | BERNOULLI
+        | RESERVOIR
+
+
 
 table_func:IDENT "(" [expression ("," expression)*] ")"
 
@@ -588,6 +664,45 @@ ADD: "ADD"i
 USE: "USE"i
 CALL: "CALL"i
 DATA: "DATA"i
+CSV: "CSV"i
+PARTITION_BY: "PARTITION_BY"i
+ALLOW_OVERWRITE: "ALLOW_OVERWRITE"i
+FORMAT: "FORMAT"i
+TIMESTAMPFORMAT: "TIMESTAMPFORMAT"i
+COPY: "COPY"i
+COMPRESSION: "COMPRESSION"i
+DELIM: "DELIM"i
+ROW_GROUP_BYTES: "ROW_GROUP_BYTES"i
+PER_THREAD_OUTPUT: "PER_THREAD_OUTPUT"i
+SNAPPY: "SNAPPY"i
+HEADER: "HEADER"i
+FIELD_IDS: "FIELD_IDS"i
+DATEFORMAT: "DATEFORMAT"i
+JSON: "JSON"i
+NULLSTR: "NULLSTR"i
+USE_TMP_FILE: "USE_TMP_FILE"i
+GZIP: "GZIP"i
+PARQUET: "PARQUET"i
+SEP: "SEP"i
+FORCE_QUOTE: "FORCE_QUOTE"i
+UNCOMPRESSED: "UNCOMPRESSED"i
+ZSTD: "ZSTD"i
+QUOTE: "QUOTE"i
+ROW_GROUP_SIAE: "ROW_GROUP_SIAE"i
+ESCAPE: "ESCAPE"i
+CODEC: "CODEC"i
+ENCODING: "ENCODING"i
+ALL_VARCHAR: "ALL_VARCHAR"i
+SAMPLE_SIZE: "SAMPLE_SIZE"i
+AUTO_DETECT: "AUTO_DETECT"i
+FORCE_NOT_NULL: "FORCE_NOT_NULL"i
+DELIMITER: "DELIMITER"i
+SYSTEM: "SYSTEM"i
+PERCENT: "PERCENT"i
+SAMPLE: "SAMPLE"i
+RESERVOIR: "RESERVOIR"i
+REPEATABLE: "REPEATABLE"i
+BERNOULLI: "BERNOULLI"i
 
 COMMENT: /--.*/ |  /\/\*[\s\S]*?\*\//
 IDENT: CNAME | ESCAPED_STRING

@@ -17,8 +17,8 @@ Intellisnse / autocomplete:
         - should work for tables, views, CTEs, table functions, and subqueries
     - ✔️functions names
     - ✔️file paths (triggered by characters **`'./`**  )
+    - ✔️keywords
     - 🔲function signature / parameters
-    - 🔲keywords
 - Send/Execute SQL query from vscode editor to view in dabbler window
 
 ### Current Limitations
@@ -69,11 +69,14 @@ Intellisnse / autocomplete:
 - Updates to vs_code extension
     - make configuration option to set default python env
     - better handling of server failing to start when dabbler not installed in python env
-- SQL features missing:
+- SQL grammer features missing:
     - select COLUMNS ()
-    - Alter table
-    - atler view
-    - create table (except for create table/view as select...)
+    - SQL standard syntax for pivot/unpivot (simplified is supported)
+    - delete statement
+    - update statement
+    - qualify clause
+    - grouping sets, cube, rollup
+
 
 
 
