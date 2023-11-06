@@ -286,7 +286,7 @@ expression.3: _col_ref  -> col_ref
         | combine
         | expression [NOT] IN "(" (expression [("," expression)*]) ")" -> in
         | expression [NOT] IN subquery -> in
-        | CASE (WHEN expression THEN expression)+ [ELSE expression] END -> case
+        | CASE [expression] (WHEN expression THEN expression)+ [ELSE expression] END -> case
         | expression [NOT] (LIKE|ILIKE|SIMILAR TO) expression -> like
         | expression IS [NOT] DISTINCT FROM expression -> is_distinct_from
         | "(" expression ")" -> parenthesized_expression
@@ -299,11 +299,18 @@ expression.3: _col_ref  -> col_ref
         | COALESCE "(" expression ("," expression)* ")" -> coalesce
         | EXTRACT "("IDENT FROM expression")" -> extract
         | INTERVAL expression IDENT -> interval
-        | expression "[" expression [":" expression] "]" -> slice
+        | expression "[" slice_args "]" -> slice
         | expression "." IDENT "("[DISTINCT] [[(expression ",")*] expression] ")" [window_form]  -> dot_function
         // | SUBSTRING "(" expression FROM expression [FOR expression] ")" -> substring
         // | "EXTRACT"i "(" IDENT FROM expression ")" -> extract
         // | expression (IS [NOT] NULL|"ISNULL"i|"NOTNULL"i) -> is_null
+
+slice_args: expression ":" expression
+        | expression ":"
+        | ":"
+        | ":" expression
+        | expression
+
 
 _col_ref: [IDENT "."] IDENT
 _z9_incomplete_col_ref: [IDENT "."] IDENT "."

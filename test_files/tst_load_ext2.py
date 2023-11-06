@@ -40,6 +40,33 @@ db.execute("attach './../../sample_data/imdb.duckdb'")
 #!%load_ext dabbler.ext_debug
 # from dabbler.lsp.db_data import get_db_data_new,make_db,make_completion_map
 #%%
+j9 = db.sql(
+    """--sql
+    select 'abcdef'[-2:-1]
+    """
+)
+#%%
+db.sql(
+    """--sql
+    from Issued_Tree_Permits i
+    SELECT 
+        CASE lower(i.PERMIT_STATUS) 
+            WHEN 'approved' THEN 'a' 
+            ELSE 
+                CASE i.PERMIT_ADDRESS
+                    WHEN 'g' THEN 'c' 
+                    ELSE i.PERMIT_STATUS 
+                END 
+        END as a,
+        i.COUNCIL_DISTRICT as b,
+        
+        
+    """
+)
+
+
+
+#%%
 import logging
 log = logging.getLogger('test')
 txt = """--sql
