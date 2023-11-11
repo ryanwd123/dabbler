@@ -24,6 +24,7 @@ Intellisnse / autocomplete:
 ### Current Limitations
 - The parser does not yet support every SQL feature in the duckdb dialect and it will fail to provide autocompletion if it cannot parse the SQL, this problem can be avoided in some cases by seperating statements into different blocks of text
 - This currently only works with the "Python Interactive Window" in vscode - here is an article that explains how the interactive window works: https://code.visualstudio.com/docs/python/jupyter-support-py
+- does not work well with python f-strings
 
 
 ### Install / Setup
@@ -72,6 +73,9 @@ Intellisnse / autocomplete:
             r"(.(sql|execute|executemany)\(')(?P<sql>.*?)('\s*(\)|,))",
             ]
         ```
+        - example:
+        
+            ![syntax_highlighting_example](images/syntax_highlighting_example.png)
     - If changes are made to the document within an sql text range the only that range of text is parsed and if there is an error that is published to the client.  Since the parse is not 100% complete at this point the parser could return errors that due parse in DuckDb.
 
 

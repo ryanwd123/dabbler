@@ -9,9 +9,9 @@ db.execute(
     CREATE or REPLACE TABLE t1 as
     from (VALUES
         ('a',1),
-        ('b',1),
-        ('c',1),
-        ('d',1),
+        ('b',2),
+        ('c',3),
+        ('d',4),
     )
     """
 )
