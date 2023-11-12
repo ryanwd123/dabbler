@@ -37,6 +37,7 @@ Intellisnse / autocomplete:
 
 #### Setup
 - For the language server to work in VScode you need to have dabbler installed in the python enviornment that is active in VScode.  
+    - Alternatively you can set the default enviornment for the language server in VScode settings
 - In vscode python settings you can enable line magics for python files:
     - open settings by pressing: `ctr+,`
     - search for "line magic" and check the box:
