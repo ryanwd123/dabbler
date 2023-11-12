@@ -23,6 +23,7 @@ Intellisnse / autocomplete:
 
 ### Current Limitations
 - The parser does not yet support every SQL feature in the duckdb dialect and it will fail to provide autocompletion if it cannot parse the SQL, this problem can be avoided in some cases by seperating statements into different blocks of text
+- This currently only works with the "Python Interactive Window" in vscode - here is an article that explains how the interactive window works: https://code.visualstudio.com/docs/python/jupyter-support-py
 
 
 ### Install / Setup
@@ -31,7 +32,7 @@ Intellisnse / autocomplete:
 - Install Python VScode Extension
 - Install Jupyter VScode Extension
 #### Install dabbler
-- `pip install dabbler`
+- `pip install dabbler` (note: one of the depenecies is "notebook" which is Jupyter Notebook - this installs a ton of stuff)
 - install PySide or PyQt e.g. `pip install PySide6`  (note: pyqt5 seems to work better on Linux)
 - install "dabbler" vscode extension
 
@@ -49,6 +50,7 @@ Intellisnse / autocomplete:
     db = duckdb.connect()
     #!%load_ext dabbler.ext
     ```
+
 - In vscode you can set a keyboard shortcut to the dabbler command run the select node that your cursor is on in the GUI windown
   - press: `ctrl-shit-p` to bring up the command pallette
   - type in "keyboard" to find the open keyboard shortcuts command
