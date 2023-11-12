@@ -166,13 +166,14 @@ class QueryToSql(Transformer):
 
 
 class GetQueries(Visitor):
-   def __init__(self, sql: str, parser:'SqlParserNew') -> None:
+   def __init__(self, sql: str, parser:'SqlParserNew',pos) -> None:
       super().__init__()
       self.sql = sql
       self.parser = parser
       self.queries: dict[int, Query] = {}
       self.queries_list: list[Query] = []
       self.q_start_end:list[tuple[int,int]] = []
+      self.pos = pos
 
    def get_from_tables(self, tree: Tree):
       s1 = QueryToSql(self.sql).transform(tree)
@@ -319,15 +320,15 @@ class SqlParserNew:
             tree, choices_pos = interactive_parse(sql,pos,self.log_interactive_parser)
             # tree = sql_parser.parse(sql,on_error=parser_error_handler)
         except UnexpectedToken as e:
-            self.log.exception(['failed to parse, Unexpected Token',sql,e,e.token,e.accepts])
+            self.log.info(['failed to parse, Unexpected Token',sql,e,e.token,e.accepts])
             return None, None
         except Exception as e:
-            self.log.exception(['failed to parse',sql,e])
+            self.log.info(['failed to parse',sql,e])
             return None, None
             # noqa: E722
         if not tree:
             return None, choices_pos
-        queries = GetQueries(sql,self)
+        queries = GetQueries(sql,self,pos)
         queries.visit(tree)
 
 
@@ -377,6 +378,8 @@ class SqlParserNew:
                 sibblings = ',\n'.join([f'{k} as ({v.sql})' for k,v in q.cte_sibblings.items()])
                 cte_sql = f'with {sibblings}'
             sql = f'{cte_sql}\n{q.sql}'
+            if pos >= q.start_pos and pos <= q.end_pos:
+                continue
             projection = self.db_describe_columns(sql)
             if projection:
                 q.projection = projection
@@ -410,7 +413,7 @@ class SqlParserNew:
             self.projection_cache[sql] = data
             return data
         except Exception as e:  # noqa: E722
-            self.log.exception(['failed to run describe',sql,e,os.getcwd()])
+            self.log.debug(['failed to run describe',sql,e,os.getcwd()])
             return
         
 

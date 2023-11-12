@@ -46,8 +46,8 @@ class InlineSqlLangServer(LanguageServer):
         self.log = logging.getLogger("dabbler_lsp")
         self.debug = False
         
-        if sys.executable == 'c:\\Projects\\db_dabbler\\db_dabbler_env\\Scripts\\python.exe':
-            self.start_logging()
+        # if sys.executable == 'c:\\Projects\\db_dabbler\\db_dabbler_env\\Scripts\\python.exe':
+            # self.start_logging()
 
         self.create_sockets2()
         self.completer: "SqlCompleter" = None
@@ -424,7 +424,7 @@ class SqlCompleter:
                 cursor_pos, sql_rng.txt
             )
         except Exception as e:
-            self.log.exception(["parsed_items_error", e])
+            self.log.info(["parsed_items_error", e])
             # self.log.debug('parsed_items_error')
 
             parsed_items = {"root_namespace": []}

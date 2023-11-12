@@ -6,16 +6,16 @@ from dabbler.lsp.parser import get_parser, SqlParserNew
 import duckdb
 import re
 from lark import Lark, Token, UnexpectedToken, exceptions as lark_exceptions
-db = duckdb.connect()
+db2 = duckdb.connect()
 
 
 
-db.read_csv(
+db2.read_csv(
     "./../../sample_data/austin/Issued_Tree_Permits.csv", header=True, normalize_names=True
 ).create("tree_permits")
 
 
-db.sql("create or replace view tp as select * from tree_permits")
+db2.sql("create or replace view tp as select * from tree_permits")
 
 
 

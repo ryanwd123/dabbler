@@ -175,11 +175,17 @@ query.5: _select_node
 
 _select_node: ["DESCRIBE"i] [cte] _select_from _optional_clauses
         | [cte] pivot_clause  [group_by] [order_by]
+        | [cte] unpivot_clause [group_by] [order_by]
         | [cte] select_clause
         | [cte] from_clause 
         | cte
 
-pivot_clause: (PIVOT|PIVOT_WIDER) (table_name|subquery) ON expression ("," expression)* USING col_exp ("," col_exp)*
+pivot_clause: (PIVOT|PIVOT_WIDER) (table_name|subquery|table_func) ON expression ("," expression)* USING col_exp ("," col_exp)*
+
+unpivot_clause: (UNPIVOT|PIVOT_LONGER) (table_name|subquery|table_func) ON (star_options|expression ("," expression)*) INTO NAME alias VALUE col_exp ("," col_exp)*
+
+
+
 
 cte: WITH [RECURSIVE] cte_exp ("," cte_exp)* -> cte
 cte_exp: IDENT [cte_col_alias] _AS "(" query ")" -> cte_expression
@@ -220,6 +226,7 @@ from_ref.3: table_ref [join*]
 table_ref.2: table_name [[_AS] alias [col_alias]] [sample_clause] -> db_table
         | "(" query ")" [[_AS] alias [col_alias]] [sample_clause]-> subquery
         |table_func [[_AS] alias [col_alias]] [sample_clause]-> table_function
+        // |STRING [[_AS] alias [col_alias]] [sample_clause]-> table_function
         |"(" values ")" [[_AS] alias [col_alias]] -> values
 
 sample_clause: (TABLESAMPLE|USING SAMPLE) [sample_method] "(" NUMBER [("%"|PERCENT|ROWS)] ")" [REPEATABLE "(" NUMBER ")"]
@@ -233,6 +240,7 @@ sample_method: SYSTEM
 
 
 table_func:IDENT "(" [expression ("," expression)*] ")"
+        |STRING
 
 subquery.5: "(" query ")" 
 
@@ -257,6 +265,14 @@ col_exp: expression [[_AS] alias]
         | star_options
 
 star_options.9: [IDENT "."] STAR [exclude] [replace] 
+        |columns_exp
+
+columns_exp: COLUMNS "(" star_options ")"
+        |COLUMNS "(" STRING ")"
+        |COLUMNS "(" (lambda_exp|IDENT "->" expression) ")"
+
+lambda_exp: "(" IDENT ("," IDENT)* ")" "->" expression
+
 col_replace: expression _AS IDENT
 col_exclude: IDENT
 exclude: EXCLUDE "(" [(col_exclude ",")*] col_exclude ")"
@@ -710,6 +726,7 @@ SAMPLE: "SAMPLE"i
 RESERVOIR: "RESERVOIR"i
 REPEATABLE: "REPEATABLE"i
 BERNOULLI: "BERNOULLI"i
+VALUE: "VALUE"i
 
 COMMENT: /--.*/ |  /\/\*[\s\S]*?\*\//
 IDENT: CNAME | ESCAPED_STRING

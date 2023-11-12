@@ -26,9 +26,16 @@ Intellisnse / autocomplete:
 
 
 ### Install / Setup
+#### Prerequisites
+- Install VSCode
+- Install Python VScode Extension
+- Install Jupyter VScode Extension
+#### Install dabbler
 - `pip install dabbler`
-- install "dabbler" vscode extension
 - install PySide or PyQt e.g. `pip install PySide6`  (note: pyqt5 seems to work better on Linux)
+- install "dabbler" vscode extension
+
+#### Setup
 - For the language server to work in VScode you need to have dabbler installed in the python enviornment that is active in VScode.  
 - In vscode python settings you can enable line magics for python files:
     - open settings by pressing: `ctr+,`
@@ -70,7 +77,6 @@ Intellisnse / autocomplete:
     - make configuration option to set default python env
     - better handling of server failing to start when dabbler not installed in python env
 - SQL grammer features missing:
-    - select COLUMNS ()
     - SQL standard syntax for pivot/unpivot (simplified is supported)
     - delete statement
     - update statement
