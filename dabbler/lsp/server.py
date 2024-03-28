@@ -18,6 +18,7 @@ import sys
 import asyncio
 from typing import Optional
 import sqlglot
+import time
 
 from lsprotocol import types as lsp
 from lsprotocol.types import (
@@ -86,19 +87,7 @@ def completions(
     # return None
     return comps
 
-    # ls.show_message_log(f'{cols}')
-    # if cols:
-    #     if type(cols) == dict:
-    #         for k,v in cols.items():
-    #             if left_of_cur_matches(sql_left_of_cur,[k]):
-    #                 return CompletionList(is_incomplete=False, items=v)
 
-    #     if type(cols) == list and params.context.trigger_character not in (':','.'):
-    #         return CompletionList(is_incomplete=False, items=cols)
-
-    # ls.show_message_log(f'\nsql_rng: {sql_rng.start,sql_rng.end}\nleft of idx{document.source[sql_rng.cur_idx-5:sql_rng.cur_idx]}\n{sql_rng.txt}\n{document.source[sql_rng.start:sql_rng.end]}')
-
-    # ls.show_message_log(f'sql_rng not found: {sql_rng}')
 
 
 def publish_diagnostics(ls:InlineSqlLangServer, uri, line, char,  msg):
@@ -129,14 +118,19 @@ def did_change(ls: InlineSqlLangServer, params: lsp.DidChangeTextDocumentParams)
     sql_range = get_sql2(document.source, start_line, char)
     if not sql_range:
         # ls.show_message_log(f"did not find sql range at line:{start_line + 1}")
+        ls.publish_diagnostics(params.text_document.uri, [])
         return
 
     try:
         sql_range.txt = sql_range.txt.replace('\r\n','\n')
         # ls.show_message_log(f"sql: {sql_range}")
+        start = time.time()
         p = sql_parser.parse(sql_range.txt)
-        
+        ls.log.debug(['parse time',time.time()-start])
+
+
     except Exception as e:
+        ls.log.debug(['parse time',time.time()-start])
         rng_start_line, rng_start_col = line_col(
         ls.workspace.get_document(params.text_document.uri).source, sql_range.start
         )

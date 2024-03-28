@@ -29,7 +29,9 @@ dependencies = [
   "sqlglot",
   "lark",
   "pygls",
-  "notebook"
+  "ipython",
+  "zmq",
+  "ipykernel,
 ]
 
 

@@ -45,19 +45,19 @@ class InlineSqlLangServer(LanguageServer):
 
         self.log = logging.getLogger("dabbler_lsp")
         self.debug = False
-        
-        # if sys.executable == 'c:\\Projects\\db_dabbler\\db_dabbler_env\\Scripts\\python.exe':
-            # self.start_logging()
-
         self.create_sockets2()
+
         self.completer: "SqlCompleter" = None
         self.socket_connected = False
         self.socket_created = False
         self.key_file: KeyFile = None
 
+    def start_io(self, stdin = None, stdout = None):
 
+        self.loop.create_task(self.zmq_recv(self.poller))
+        # self.loop.run_until_complete(self.zmq_recv(self.poller))
+        super().start_io(stdin, stdout)
         
-
     def start_logging(self):
         if self.debug:
             return
@@ -108,7 +108,7 @@ class InlineSqlLangServer(LanguageServer):
         self.poller = Poller()
         self.poller.register(self.socket, zmq.POLLIN)
         self.poller.register(self.handshake_socket, zmq.POLLIN)
-        self.loop.create_task(self.zmq_recv(self.poller))
+        # self.loop.create_task(self.zmq_recv(self.poller))
         
         self.log.debug(f"main_port {self.main_port}, handshake_port {self.handshake_port}")
 
@@ -138,7 +138,7 @@ class InlineSqlLangServer(LanguageServer):
         # self.show_message_log('zmq_recv started')
         while self._stop_event is None:
             # self.show_message_log('waiting for stop event to be created')
-            asyncio.sleep(0.1)
+            await asyncio.sleep(0.1)
         stop = self._stop_event
         # self.show_message_log(f'{type(self._stop_event)}')
 
@@ -424,7 +424,7 @@ class SqlCompleter:
                 cursor_pos, sql_rng.txt
             )
         except Exception as e:
-            self.log.info(["parsed_items_error", e])
+            self.log.info(["parsed_items_error", e,sys.exception().__traceback__])
             # self.log.debug('parsed_items_error')
 
             parsed_items = {"root_namespace": []}

@@ -6,7 +6,16 @@ sys.path.append(str(Path(__file__).parent.parent))
 import duckdb
 db = duckdb.connect()
 # db.execute("set file_search_path to 'C:\\scripts'")
-
+#!%load_ext dabbler.ext_debug
+#%%
+db.sql(
+"""--sql,
+select
+    *
+from './../../sample_data'
+"""
+)
+#%%
 df1 = pd.DataFrame({'a':[1,2,3],'b':[4,5,6]})
 
 files =  list(Path('./../../sample_data/austin').glob("*.csv"))
@@ -37,8 +46,7 @@ db.execute("force checkpoint")
 # db.executemany("create or replace view db_executemany as select * from t_medicare")
 # db.sql('create or replace view sql_single_quote as select * from t_medicare')
 # db.execute("attach './../../sample_data/imdb.duckdb'")
-#%load_ext dabbler.ext_debug
-#!%load_ext dabbler.ext
+# zz!%load_ext dabbler.ext
 # from dabbler.lsp.db_data import get_db_data_new,make_db,make_completion_map
 #%%
 
@@ -115,26 +123,120 @@ db.sql(
     """
 )
 
+
+
+
+
+
+
+
+
+
+
+
+
+
 #%%
 
 db.sql(
     """--sql
-    with qq as (from Issued_Tree_Permits i
-    select
-        i.PERMIT_NUMBER,
-        i.APPENDIX_F_REMOVED,
-        i.PROJECT_ID)
-    from qq q
+    with aaa as (
         SELECT
-            q.PERMIT_NUMBER,
-            q.PERMIT_NUMBER,
-            q.PROJECT_ID,
-        
-           
+            i.CROWN_REMOVAL,
+            i.ENCROACHMENT_OF_ROOT_ZONE,
+            i.JURISDICTION,
+            i.SPECIES
+        from Issued_Tree_Permits i
+        WHERE
+            i.ENCROACHMENT_OF_ROOT_ZONE = true
+    ),
+    ggg as (SELECT
+        z.* EXCLUDE (CROWN_REMOVAL)
+    from aaa z
+    ),
+    xyz as (select 
+        *
+    from Issued_Tree_Permits i
+        join ggg g on g.SPECIES = i.SPECIES
+    ), t123 as (
+    select 
+        CASE 
+            when j.PERMIT_ADDRESS ILIKE '%grover%' then 'grover'
+            when j.PERMIT_ADDRESS ILIKE '%gor%' then 'grover'
+            when j.PERMIT_ADDRESS ILIKE '%oak%' then 'grover'
+            else 'not grover'
+        END as j7,
+        j.*
+    from xyz j
+    WHERE j.ISSUED_DATE > '2020-01-01'
+    ),
+    t1234 as (
+    SELECT
+        t.j7,
+        t.JURISDICTION,
+        t.Combined_Geo,
+        t.TRUNK_DIAMETER,
+        t.PERMIT_STATUS,
+        t.APPENDIX_F_REMOVED,
+        t.PERMIT_CLASS,
+        t.APPENDIX_F_REMOVED,
+        t.PROJECT_ID,
+        t.PERMIT_NUMBER,
+    from t123 t
+    ), g0a9s8d as (pivot t1234 on j7 using max(TRUNK_DIAMETER))
+    from g0a9s8d g
+    SELECT g.APPENDIX_F_REMOVED_1, g.JURISDICTION, g.PERMIT_STATUS
+
+
+
     """
 )
 
+#%%
 
+
+
+db.sql(
+"""--sql,
+create view aa as
+select
+    *
+from autompg, autompg a
+limit 10
+"""
+)
+#%%
+db.sql(
+"""--sql,
+select
+    a."model-year", a.mpg
+from aa a
+"""
+)
+
+#%%
+
+
+#%%
+from dabbler.lsp.db_data import make_db, make_completion_map
+from dabbler.db_stuff import get_db_data_new
+
+dbd = get_db_data_new(db)
+db2 = make_db(dbd)
+
+
+#%%
+
+for i in range(10):
+    exec(f"""df7{i} = pd.DataFrame({{'a':[1,2+{i},3],'b':[4,5,6]}})""")
+
+db.sql(
+"""--sql,
+select
+    *
+from df70, df7, df71, df75, df78
+"""
+)
 
 #%%
 db.sql(

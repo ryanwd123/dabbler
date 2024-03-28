@@ -118,7 +118,15 @@ def make_db(db_data:dict):
     for schema, item, sql, cols in db_data['data']:
         if not cols:
             continue
-        col_txt = ',\n'.join([f'"{c[0]}" {c[1]}' for c in cols])
+        col_names = []
+        col_items = []
+        for c, d in cols:
+            if c in col_names:
+                continue
+            col_names.append(c)
+            col_items.append([c, d])
+
+        col_txt = ',\n'.join([f'"{c[0]}" {c[1]}' for c in col_items])
         sql2 = f'create table {item}({col_txt})'
         db2.execute(f'use {schema}; {sql2}')
 
@@ -201,8 +209,10 @@ def make_completion_map(db:duckdb.DuckDBPyConnection,db_data):
                 else:
                     item_map[item] = col_completions
 
-        
-    for cat, schema in [x.split('.') for x in db_data['schemas']]:
+    cur_db = db_data['current_schema'].split('.')[0]
+
+    for cat_schema in db_data['schemas']:
+        cat, schema = cat_schema.split('.')
         cat_comp = CmpItem(
             label=cat,
             kind=CompletionItemKind.Folder,
@@ -221,6 +231,12 @@ def make_completion_map(db:duckdb.DuckDBPyConnection,db_data):
             obj_type='schema',
             doc=None)
         
+        if cat == cur_db:
+            if schema not in item_map and schema not in item_map['root_namespace']:
+                item_map[schema] = item_map[cat_schema]
+                item_map['root_namespace'].append(schema_comp)
+
+
         if cat not in item_map:
             item_map[cat] = []
             item_map['root_namespace'].append(cat_comp)

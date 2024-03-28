@@ -118,13 +118,16 @@ check_choices = (
 )
 
 
-def find_end(p):
+def find_end(p,cur_token):
     choices = list(p.choices().keys())
+    if 'table_ref' in choices and cur_token == 'from':
+        p.feed_token(Token('IDENT', 'placeholder'))
+        choices = list(p.choices().keys())
     if '$END' in choices:
         try:
             return p.feed_eof()
-        except:
-            pass
+        except Exception as e:
+            print(e)
     # for typ, value in check_choices:
     #     if typ in choices:
     #         t = Token(typ, value)
@@ -175,12 +178,26 @@ def interactive_parse(sql:str,pos:int):
             print(f'choices, {token}')
         token_history.append(token)
         
-    tree = find_end(p)
+    tree = find_end(p,cur_token=token)
     if not tree and not choices_pos:
         choices_pos = list(p.choices().keys())
     return tree, choices_pos
 #%%
 
+sql2 = """--sql,
+with abc as (
+    select 1 as a, 2 as b
+)
+select 
+    *
+from 
+"""
+sql2[67]
+#%%
+p,c = interactive_parse(sql2,67)
+c
+print(p.pretty())
+#%%
 Token('RPAREN', ')') == ')'
 
 

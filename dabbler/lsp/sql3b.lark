@@ -11,7 +11,7 @@ statement: query -> select_statement
         |DETACH [DATABASE [IF EXISTS]] databse_name -> detach_statement
         |create_view -> create_view
         |alter_view -> alter_view
-        |create_table -> create_table
+        |create_table_statement -> create_table
         |create_sequence -> create_sequence
         |drop_statement -> drop_statement
         |insert_statement -> insert_statement
@@ -115,7 +115,7 @@ returning_clause: RETURNING ["*"] [col_exps]
 insert_statement: begin_insert (values|query|DEFAULT VALUES) [on_conflict_clause] [returning_clause]
 
 
-create_table: create_or_replace TABLE [IF NOT EXISTS] table_name (_AS query|col_defintions)
+create_table_statement: create_or_replace TABLE [IF NOT EXISTS] table_name (_AS query|col_defintions)
 
 col_defintions: "(" col_defintion ("," col_defintion)* [","] [table_constraints]  ")" 
 
@@ -188,7 +188,7 @@ unpivot_clause: (UNPIVOT|PIVOT_LONGER) (table_name|subquery|table_func) ON (star
 
 
 cte: WITH [RECURSIVE] cte_exp ("," cte_exp)* -> cte
-cte_exp: IDENT [cte_col_alias] _AS "(" query ")" -> cte_expression
+cte_exp: IDENT [cte_col_alias] _AS [MATERIALIZED] "(" query ")" -> cte_expression
 cte_name: IDENT
 cte_col_alias: "(" IDENT ("," IDENT)* ")" -> cte_col_alias
 
@@ -294,8 +294,8 @@ expression.3: _col_ref  -> col_ref
         // |negative_number -> number
         // |DATE STRING -> date
         |_date -> date
-        | IDENT "("[DISTINCT] [(expression ",")*] expression ")" [window_form] [filter] -> function
-        | IDENT "(" ["*"] ")" [window_form] [filter] -> function
+        | IDENT "("[DISTINCT] [(expression ",")*] expression [order_by] ")" [window_form] [filter] -> function
+        | IDENT "(" ["*"] [order_by] ")" [window_form] [filter] -> function
         | expression math expression -> operation
         | expression comp expression -> comparison
         | between
@@ -317,6 +317,7 @@ expression.3: _col_ref  -> col_ref
         | INTERVAL expression IDENT -> interval
         | expression "[" slice_args "]" -> slice
         | expression "." IDENT "("[DISTINCT] [[(expression ",")*] expression] ")" [window_form]  -> dot_function
+        | parameter
         // | SUBSTRING "(" expression FROM expression [FOR expression] ")" -> substring
         // | "EXTRACT"i "(" IDENT FROM expression ")" -> extract
         // | expression (IS [NOT] NULL|"ISNULL"i|"NOTNULL"i) -> is_null
@@ -326,6 +327,11 @@ slice_args: expression ":" expression
         | ":"
         | ":" expression
         | expression
+
+parameter: "?"
+        | "$" NUMBER
+        | "$" IDENT
+
 
 
 _col_ref: [IDENT "."] IDENT
@@ -533,7 +539,7 @@ WHEN: "WHEN"i
 DISTINCT: "DISTINCT"i
 LEADING: "LEADING"i
 EXCEPT: "EXCEPT"i
-
+MATERIALIZED: "MATERIALIZED"i
 
 //unreserved keywords
 INCREMENT: "INCREMENT"i

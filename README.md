@@ -1,7 +1,7 @@
 # dabbler
 An IPython extension and sql language server (for sql text with python files) that works with DuckDB.  This project includes a vscode extension to work with the language server.  This project is a work in progress and there could be many bugs.
 
-Table/Query browser?:
+Table/Query browser:
 ![screenshot of browser](images/gui_screenshot.png)
 
 

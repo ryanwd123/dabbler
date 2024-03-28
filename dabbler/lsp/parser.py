@@ -318,6 +318,7 @@ class SqlParserNew:
         
         try:
             tree, choices_pos = interactive_parse(sql,pos,self.log_interactive_parser)
+            self.log.debug(['interactive_parse',tree,choices_pos])
             # tree = sql_parser.parse(sql,on_error=parser_error_handler)
         except UnexpectedToken as e:
             self.log.info(['failed to parse, Unexpected Token',sql,e,e.token,e.accepts])
@@ -378,6 +379,9 @@ class SqlParserNew:
                 sibblings = ',\n'.join([f'{k} as ({v.sql})' for k,v in q.cte_sibblings.items()])
                 cte_sql = f'with {sibblings}'
             sql = f'{cte_sql}\n{q.sql}'
+            if not q.end_pos:              #testing
+                q.end_pos = len(sql)       #testing
+
             if pos >= q.start_pos and pos <= q.end_pos:
                 continue
             projection = self.db_describe_columns(sql)
@@ -424,8 +428,9 @@ check_choices = (
 )
 
 
-def find_end(p):
+def find_end(p,cur_token=None):
     choices = list(p.choices().keys())
+
     if '$END' in choices:
         try:
             return p.feed_eof()
@@ -480,10 +485,18 @@ def interactive_parse(sql:str,pos:int,logger:logging.Logger):
             choices_pos = list(p.choices().keys())
             print(f'choices, {token}')
         token_history.append(token)
-        
+    
+
+    if (len(token_history) > 0
+        and token_history[-1]
+        and token_history[-1].lower() == 'from'
+        and 'IDENT' in p.accepts()
+        and 'table_ref' in p.choices()):
+        p.feed_token(Token('IDENT', 'placeholder'))
+
     if not choices_pos:
         choices_pos = list(p.choices().keys())
-    tree = find_end(p)
+    tree = find_end(p,cur_token=token)
     logger.debug({'choices_pos':choices_pos})
     logger.debug({'tree':tree})
     return tree, choices_pos
