@@ -3,3 +3,4 @@ tmp/
 __pycache__/
 dabbler_vsc_ext/node_modules/*
 *.egg-info/
+dabbler/lsp/pygls.log

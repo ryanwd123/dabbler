@@ -75,3 +75,6 @@ DEBUG:pygls.protocol.json_rpc:Notification message received.
 DEBUG:pygls.server:Content length: 170
 DEBUG:pygls.protocol.json_rpc:Received b'Content-Length: 170\r\n\r\n{"jsonrpc":"2.0","method":"textDocument/didClose","params":{"textDocument":{"uri":"file:///c%3A/Users/ryanw/python_projects/dabbler/dabbler/dabbler/test_parser_gui.py"}}}'
 DEBUG:pygls.protocol.json_rpc:Notification message received.
+DEBUG:pygls.server:Content length: 64
+DEBUG:pygls.protocol.json_rpc:Received b'Content-Length: 64\r\n\r\n{"jsonrpc":"2.0","method":"$/setTrace","params":{"value":"off"}}'
+DEBUG:pygls.protocol.json_rpc:Notification message received.
