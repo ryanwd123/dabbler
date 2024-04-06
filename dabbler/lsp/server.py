@@ -47,10 +47,11 @@ sql_server = InlineSqlLangServer("pygls-json-example", "v0.1")
 
 
 # trigger_characters=[":",'.',' '],
+@sql_server.thread()
 @sql_server.feature(
     lsp.TEXT_DOCUMENT_COMPLETION,
     lsp.CompletionOptions(
-        trigger_characters=[":", "."," ",'/'], all_commit_characters=[]
+        trigger_characters=[":", ".",'/', ' '],
     ),  # all_commit_characters=[":"]
 )
 def completions(
@@ -59,6 +60,7 @@ def completions(
     """Returns completion items."""
     # ls.zmq_check_for_update()
     # ls.check_sockets()
+    start = time.time()
     document = ls.workspace.get_document(params.text_document.uri)
     current_line_txt = document.lines[params.position.line]
 
@@ -69,6 +71,7 @@ def completions(
 
     # ls.show_message_log(f'{params}')
     # self.ls.show_message_log(f'\nsql_rng: {sql_rng.start,sql_rng.end}\nleft of idx{document.source[sql_rng.cur_idx-5:sql_rng.cur_idx]}\n{sql_rng.txt}\n{document.source[sql_rng.start:sql_rng.end]}')
+
 
     if not sql_rng:
         return None
@@ -82,6 +85,8 @@ def completions(
     comps = ls.completer.route_completion2(
         pos_in_range, sql_rng, trigger, params.position.line, current_line_txt
     )
+    # ls.show_message_log(f'completion time: {time.time()-start}')
+
     # except:
     # ls.show_message_log('problem with completion')
     # return None
@@ -102,7 +107,7 @@ def publish_diagnostics(ls:InlineSqlLangServer, uri, line, char,  msg):
     ls.publish_diagnostics(uri,[d])
 
 
-
+@sql_server.thread()
 @sql_server.feature(lsp.TEXT_DOCUMENT_DID_CHANGE)
 def did_change(ls: InlineSqlLangServer, params: lsp.DidChangeTextDocumentParams):
     """Text document did change notification."""
@@ -126,11 +131,11 @@ def did_change(ls: InlineSqlLangServer, params: lsp.DidChangeTextDocumentParams)
         # ls.show_message_log(f"sql: {sql_range}")
         start = time.time()
         p = sql_parser.parse(sql_range.txt)
-        ls.log.debug(['parse time',time.time()-start])
+        # ls.log.debug(['parse time',time.time()-start])
 
 
     except Exception as e:
-        ls.log.debug(['parse time',time.time()-start])
+        # ls.log.debug(['parse time',time.time()-start])
         rng_start_line, rng_start_col = line_col(
         ls.workspace.get_document(params.text_document.uri).source, sql_range.start
         )
@@ -143,6 +148,8 @@ def did_change(ls: InlineSqlLangServer, params: lsp.DidChangeTextDocumentParams)
     
     else:
         ls.publish_diagnostics(params.text_document.uri, [])
+
+
 
 @sql_server.feature(lsp.TEXT_DOCUMENT_DID_OPEN)
 async def did_open(ls: InlineSqlLangServer, params: lsp.DidOpenTextDocumentParams):
@@ -317,9 +324,10 @@ def format_range(ls: InlineSqlLangServer, *args):
 
 
 def main():
-    # import logging
+    import logging
+    from pathlib import Path
 
-    # logging.basicConfig(filename="pygls.log", filemode="w", level=logging.DEBUG)
+    logging.basicConfig(filename=Path(__file__).parent.joinpath("pygls.log"), filemode="w", level=logging.DEBUG)
     sql_server.start_io()
     # sql_server.check_sockets2()
     # sql_server.create_sockets2()

@@ -1,94 +1,55 @@
 #%%
-from dabbler.lsp.parser import interactive_parse, sql_parser, Token, get_parser
+from tkinter import N
 import duckdb
-db = duckdb.connect(':memory:')
+from dabbler.lsp.new_parser import interactive_parse_new
+from dabbler.lsp.parser import SqlParserNew
+from dabbler.lsp.server_classes import SqlCompleter
+from dabbler.db_stuff import get_db_data_new
+
+from pathlib import Path
+import logging
+logger = logging.getLogger(__name__)
+db = duckdb.connect()
+db.sql("create or replace table potato(a int, b int, c int)")
 #!%load_ext dabbler.ext_debug
 
-sql = """
-with num as (
-select
-    l."Draw Date", unnest(split(l."Winning Numbers",' ')) as numbers
-from './../../sample_data/Lottery.csv' l)
-select
-    numbers,
-    count(*) as freq
-FROM 
-"""
-
-p = sql_parser.parse_interactive(sql)
-tokens = p.iter_parse()
-token_history = []
-# tk = next(lex)
-choices_pos = []
-#%%
-while True:
-    try:
-        token = next(tokens)
-        token_history.append(token)
-        print(token)
-        print(', '.join(p.accepts()))
-    except StopIteration:
-        break
-#%%
-p.accepts()
-p.choices()
-if (token_history[-1].lower() == 'from'
-    and 'IDENT' in p.accepts()
-    and 'table_ref' in p.choices()):
-    p.feed_token(Token('IDENT', 'placeholder'))
-p.feed_eof()
-
-#%%
-sql_parser = get_parser()
-
 sql = """--sql
-create table abc (
-    wbs VARCHAR,
-    name VARCHAR,
-);
-create table def (
-    wbs VARCHAR,
-    name VARCHAR,
-);
-attach 'abc.db'; attach 'def.db';
-from information_schema i SELECT i.character_sets;
-"""
-sql = """--sql
-CREATE TABLE idf(
-    my_name VARCHAR,
-    my_age INTEGER
-)
-"""
+with tst_cte as (
+    select
+        p.a,
+        p.b,
+        p.c,
+    from potato p
+    join zz z on z.a = p.a
+ )
+from tst_cte t
+SELECT t.a, t.b, t.c """
+sql[len(sql)-1]
 
+class FakeLs:
+    def __init__(self):
+        self.logger = logging.getLogger(__name__)
+        self.db = duckdb.connect()
+        self.db_data = get_db_data_new(self.db)
+        self.log = logging.getLogger(__name__)
 
-
-t = sql_parser.parser.parse(sql)
-
-print(t.pretty())
+ls = FakeLs()
+p = SqlParserNew(db,None,logger,r'C:\test')
+db_data = get_db_data_new(db)
+db_data['file_search_path'] = r'C:\test'
+c = SqlCompleter(db_data,ls)
+# interactive_parse_new(sql, 121)
 # %%
-p = sql_parser.parse_interactive(sql)
-tokens = p.iter_parse()
-token_history = []
-# tk = next(lex)
-choices_pos = []
+r = p.parse_sql(sql,127)
+r[0].queries
 #%%
-while True:
-    try:
-        token = next(tokens)
-        token_history.append(token)
-        print(token)
-        print(', '.join(p.accepts()))
-    except StopIteration:
-        break
+len(sql)
+a,b,g = c.get_queries(len(sql)-1,sql)
+b.queries_list[0].end_pos
 #%%
-p.accepts()
-p.choices()
+if b.queries_list[1].ctes:
+    print('yes')
 
+b.queries_list[1].ctes
 #%%
-import logging
-log = logging.getLogger('dabbler')
-interactive_parse(sql, len(sql),log)
-from dabbler.lsp.parser import SqlParserNew
-p = SqlParserNew(db,None,log)
-p.parse_sql(sql,1)
-# %%
+c.parse_sql2(127,sql)

@@ -100,8 +100,8 @@ class InlineSqlLangServer(LanguageServer):
         self.main_port = self.find_port()
         self.socket.connect(f"tcp://127.0.0.1:{self.main_port}")
 
-        ctx2 = Context().instance()
-        self.handshake_socket = ctx2.socket(zmq.PAIR)
+        # ctx2 = Context().instance()
+        self.handshake_socket = ctx1.socket(zmq.PAIR)
         self.handshake_port = self.find_port()
         self.handshake_socket.bind(f"tcp://127.0.0.1:{self.handshake_port}")
 
@@ -251,7 +251,7 @@ class SqlCompleter:
             return None, None, choices_pos
         filtered = [x for x in queries.queries_list if x.start_pos <= pos <= x.end_pos]
         if len(filtered) == 0:
-            return None, None, choices_pos
+            return queries.queries_list[-1], queries, choices_pos
         q = filtered[0]
         return q, queries, choices_pos
 
@@ -273,7 +273,7 @@ class SqlCompleter:
         
         
         if q is None:
-            self.log_comp_map.debug(comp_map)
+            # self.log_comp_map.debug(comp_map)
             return comp_map
         for k, v in q.from_refs.items():
             if v.kind.name == "subquery":
@@ -362,7 +362,7 @@ class SqlCompleter:
 
         comp_map["root_namespace"].extend(col_to_add)
 
-        self.log_comp_map.debug(comp_map)
+        # self.log_comp_map.debug(comp_map)
         
 
         
@@ -424,7 +424,7 @@ class SqlCompleter:
                 cursor_pos, sql_rng.txt
             )
         except Exception as e:
-            self.log.info(["parsed_items_error", e,sys.exception().__traceback__])
+            # self.log.info(["parsed_items_error", e,sys.exception().__traceback__])
             # self.log.debug('parsed_items_error')
 
             parsed_items = {"root_namespace": []}

@@ -3,9 +3,11 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 from enum import Enum
-from lark import Lark, Transformer, v_args, Discard, Visitor, Tree, UnexpectedToken, Token
+from lark import Lark, Transformer, v_args, Discard, Visitor, Tree, UnexpectedToken, Token, UnexpectedCharacters
+from lark.parsers.lalr_interactive_parser import InteractiveParser
 import duckdb
 import logging
+import time
 
 lark_cache = Path(__file__).parent.joinpath('lark_cache')
 lark_file = Path(__file__).parent.joinpath('sql3b.lark')
@@ -209,14 +211,16 @@ class GetQueries(Visitor):
                continue
          name = x.children[0].value
 
-         q = self.get_query(x.children[2])
+         q = self.get_query(x.children[3])
+         if not q:
+            continue    
 
          c = Cte(
                name=name,
-               sql=self.sql[x.children[2].meta.start_pos : x.children[2].meta.end_pos],
+               sql=self.sql[x.children[3].meta.start_pos : x.children[3].meta.end_pos],
                projection=q.projection,
                cte_start=cte.meta.start_pos,
-               self_start=x.children[2].meta.start_pos,
+               self_start=x.children[3].meta.start_pos,
          )
 
          cte_map[name] = c
@@ -231,6 +235,8 @@ class GetQueries(Visitor):
       )
 
    def get_query(self, tree: Tree):
+      if not tree:
+        return
       cte_data = None
       set_op = False
       cols = []
@@ -318,10 +324,10 @@ class SqlParserNew:
         
         try:
             tree, choices_pos = interactive_parse(sql,pos,self.log_interactive_parser)
-            self.log.debug(['interactive_parse',tree,choices_pos])
+            # self.log.debug(['interactive_parse',tree,choices_pos])
             # tree = sql_parser.parse(sql,on_error=parser_error_handler)
         except UnexpectedToken as e:
-            self.log.info(['failed to parse, Unexpected Token',sql,e,e.token,e.accepts])
+            self.log.info(['failed to parse, Unexpected Token',sql,e,e.token])
             return None, None
         except Exception as e:
             self.log.info(['failed to parse',sql,e])
@@ -396,7 +402,7 @@ class SqlParserNew:
                         v.projection = queries.queries[v.self_start].projection
         
         
-        self.log_query_output.debug(queries.queries_list)
+        # self.log_query_output.debug(queries.queries_list)
         return queries, choices_pos
     
 
@@ -405,7 +411,7 @@ class SqlParserNew:
             return self.projection_cache[sql]
         
         if incomplete_col_ref.search(f'{sql} '):
-            self.log.debug(['skipping describe col, incomplete col ref',sql])
+            # self.log.debug(['skipping describe col, incomplete col ref',sql])
             return
 
         try:
@@ -417,86 +423,110 @@ class SqlParserNew:
             self.projection_cache[sql] = data
             return data
         except Exception as e:  # noqa: E722
-            self.log.debug(['failed to run describe',sql,e,os.getcwd()])
+            # self.log.debug(['failed to run describe',sql,e,os.getcwd()])
             return
         
 
 
-check_choices = (
-    ('RPAREN', ')'),
-    ('NAME', 'placeholder'),
-)
-
-
-def find_end(p,cur_token=None):
+def find_end(p:InteractiveParser,cur_token:Token=None):
     choices = list(p.choices().keys())
+    if 'table_ref' in choices and cur_token.upper() in ['FROM','JOIN']:
+        try:
+            p.feed_token(Token('IDENT', 'placeholder'))
+            choices = list(p.choices().keys())
+        except:
+            pass
+
 
     if '$END' in choices:
         try:
             return p.feed_eof()
-        except:
+        except Exception as e:
             pass
-    # for typ, value in check_choices:
-    #     if typ in choices:
-    #         t = Token(typ, value)
-    #         print(f'feeding {t}')
-    #         p.feed_token(t)
-    #         return find_end(p)
+
+
+@dataclass
+class TokenHistory:
+    token:Token
+    choices:list
+    accept:list
+
+@dataclass
+class ParseResult:
+    parser:InteractiveParser
+    tree:Tree
+    choices:list[str]
+    token_history:list[TokenHistory]
+    tokens_to_pos:list[TokenHistory]
+    duration:float
+
+
+no_space_tokens = set([".", ",", ";", "(", ")", "[", "]","{","}"])
+
 
 
 def interactive_parse(sql:str,pos:int,logger:logging.Logger):
-
+    start = time.time()
     p = sql_parser.parse_interactive(sql)
     tokens = p.iter_parse()
-    token_history = []
+    token_history:list[TokenHistory] = []
+
+    token_history.append(
+        TokenHistory(
+            token=None,
+            choices=list(p.choices().keys()),
+            accept=list(p.accepts())
+        )
+    )
     # tk = next(lex)
     choices_pos = []
-    logger.debug(['interactive_parse',sql,pos])
+    if logger:
+        # logger.debug(['interactive_parse',sql,pos])
+        pass
+    
+    token = None
         
     while True:
-        token = None
+        prev_token = token
         try:
             token = next(tokens)
         except StopIteration:
             break
+        except UnexpectedCharacters as e:
+            # print(e)
+            break
         except UnexpectedToken as e:
-            print('unexpected token', e.token, e.token.type)
-            if e.token == '$END':
-                print('end')
-                break
-            choices = p.choices().keys()
-            if 'col_replace' in choices and e.token == ')':
-                if not '_AS' in choices:
-                    p.feed_token(Token('NAME', 'placeholder'))
-                p.feed_token(Token('_AS', 'as'))
-                p.feed_token(Token('NAME', 'placeholder'))
-                p.feed_token(e.token)
-                continue
-            
-            if 'col_exclude' in choices and e.token == ')':
-                p.feed_token(Token('NAME', 'placeholder'))
-                p.feed_token(e.token)
-                continue
-            
-        except Exception as e:
-            logger.exception(['failed to parse',sql,e])
+            # print(e)
+            break
         
-        if not choices_pos and token and token.end_pos == pos:
-            choices_pos = list(p.choices().keys())
-            print(f'choices, {token}')
-        token_history.append(token)
-    
+        token_history.append(
+            TokenHistory(
+                token=prev_token,
+                choices=list(p.choices().keys()),
+                accept=list([])
+            )
+        )
 
-    if (len(token_history) > 0
-        and token_history[-1]
-        and token_history[-1].lower() == 'from'
-        and 'IDENT' in p.accepts()
-        and 'table_ref' in p.choices()):
-        p.feed_token(Token('IDENT', 'placeholder'))
+    token_history.append(
+        TokenHistory(
+            token=prev_token,
+            choices=list(p.choices().keys()),
+            accept=list([])
+        )
+    )
 
-    if not choices_pos:
-        choices_pos = list(p.choices().keys())
-    tree = find_end(p,cur_token=token)
-    logger.debug({'choices_pos':choices_pos})
-    logger.debug({'tree':tree})
+    result_history:list[TokenHistory] = []
+
+    for i, t in enumerate(token_history):
+        if t.token is None:
+            result_history.append(t)
+            continue
+        if t.token.end_pos < pos or (t.token.end_pos <= pos and t.token in no_space_tokens):
+            result_history.append(t)
+        else:
+            break
+    t = result_history[-1]
+    tree=find_end(p,cur_token=token)
+    choices_pos = t.choices
+    # print(t)
     return tree, choices_pos

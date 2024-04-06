@@ -1,3 +1,4 @@
+from filecmp import cmp
 from lsprotocol.types import (
     CompletionItemKind,
     MarkupContent,
@@ -144,6 +145,7 @@ def make_completion_map(db:duckdb.DuckDBPyConnection,db_data):
     function_docs = json.loads(Path(__file__).parent.joinpath('functions.json').read_text())
     kind_map = {
         'table':CompletionItemKind.File,
+        'table_macro':CompletionItemKind.File,
         'function':CompletionItemKind.Function,
     }
 
@@ -155,6 +157,24 @@ def make_completion_map(db:duckdb.DuckDBPyConnection,db_data):
 
     item_map:dict[str,list[CmpItem]] = {}
     item_map['root_namespace'] = []
+
+    for db_scm, fn_name, fn_type in db_data['functions']:
+        if fn_type == 'table_macro':
+            obj_type = 'table_macro'
+        else:
+            obj_type = 'function'
+
+        comp_item = CmpItem(
+                label=fn_name,
+                kind=kind_map[obj_type],
+                detail=None,
+                typ='function',
+                sort='9',
+                obj_type=obj_type,
+                doc=None)
+        if db_scm not in item_map:
+            item_map[db_scm] = []
+        item_map[db_scm].append(comp_item)
 
     for db_scm, item, obj_type, comp_detial, sql, cols in records:
         
@@ -231,11 +251,6 @@ def make_completion_map(db:duckdb.DuckDBPyConnection,db_data):
             obj_type='schema',
             doc=None)
         
-        if cat == cur_db:
-            if schema not in item_map and schema not in item_map['root_namespace']:
-                item_map[schema] = item_map[cat_schema]
-                item_map['root_namespace'].append(schema_comp)
-
 
         if cat not in item_map:
             item_map[cat] = []
@@ -245,8 +260,16 @@ def make_completion_map(db:duckdb.DuckDBPyConnection,db_data):
         
         root_labels = [x.label for x in item_map['root_namespace']]
         item_map['root_namespace'].extend([x for x in item_map['system.main'] if x.label not in root_labels])
-        
-        
+    
+    for cat_schema in db_data['schemas']:
+        cat, schema = cat_schema.split('.')
+        if cat == cur_db:
+            if schema not in item_map and schema not in item_map['root_namespace']:
+                if not cat_schema in item_map:
+                    item_map[cat_schema] = []
+                item_map[schema] = item_map[cat_schema]
+                item_map['root_namespace'].append(schema_comp)
+    
     return item_map
 
 

@@ -31,6 +31,17 @@ def get_db_data_new(db:duckdb.DuckDBPyConnection, file_search_path:str=None):
             left join cols c using (db_scm, table_name)
         """).fetchall()
 
+    db_functions = db.sql(
+            """--sql,
+            select
+                database_name||'.'||schema_name as db_scm,
+                function_name,
+                function_type,
+            from duckdb_functions()
+            WHERE internal = false
+            """
+            ).fetchall()
+
     taken_table_names = [x[0] for x in db.sql(
         """
         select distinct 
@@ -80,6 +91,7 @@ def get_db_data_new(db:duckdb.DuckDBPyConnection, file_search_path:str=None):
     db_data = {'data':db_items,
             'dataframes':dataframes,
             'databases':databases,
+            'functions':db_functions,
             'schemas':schemas,
             'current_schema':current_schema,
             'cwd':os.getcwd(),

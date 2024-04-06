@@ -275,8 +275,8 @@ lambda_exp: "(" IDENT ("," IDENT)* ")" "->" expression
 
 col_replace: expression _AS IDENT
 col_exclude: IDENT
-exclude: EXCLUDE "(" [(col_exclude ",")*] col_exclude ")"
-replace: REPLACE "(" [(col_replace ",")*] col_replace ")"
+exclude: EXCLUDE "(" [[(col_exclude ",")*] col_exclude] [","] ")"
+replace: REPLACE "(" [[(col_replace ",")*] col_replace] [","]")"
 
 
 
@@ -294,8 +294,8 @@ expression.3: _col_ref  -> col_ref
         // |negative_number -> number
         // |DATE STRING -> date
         |_date -> date
-        | IDENT "("[DISTINCT] [(expression ",")*] expression [order_by] ")" [window_form] [filter] -> function
-        | IDENT "(" ["*"] [order_by] ")" [window_form] [filter] -> function
+        | [IDENT "."] IDENT "("[DISTINCT] [(expression ",")*] expression [order_by] ")" [window_form] [filter] -> function
+        | [IDENT "."] IDENT "(" ["*"] [order_by] ")" [window_form] [filter] -> function
         | expression math expression -> operation
         | expression comp expression -> comparison
         | between
@@ -335,6 +335,10 @@ parameter: "?"
 
 
 _col_ref: [IDENT "."] IDENT
+
+
+
+
 _z9_incomplete_col_ref: [IDENT "."] IDENT "."
 _date: DATE STRING
 

@@ -6,16 +6,9 @@ sys.path.append(str(Path(__file__).parent.parent))
 import duckdb
 db = duckdb.connect()
 # db.execute("set file_search_path to 'C:\\scripts'")
-#!%load_ext dabbler.ext_debug
-#%%
-db.sql(
-"""--sql,
-select
-    *
-from './../../sample_data'
-"""
-)
-#%%
+###!%load_ext dabbler.ext_debug
+#!%load_ext dabbler.ext
+
 df1 = pd.DataFrame({'a':[1,2,3],'b':[4,5,6]})
 
 files =  list(Path('./../../sample_data/austin').glob("*.csv"))
@@ -38,106 +31,21 @@ for f in files:
         select * from read_csv_auto('{f}',header=true)
         """)
 db.execute("force checkpoint")
-# db.sql("create or replace view db_sql as select * from t_medicare")
-# db.sql("create or replace view db_sql_with_alias as select * from t_medicare",'abc')
-# db.execute("create or replace view db_execute_with_params as select * from t_medicare",[1,2,3])
-# db.execute("create or replace view db_execute_with_params2 as select * from t_medicare", [1,2,3])
-# db.execute("create or replace view db_execute_with_params3 as select * from t_medicare" , [1,2,3])
-# db.executemany("create or replace view db_executemany as select * from t_medicare")
-# db.sql('create or replace view sql_single_quote as select * from t_medicare')
-# db.execute("attach './../../sample_data/imdb.duckdb'")
-# zz!%load_ext dabbler.ext
-# from dabbler.lsp.db_data import get_db_data_new,make_db,make_completion_map
-#%%
 
+#%%
+df7898 = pd.DataFrame({'a':[1,2,3],'b':[4,5,6]})
+
+#%%
 db.sql(
-    """--sql
-    create or REPLACE TABLE piv_tree as
-    PIVOT Issued_Tree_Permits ON PERMIT_STATUS USING max(ISSUED_DATE) GROUP BY APPLICATION_TYPE
-    """
-)
-
-#%%
-j = pd.DataFrame({'a':[1,2,3],'b':[4,5,6]})
-import os
-os.chdir(r'C:\scripts')
-#%%
-
-db.sql(
-    """--sql
-    from Issued_Tree_Permits i
-    SELECT i.PERMIT_ADDRESS, COLUMNS ((j) -> j like 'P%'), i.REASON_FOR_REQUEST 
-    """
+"""--sql,
+select
+    *
+from sasdf
+"""
 )
 
 
 #%%
-db.sql(
-    """--sql
-    UNPIVOT piv_tree ON * exclude (APPLICATION_TYPE) INTO NAME qq VALUE jj 
-    """
-)
-
-
-
-
-#%%
-
-db.execute("force checkpoint")
-
-import duckdb
-db = duckdb.connect()
-
-db.sql(
-    """--sql
-    CREATE or REPLACE TABLE t1 as
-    from (VALUES
-        ('a',1),
-        ('b',2),
-        ('c',3),
-        ('d',4),
-        ('e',5),
-        (NULL,6),
-        ) as a(c1,c2);
-    
-    CREATE OR REPLACE TABLE t2 as
-    from (VALUES
-        ('a',1),
-        ('b',2),
-        ('c',3),
-        ('j',4),
-        ) as a(c1,c2);
-    
-    from t2 t
-    SELECT t.c1
-    WHERE t.c1 not in (SELECT DISTINCT c1 from t1)
-        
-    """
-)
-#%%
-db.sql(
-    """--sql
-    from read_csv_auto('./../../../../Scripts/bases.csv',header=true) b 
-    select b.base_ce, b.oh_ce
-           
-    """
-)
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-#%%
-
 db.sql(
     """--sql
     with aaa as (
@@ -184,8 +92,11 @@ db.sql(
         t.PERMIT_NUMBER,
     from t123 t
     ), g0a9s8d as (pivot t1234 on j7 using max(TRUNK_DIAMETER))
-    from g0a9s8d g
-    SELECT g.APPENDIX_F_REMOVED_1, g.JURISDICTION, g.PERMIT_STATUS
+    from ggg
+    SELECT *
+
+        
+        
 
 
 
@@ -193,24 +104,103 @@ db.sql(
 )
 
 #%%
-
-
-
 db.sql(
 """--sql,
-create view aa as
-select
-    *
-from autompg, autompg a
-limit 10
+CREATE SCHEMA v;
 """
 )
 #%%
 db.sql(
 """--sql,
+CREATE TABLE v.t1(
+    a INTEGER,
+)
+"""
+)
+
+
+#%%
+
+db.execute("force checkpoint")
+
+import duckdb
+db = duckdb.connect()
+
+db.sql(
+    """--sql
+    CREATE or REPLACE TABLE t1 as
+    from (VALUES
+        ('a',1),
+        ('b',2),
+        ('c',3),
+        ('d',4),
+        ('e',5),
+        (NULL,6),
+        ) as a(c1,c2);
+    
+    CREATE OR REPLACE TABLE t2 as
+    from (VALUES
+        ('a',1),
+        ('b',2),
+        ('c',3),
+        ('j',4),
+        ) as a(c1,c2);
+    
+    from t2 t
+    SELECT t.c1
+    WHERE t.c1 not in (SELECT DISTINCT c1 from t1)
+        
+    """
+)
+#%%)
+
+#%%
+db.sql(
+"""--sql,
+CREATE SCHEMA v;
+"""
+)
+#%%
+db.sql(
+"""--sql,
+CREATE TABLE v.t1(
+    a INTEGER,
+)
+"""
+)
+#%%
+db.sql(
+"""--sql,
+CREATE macro v.t3() as TABLE select 'abc';
+CREATE macro v.t2() as 'abc';
+"""
+)
+#%%
+db.sql(
+"""--sql,
+SELECT 
+    i.PERMIT_NUMBER,
+    i.*
+
+from Issued_Tree_Permits i
+WHERE i.PERMIT_STATUS in ('Approved with Conditions')
+or i.COUNCIL_DISTRICT = 1
+
+"""
+)
+#%%
+
+df77 = pd.DataFrame({'a':[1,2,3],'b':[4,5,6]})
+
+#%%
+db.sql(
+"""--sql,
 select
-    a."model-year", a.mpg
-from aa a
+    database_name||'.'||schema_name as db_scm,
+    function_name,
+    function_type,
+from duckdb_functions()
+WHERE internal = false
 """
 )
 
@@ -221,9 +211,14 @@ from aa a
 from dabbler.lsp.db_data import make_db, make_completion_map
 from dabbler.db_stuff import get_db_data_new
 
+
 dbd = get_db_data_new(db)
+
 db2 = make_db(dbd)
 
+comp_map = make_completion_map(db2, dbd)
+
+dbd['functions']
 
 #%%
 
