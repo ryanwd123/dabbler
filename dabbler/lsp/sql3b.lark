@@ -318,6 +318,9 @@ expression.3: _col_ref  -> col_ref
         | expression "[" slice_args "]" -> slice
         | expression "." IDENT "("[DISTINCT] [[(expression ",")*] expression] ")" [window_form]  -> dot_function
         | parameter
+        |"[" [expression] ("," expression)* [","] "]" -> list
+        | "{" STRING ":" expression ("," STRING ":" expression)* [","] "}" -> struct
+        | MAP "{" expression ":" expression ("," expression ":" expression)* [","] "}" -> map
         // | SUBSTRING "(" expression FROM expression [FOR expression] ")" -> substring
         // | "EXTRACT"i "(" IDENT FROM expression ")" -> extract
         // | expression (IS [NOT] NULL|"ISNULL"i|"NOTNULL"i) -> is_null
@@ -410,9 +413,6 @@ type:  DOUBLE
        | USMALLINT
        | TINYINT
        | UTINYINT
-       | STRUCT
-       | LIST
-       | MAP
        | UNION
        | DECIMAL "(" NUMBER "," NUMBER ")" 
 
