@@ -119,7 +119,7 @@ create_table_statement: create_or_replace TABLE [IF NOT EXISTS] table_name (_AS 
 
 col_defintions: "(" col_defintion ("," col_defintion)* [","] [table_constraints]  ")" 
 
-col_defintion: IDENT type [col_constraint]
+col_defintion: IDENT type ["(" NUMBER ")"] [col_constraint]
         | IDENT generated_col
 
 generated_col: [type] [GENERATED ALWAYS] _AS "(" expression ")" [(VIRTUAL|STORED)]

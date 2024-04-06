@@ -33,6 +33,7 @@ def check_name(col:str):
     if col:
         if (' ' in col or
             '-' in col or
+            '/' in col or
             '.' in col or
             col.upper() in duckdb_keyworkds):
             return f'"{col}"'

@@ -128,7 +128,7 @@ def make_db(db_data:dict):
             col_items.append([c, d])
 
         col_txt = ',\n'.join([f'"{c[0]}" {c[1]}' for c in col_items])
-        sql2 = f'create table {item}({col_txt})'
+        sql2 = f'create table {check_name(item)}({col_txt})'
         db2.execute(f'use {schema}; {sql2}')
 
     db2.execute(f"use {db_data['current_schema']};")
@@ -158,6 +158,8 @@ def make_completion_map(db:duckdb.DuckDBPyConnection,db_data):
     item_map:dict[str,list[CmpItem]] = {}
     item_map['root_namespace'] = []
 
+    cur_db = db_data['current_schema'].split('.')[0]
+
     for db_scm, fn_name, fn_type in db_data['functions']:
         if fn_type == 'table_macro':
             obj_type = 'table_macro'
@@ -176,13 +178,28 @@ def make_completion_map(db:duckdb.DuckDBPyConnection,db_data):
             item_map[db_scm] = []
         item_map[db_scm].append(comp_item)
 
+
     for db_scm, item, obj_type, comp_detial, sql, cols in records:
+
         
+        item = check_name(item)
+
         if not db_scm:
             db_scm = 'root_namespace'
-        
+
+        db_schema_split = db_scm.split('.')
+        if len(db_schema_split) == 2:
+            db, schema = db_schema_split
+        else:
+            db = 'aa'
+            schema = 'aabb'
+
         if db_scm not in item_map:
             item_map[db_scm] = []
+
+        if db == cur_db:
+            if schema not in item_map:
+                item_map[schema] = []
         
         fn_doc = None
         fn_detail = None
@@ -209,6 +226,9 @@ def make_completion_map(db:duckdb.DuckDBPyConnection,db_data):
         
 
         item_map[db_scm].append(comp_item)
+        if db == cur_db:
+            item_map[schema].append(comp_item)
+
         if db_scm == db_data['current_schema']:
             item_map['root_namespace'].append(comp_item)
         
@@ -223,13 +243,15 @@ def make_completion_map(db:duckdb.DuckDBPyConnection,db_data):
                 obj_type='column',
                 doc=None) for c in cols]
             item_map[f'{db_scm}.{item}'] = col_completions
+            if db == cur_db:
+                item_map[f'{schema}.{item}'] = col_completions
             if db_scm == db_data['current_schema']:
                 if item in item_map:
                     item_map[item].extend(col_completions)
                 else:
                     item_map[item] = col_completions
 
-    cur_db = db_data['current_schema'].split('.')[0]
+
 
     for cat_schema in db_data['schemas']:
         cat, schema = cat_schema.split('.')
@@ -251,6 +273,12 @@ def make_completion_map(db:duckdb.DuckDBPyConnection,db_data):
             obj_type='schema',
             doc=None)
         
+        if cat == cur_db:
+            if schema not in item_map and schema not in item_map['root_namespace']:
+                if not cat_schema in item_map:
+                    item_map[cat_schema] = []
+                item_map[schema] = item_map[cat_schema]
+                item_map['root_namespace'].append(schema_comp)
 
         if cat not in item_map:
             item_map[cat] = []
@@ -261,14 +289,14 @@ def make_completion_map(db:duckdb.DuckDBPyConnection,db_data):
         root_labels = [x.label for x in item_map['root_namespace']]
         item_map['root_namespace'].extend([x for x in item_map['system.main'] if x.label not in root_labels])
     
-    for cat_schema in db_data['schemas']:
-        cat, schema = cat_schema.split('.')
-        if cat == cur_db:
-            if schema not in item_map and schema not in item_map['root_namespace']:
-                if not cat_schema in item_map:
-                    item_map[cat_schema] = []
-                item_map[schema] = item_map[cat_schema]
-                item_map['root_namespace'].append(schema_comp)
+    # for cat_schema in db_data['schemas']:
+    #     cat, schema = cat_schema.split('.')
+    #     if cat == cur_db:
+    #         if schema not in item_map and schema not in item_map['root_namespace']:
+    #             if not cat_schema in item_map:
+    #                 item_map[cat_schema] = []
+    #             item_map[schema] = item_map[cat_schema]
+    #             item_map['root_namespace'].append(schema_comp)
     
     return item_map
 
