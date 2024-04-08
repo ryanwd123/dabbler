@@ -1,13 +1,6 @@
 from queue import Queue
-import pprint
-
-# from PyQt6 import QtWidgets, QtCore, QtGui
-# from PyQt6.QtCore import pyqtSlot as Slot, pyqtSignal as Signal
 from dabbler.common import FromLangServer, ToLangServer, KeyFile
 import logging
-
-# from PySide6 import QtWidgets, QtCore, QtGui
-# from PySide6.QtCore import Slot, Signal
 from qtpy import QtWidgets, QtCore, QtGui
 from qtpy.QtCore import Slot, Signal
 from IPython import get_ipython
@@ -18,7 +11,6 @@ import duckdb
 from dabbler.db_stuff import get_db_data_new
 
 margins = 0
-
 
 class Shortcut:
     def __init__(self, Seq, Parent, target):
@@ -49,84 +41,20 @@ class TreeItem(QtWidgets.QTreeWidgetItem):
         self.item_type = item_type
 
 
-class VarWatcher(object):
-    def __init__(self, ip, parent: "ZmqServer", q: Queue = None):
+class IPythonExecutionMonitor(object):
+    def __init__(self, ip, parent: "ZmqServer", timer: QtCore.QTimer = None):
         self.shell = ip
-        self.server = parent
-        self.q = q
-
-    # def pre_execute(self):
-    #     self.server.pre_exec = True
-    #     self.last_x = self.shell.user_ns.get('x', None)
+        self.parent = parent
+        self.timer = timer
 
     def pre_run_cell(self, info):
-        # if info:
-        # print(f'pre-run-cell event')
-        self.q.put("cell_start")
-        # self.server.cell_running = False
+        # self.q.put("cell_start")
+        self.timer.start(1_000_000)
 
     def post_run_cell(self, result):
         if result.info.cell_id:
-            self.q.put("cell_end")
-            # print('cell executed event')
-            # self.server.send_db_data()
-            # msg = {
-            #     'cmd':'ip',
-            #     'data':str(result)
-            # }
-            # self.server.respond(msg)
-            # self.server.pre_exec = False
+            self.timer.start(200)
 
-
-class ExMonitor(QtCore.QObject):
-    trigger = Signal(str)
-
-    def __init__(self, q: Queue = None) -> None:
-        super().__init__()
-        # self.trigger.connect(signal_to_emit)
-        self.q = q
-
-    def run(self):
-        item = None
-        # print('ex monitor started')
-        while True:
-            while not self.q.empty() or item is None:
-                item = self.q.get()
-            time.sleep(0.05)
-            # print(f'{item}')
-            if item == "cell_end":
-                time.sleep(0.05)
-                if self.q.empty():
-                    # print('trigger')
-                    self.trigger.emit("send_udpate")
-                else:
-                    pass
-                    # print(f'not empty')
-            else:
-                pass
-                # print(f'not cell_end:{item}')
-            item = None
-
-
-# class RepChannel(QtCore.QThread):
-#     trigger = Signal(object)
-
-#     def __init__(self, poller: zmq.Poller) -> None:
-#         super().__init__()
-#         self.thead_active = True
-#         self.poller = poller
-
-#     def run(self):
-#         while self.thead_active:
-#             socks:dict[zmq.Socket,str] = dict(self.poller.poll(500))
-#             for socket in socks:
-#                 buff = socket.recv()
-#                 msg = pickle.loads(buff)
-#                 self.trigger.emit(msg)
-
-#     def stop(self):
-#         self.thead_active = False
-#         self.wait()
 
 
 class RepChannel(QtCore.QThread):
@@ -218,17 +146,14 @@ class ZmqServer(QtCore.QObject):
         self.connect_sockets()
 
         ip = get_ipython()
-        q = Queue()
-        self.monitor_ip = VarWatcher(ip, self, q)
+        self.ipython_cell_timer = QtCore.QTimer()
+        self.ipython_cell_timer.setSingleShot(True)
+        self.ipython_cell_timer.timeout.connect(self.check_for_update)
+        self.monitor_ip = IPythonExecutionMonitor(ip, self, self.ipython_cell_timer)
         ip.events.register("pre_run_cell", self.monitor_ip.pre_run_cell)
         ip.events.register("post_run_cell", self.monitor_ip.post_run_cell)
-
-        self.ex_monitor = ExMonitor(q)
-        self.cell_monitor_thread = QtCore.QThread()
-        self.ex_monitor.moveToThread(self.cell_monitor_thread)
-        self.cell_monitor_thread.started.connect(self.ex_monitor.run)
-        self.ex_monitor.trigger.connect(self.msg_routing)
-        self.cell_monitor_thread.start()
+        
+    
 
     def clear_conn_info(self,delete=False):
         if delete:
@@ -372,9 +297,6 @@ class ZmqServer(QtCore.QObject):
     def check_for_update(self):
         data2 = get_db_data_new(self.db, self.app.file_search_path)
         self.log.debug(["checking for updated db data", data2])
-        # qq = (self.db_data['data'] != data2['data']
-        # or self.db_data['dataframes'] != data2['dataframes'])
-        # print(f'checking for updated db data {qq}')
 
         need_update = False
 

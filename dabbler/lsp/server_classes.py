@@ -2,7 +2,6 @@ import os
 import sys
 import logging
 from pathlib import Path
-import pprint
 from logging.handlers import SocketHandler
 import re as regex
 import zmq
@@ -45,11 +44,13 @@ class InlineSqlLangServer(LanguageServer):
 
         self.log = logging.getLogger("dabbler_lsp")
         self.debug = False
+        self.ctx = Context()
         self.create_sockets2()
 
         self.completer: "SqlCompleter" = None
         self.socket_connected = False
         self.socket_created = False
+        self.pathlibs_paths = {}
         self.key_file: KeyFile = None
 
     def start_io(self, stdin = None, stdout = None):
@@ -85,8 +86,8 @@ class InlineSqlLangServer(LanguageServer):
         self.log.debug(["workspace_info", workspace_info])
         
     def find_port(self):
-        ctx = zmq.Context()
-        socket = ctx.socket(zmq.PAIR)
+        # ctx = zmq.Context()
+        socket = self.ctx.socket(zmq.PAIR)
         port = socket.bind_to_random_port("tcp://127.0.0.1")
         socket.close()
         return port
@@ -95,13 +96,13 @@ class InlineSqlLangServer(LanguageServer):
 
     def create_sockets2(self):
         
-        ctx1 = Context().instance()
-        self.socket = ctx1.socket(zmq.PAIR)
+        # ctx1 = Context().instance()
+        self.socket = self.ctx.socket(zmq.PAIR)
         self.main_port = self.find_port()
         self.socket.connect(f"tcp://127.0.0.1:{self.main_port}")
 
         # ctx2 = Context().instance()
-        self.handshake_socket = ctx1.socket(zmq.PAIR)
+        self.handshake_socket = self.ctx.socket(zmq.PAIR)
         self.handshake_port = self.find_port()
         self.handshake_socket.bind(f"tcp://127.0.0.1:{self.handshake_port}")
 
@@ -161,6 +162,7 @@ class InlineSqlLangServer(LanguageServer):
                 if msg["cmd"] == "db_data":
                     # self.db_data = read_db_data(msg['data'])
                     self.completer = SqlCompleter(msg["data"], self)
+                    self.pathlibs_paths = {x[0]:x[1] for x in msg["data"]["paths"]}
                     # self.comp_thread_put({'cmd':'new_completer','data':SqlCompleter(msg['data'],None)},0)
                     self.show_message_log("recieved db_data")
 

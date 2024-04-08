@@ -35,7 +35,7 @@ from dabbler.lsp.sql_utils import (
     get_range,
     get_statement,
 )
-
+from dabbler.lsp.completion import pathlib_completetions
 
 
 if sys.platform == 'win32':
@@ -47,11 +47,11 @@ sql_server = InlineSqlLangServer("pygls-json-example", "v0.1")
 
 
 # trigger_characters=[":",'.',' '],
-@sql_server.thread()
+# @sql_server.thread()
 @sql_server.feature(
     lsp.TEXT_DOCUMENT_COMPLETION,
     lsp.CompletionOptions(
-        trigger_characters=[":", ".",'/', ' '],
+        trigger_characters=[":", ".",'/', ' ','"',"'"],
     ),  # all_commit_characters=[":"]
 )
 def completions(
@@ -60,9 +60,9 @@ def completions(
     """Returns completion items."""
     # ls.zmq_check_for_update()
     # ls.check_sockets()
-    start = time.time()
     document = ls.workspace.get_document(params.text_document.uri)
     current_line_txt = document.lines[params.position.line]
+
 
     trigger = params.context.trigger_character
 
@@ -70,10 +70,20 @@ def completions(
     sql_rng = get_sql2(document.source, params.position.line, params.position.character)
 
     # ls.show_message_log(f'{params}')
-    # self.ls.show_message_log(f'\nsql_rng: {sql_rng.start,sql_rng.end}\nleft of idx{document.source[sql_rng.cur_idx-5:sql_rng.cur_idx]}\n{sql_rng.txt}\n{document.source[sql_rng.start:sql_rng.end]}')
+    # ls.show_message_log(f'\nsql_rng: {sql_rng.start,sql_rng.end}\nleft of idx{document.source[sql_rng.cur_idx-5:sql_rng.cur_idx]}\n{sql_rng.txt}\n{document.source[sql_rng.start:sql_rng.end]}')
 
 
     if not sql_rng:
+        # ls.show_message_log(f"txt {current_line_txt[:params.position.character]}")
+        try:
+            path_completions = pathlib_completetions(current_line_txt[:params.position.character], ls.pathlibs_paths, ls.log)
+            if path_completions:
+                return path_completions
+        except Exception as e:
+            ls.log.debug(['pathlib completion error',e])
+        return None
+
+    if trigger in ['"',"'"]:
         return None
 
     pos_in_range = sql_rng.cur_idx - sql_rng.start
@@ -327,7 +337,7 @@ def main():
     import logging
     from pathlib import Path
 
-    logging.basicConfig(filename=Path(__file__).parent.joinpath("pygls.log"), filemode="w", level=logging.DEBUG)
+    # logging.basicConfig(filename=Path(__file__).parent.joinpath("pygls.log"), filemode="w", level=logging.DEBUG)
     sql_server.start_io()
     # sql_server.check_sockets2()
     # sql_server.create_sockets2()

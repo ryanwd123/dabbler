@@ -5,6 +5,7 @@ import pandas as pd
 sys.path.append(str(Path(__file__).parent.parent))
 import duckdb
 db = duckdb.connect()
+import paths_z as pp
 # db.execute("set file_search_path to 'C:\\scripts'")
 ###!%load_ext dabbler.ext_debug
 #!%load_ext dabbler.ext
@@ -40,11 +41,30 @@ db.sql(
 """--sql,
 select
     *
-from sasdf
+from Issued_Tree_Permits
+limit 10
 """
 )
+#%%
+d1 = {'a':1,'b':2}
+d2 = {'b':1,'a':2}
+
+d1 = [2,1,3]
+d1.sort()
+d1
+d1 == d2
 
 
+#%%
+p = Path(__file__).parent
+p.joinpath('/../../')
+
+root = Path('/').resolve()
+root.joinpath('Users/ryanw/Documents/test.csv').read_text()
+(pp.main / 'sql_tst/01c.sql').read_text()
+new_path = root / 'Users/ryanw/Documents/test.csv'
+jj = new_path.parent.parent / 'python_projects/cust_tk'
+jj.joinpath('main.spec').read_text()
 #%%
 db.sql(
     """--sql
@@ -92,16 +112,19 @@ db.sql(
         t.PERMIT_NUMBER,
     from t123 t
     ), g0a9s8d as (pivot t1234 on j7 using max(TRUNK_DIAMETER))
-    from ggg
-    SELECT *
+    SELECT 
+        g.APPENDIX_F_REMOVED,
+        g.JURISDICTION,
+        g.APPENDIX_F_REMOVED,
+    from t1234 g 
 
-        
         
 
 
 
     """
 )
+
 
 #%%
 db.sql(
@@ -117,14 +140,33 @@ CREATE TABLE v.t1(
 )
 """
 )
+#%%
+f = Path(__file__).parent
+"""
+f / 'abcse'
+f.joinpath('
+"""
+
+
+
+
+#%%%
+sssss = db.sql(
+"""--sql,
+select
+    i.APPENDIX_F_REMOVED,
+    i.COUNCIL_DISTRICT
+from Issued_Tree_Permits i
+"""
+)
 
 
 #%%
 
 db.execute("force checkpoint")
 
-import duckdb
-db = duckdb.connect()
+# import duckdb
+# db = duckdb.connect()
 
 db.sql(
     """--sql
@@ -163,7 +205,7 @@ CREATE SCHEMA v;
 #%%
 db.sql(
 """--sql,
-CREATE TABLE v.t1(
+CREATE TABLE v.t12(
     a INTEGER,
 )
 """
@@ -195,12 +237,8 @@ df77 = pd.DataFrame({'a':[1,2,3],'b':[4,5,6]})
 #%%
 db.sql(
 """--sql,
-select
-    database_name||'.'||schema_name as db_scm,
-    function_name,
-    function_type,
-from duckdb_functions()
-WHERE internal = false
+from v.t3() t
+select t.*
 """
 )
 

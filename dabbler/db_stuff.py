@@ -4,6 +4,7 @@ import os
 from IPython import get_ipython
 from dabbler.gui_stuff import check_dataframe_type
 from dabbler.common import check_name
+from pathlib import Path
 
 
 def get_db_data_new(db:duckdb.DuckDBPyConnection, file_search_path:str=None):
@@ -62,11 +63,36 @@ def get_db_data_new(db:duckdb.DuckDBPyConnection, file_search_path:str=None):
             and schema_name = current_schema()
         """).fetchall()]
 
+    paths = []
     dataframes = []
     ipython = get_ipython()
     for item in (ipython.ev('dir()')):
         i_type = str(type(ipython.ev(item)))
         df_type = check_dataframe_type(i_type)
+
+        if 'WindowsPath' in i_type or 'PosixPath' in i_type:
+            paths.append(
+                (item, str(ipython.ev(item)))
+            )
+
+        if i_type == "<class 'module'>":
+            if '__file__' not in ipython.ev(f'dir({item})'):
+                continue
+            if 'site-packages' in ipython.ev(item).__file__:
+                continue
+            if Path(ipython.ev(item).__file__).parent.name == 'Lib':
+                continue
+            if Path(ipython.ev(item).__file__).parent.parent.name == 'Lib':
+                continue
+            
+            for item2 in ipython.ev(f'dir({item})'):
+                item_item2 = f'{item}.{item2}'
+                i_type2 = str(type(ipython.ev(item_item2)))
+
+                if 'WindowsPath' in i_type2 or 'PosixPath' in i_type2:
+                    paths.append(
+                        (item_item2, str(ipython.ev(item_item2)))
+                    )
         
         if df_type and item[0] != '_' and item not in taken_table_names:
             unique_name = f'my_item_zz_{item}'
@@ -83,7 +109,7 @@ def get_db_data_new(db:duckdb.DuckDBPyConnection, file_search_path:str=None):
                 sql,
                 cols])
 
-
+    paths.sort(key=lambda x: f'{x[0]}-{x[1]}')
     current_schema:str = db.execute("select current_database()||'.'||current_schema()").fetchone()[0]
     databases = [x[0] for x in db.execute("select database_name from duckdb_databases()").fetchall()]
     schemas = [x[0] for x in db.execute("select database_name ||'.'|| schema_name from duckdb_schemas()").fetchall()]
@@ -92,6 +118,7 @@ def get_db_data_new(db:duckdb.DuckDBPyConnection, file_search_path:str=None):
             'dataframes':dataframes,
             'databases':databases,
             'functions':db_functions,
+            'paths':paths,
             'schemas':schemas,
             'current_schema':current_schema,
             'cwd':os.getcwd(),

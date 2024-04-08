@@ -465,9 +465,9 @@ no_space_tokens = set([".", ",", ";", "(", ")", "[", "]","{","}"])
 
 
 
-def interactive_parse(sql:str,pos:int,logger:logging.Logger):
+def interactive_parse(sql:str,pos:int,logger:logging.Logger, parser=sql_parser):
     start = time.time()
-    p = sql_parser.parse_interactive(sql)
+    p = parser.parse_interactive(sql)
     tokens = p.iter_parse()
     token_history:list[TokenHistory] = []
 
