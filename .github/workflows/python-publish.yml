@@ -15,6 +15,8 @@ jobs:
 
     steps:
     - uses: actions/checkout@v3
+      with:
+        fetch-depth: 0
 
     - name: Set up Python
       uses: actions/setup-python@v4
@@ -28,12 +30,13 @@ jobs:
 
     - name: Update version
       run: |
-        sed -i "s/__version__ = \"0.0.0\"/__version__ = \"${{ github.ref_name }}\"/" dabbler/__init__.py
         git config user.name github-actions
         git config user.email github-actions@github.com
+        git checkout -b temp-branch
+        sed -i "s/__version__ = \"0.0.0\"/__version__ = \"${{ github.ref_name }}\"/" dabbler/__init__.py
         git add dabbler/__init__.py
         git commit -m "Bump version to ${{ github.ref_name }}"
-        git push
+        git push origin HEAD:main
 
     - name: Build package
       run: python -m build
