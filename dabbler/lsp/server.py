@@ -47,7 +47,7 @@ sql_server = InlineSqlLangServer("pygls-json-example", "v0.1")
 
 
 # trigger_characters=[":",'.',' '],
-# @sql_server.thread()
+@sql_server.thread()
 @sql_server.feature(
     lsp.TEXT_DOCUMENT_COMPLETION,
     lsp.CompletionOptions(

@@ -22,6 +22,12 @@ from dabbler.gui_stuff import (
 from dabbler.gui_compenents import Shortcut, Vbox, Hbox, TreeItem, ZmqServer
 
 
+def header_format(txt:str):
+    if txt.startswith('ENUM'):
+        return 'ENUM'
+    return txt
+
+
 class TableModel(QtCore.QAbstractTableModel):
     def __init__(
         self,
@@ -250,7 +256,7 @@ class TableSelectionArea(QtWidgets.QWidget):
             # _self_z.main.app.log.info(desc_stmt)
             # _desc = _ipython_z.ev(desc_stmt)
             
-            _self_z.headers = [f"{x[0]}\n{x[1]}" for x in _desc]
+            _self_z.headers = [f"{x[0]}\n{header_format(x[1])}" for x in _desc]
             _self_z.dtypes = [x[1] for x in _desc]
             _self_z.htypes = [fmt_types.get(x, "STRING") for x in _self_z.dtypes]
             

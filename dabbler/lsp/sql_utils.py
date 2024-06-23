@@ -66,6 +66,11 @@ class CmpItem:
             label = self.label
         else:
             label = label=check_name(self.label.strip('"'))
+
+        if self.typ and self.typ.startswith('ENUM('):
+            description = 'ENUM'
+        else:
+            description = self.typ
         
         return CompletionItem(
             label=label,
@@ -74,7 +79,7 @@ class CmpItem:
             filter_text=self.label.lower(),
             documentation=self.doc,
             label_details=CompletionItemLabelDetails(
-                description=self.typ),
+                description=description),
                 detail=self.detail,
             )
 

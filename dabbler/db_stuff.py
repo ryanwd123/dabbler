@@ -9,13 +9,13 @@ from pathlib import Path
 
 def get_db_data_new(db:duckdb.DuckDBPyConnection, file_search_path:str=None):
     """gets the data to send to the language server"""
-    db_items = db.execute("""
+    db_items = db.execute("""--sql
             with
         cols as (
             select 
                 database_name||'.'||schema_name as db_scm,
                 table_name, 
-                list([column_name, data_type]) as cols
+                list([column_name, case when starts_with(data_type,'EMUM') then 'ENUM(''DUMMY'')' else data_type end]) as cols
             from duckdb_columns
             group by all
         ), db_data as (

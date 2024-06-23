@@ -27,7 +27,7 @@ duckdb_pragmas = [CompletionItem(label=f'{x[0]}',sort_text="99") for x in
                 duckdb.execute("select distinct function_name from duckdb_functions() where function_type ='pragma'").fetchall()]
 
 types_to_exclude = set(['.py','.ipynb'])
-file_path_completion_pattern = r'''.*('./)([A-Za-z0-9./_, ]+)?$'''
+file_path_completion_pattern = r'''.*('./)([A-Za-z0-9./-_, ]+)?$'''
 file_path_completion_regex = re.compile(file_path_completion_pattern)
 
 
@@ -98,8 +98,8 @@ def pathlib_completetions(text:str, path_dict:dict[str,str],logger):
     if len(path_dict) == 0:
         return
     path_strings = '|'.join([x.replace('.',r'\.') for x in path_dict.keys()])
-    slash_pattern = r""".*(^|\s+)(?P<path_ojb>(""" + path_strings + r"""))(?P<parent>(\.parent|\.joinpath\(['"][A-Za-z0-9./_, ]+['"]\))+)?(\s+)?/(\s+)?['"](?P<search>[A-Za-z0-9./_, ]+)?$"""
-    join__pattern = r""".*(^|\s+)(?P<path_ojb>(""" + path_strings + r"""))(?P<parent>(\.parent|\.joinpath\(['"][A-Za-z0-9./_, ]+['"]\))+)?\.joinpath\(["'](?P<search>[A-Za-z0-9./_, ]+)?$"""
+    slash_pattern = r""".*(^|\s+|\()(?P<path_ojb>(""" + path_strings + r"""))(?P<parent>(\.parent|\.joinpath\(['"][A-Za-z0-9./-_, ]+['"]\))+)?(\s+)?/(\s+)?['"](?P<search>[A-Za-z0-9./-_, ]+)?$"""
+    join__pattern = r""".*(^|\s+|\()(?P<path_ojb>(""" + path_strings + r"""))(?P<parent>(\.parent|\.joinpath\(['"][A-Za-z0-9./-_, ]+['"]\))+)?\.joinpath\(["'](?P<search>[A-Za-z0-9./-_, ]+)?$"""
 
     m = re.search(slash_pattern,text)
     if not m:

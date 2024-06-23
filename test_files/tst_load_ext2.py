@@ -5,7 +5,7 @@ import pandas as pd
 sys.path.append(str(Path(__file__).parent.parent))
 import duckdb
 db = duckdb.connect()
-import paths_z as pp
+# import paths_z as pp
 # db.execute("set file_search_path to 'C:\\scripts'")
 ###!%load_ext dabbler.ext_debug
 #!%load_ext dabbler.ext
@@ -32,6 +32,44 @@ for f in files:
         select * from read_csv_auto('{f}',header=true)
         """)
 db.execute("force checkpoint")
+
+#%%
+aa = Path(__file__).parent.parent.parent.parent
+aa
+
+
+#%%
+db.sql(
+"""--sql,
+select
+    count(i.CROWN_REMOVAL) FILTER (WHERE i.PERMIT_STATUS ~ '%losed') OVER (PARTITION BY i.SPECIES) as crown_removal_count,
+    
+from Issued_Tree_Permits i
+"""
+)
+
+
+#%%
+db.sql(
+"""--sql,
+CREATE type abc as ENUM (select distinct i.PERMIT_STATUS from Issued_Tree_Permits i);
+"""
+)
+#%%
+db.sql(
+"""--sql,
+ALTER TABLE Issued_Tree_Permits ALTER COLUMN PERMIT_STATUS SET DATA TYPE abc;
+"""
+)
+
+#%%
+db.sql(
+"""--sql,
+select
+    i.PERMIT_STATUS,
+from Issued_Tree_Permits i
+"""
+)
 
 #%%
 df7898 = pd.DataFrame({'a':[1,2,3],'b':[4,5,6]})

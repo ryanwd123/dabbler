@@ -7,7 +7,7 @@ statement: query -> select_statement
         |LOAD STRING -> load_ext_statement
         |SET [(LOCAL|GLOBAL|SESSION)] IDENT (EQUAL|TO) (IDENT|STRING|NUMBER) -> set_statement
         |RESET [(LOCAL|GLOBAL|SESSION)] IDENT -> reset_statement
-        |ATTACH [DATABASE] databse_name [_AS alias] [attach_options ("," attach_options)*] -> attach_statement
+        |ATTACH [DATABASE] databse_name [_AS alias] "(" [attach_options ("," attach_options)*] ")" -> attach_statement
         |DETACH [DATABASE [IF EXISTS]] databse_name -> detach_statement
         |create_view -> create_view
         |alter_view -> alter_view
@@ -22,6 +22,7 @@ statement: query -> select_statement
         |copy_statement -> copy_statement
 
 databse_name:STRING
+        |IDENT
 
 attach_options: READ_ONLY (TRUE|FALSE) -> read_only
         | TYPE SQLITE -> sqlite
@@ -294,8 +295,8 @@ expression.3: _col_ref  -> col_ref
         // |negative_number -> number
         // |DATE STRING -> date
         |_date -> date
-        | [IDENT "."] IDENT "("[DISTINCT] [(expression ",")*] expression [order_by] ")" [window_form] [filter] -> function
-        | [IDENT "."] IDENT "(" ["*"] [order_by] ")" [window_form] [filter] -> function
+        | [IDENT "."] IDENT "("[DISTINCT] [(expression ",")*] expression [order_by] ")" [filter] [window_form]  -> function
+        | [IDENT "."] IDENT "(" ["*"] [order_by] ")" [filter] [window_form]  -> function
         | expression math expression -> operation
         | expression comp expression -> comparison
         | between
@@ -303,7 +304,7 @@ expression.3: _col_ref  -> col_ref
         | expression [NOT] IN "(" (expression [("," expression)*]) ")" -> in
         | expression [NOT] IN subquery -> in
         | CASE [expression] (WHEN expression THEN expression)+ [ELSE expression] END -> case
-        | expression [NOT] (LIKE|ILIKE|SIMILAR TO) expression -> like
+        | expression [NOT] (LIKE|ILIKE|SIMILAR TO|GLOB|LIKE_SIGN|NOT_LIKE_SIGN|GLOB_SIGN|SIMILAR_TO_SIGN|NOT_SIMILAR_TO_SIGN|NOT_ILIKE_SIGN|ILIKE_SIGN) expression -> like
         | expression IS [NOT] DISTINCT FROM expression -> is_distinct_from
         | "(" expression ")" -> parenthesized_expression
         | expression CAST_OP type -> cast
@@ -447,6 +448,13 @@ BITWISE_AND:   "&"
 EXPONENT:   "^"
 EXPONENT2:   "**"
 INTEGER_DIVIDE:   "//"
+LIKE_SIGN:   "~~"
+NOT_LIKE_SIGN:   "!~~"
+ILIKE_SIGN:   "~~*"
+NOT_ILIKE_SIGN:   "!~~*"
+SIMILAR_TO_SIGN:   "~"
+NOT_SIMILAR_TO_SIGN:   "!~"
+GLOB_SIGN: "~~~"
 
 
 

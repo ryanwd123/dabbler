@@ -1,4 +1,5 @@
 from filecmp import cmp
+from math import log
 from lsprotocol.types import (
     CompletionItemKind,
     MarkupContent,
@@ -8,7 +9,8 @@ from dabbler.lsp.sql_utils import CmpItem
 import duckdb
 import json
 from dabbler.common import check_name
-
+import logging
+logger = logging.getLogger(__name__)
 
 
 get_records_sql = """--sql
@@ -105,16 +107,28 @@ def make_db(db_data:dict):
 
     for db_to_add in db_data['databases']:
         if db_to_add not in databases:
-            db2.execute(f"attach ':memory:' as {db_to_add}")
+            try:
+                db2.execute(f"attach ':memory:' as {db_to_add}")
+            except Exception as e:
+                logger.error(f'Error attaching dummy memory database {db_to_add}, {e}')
 
     schemas = [x[0] for x in db2.execute("select database_name ||'.'|| schema_name from duckdb_schemas()").fetchall()]
 
     for schema in db_data['schemas']:
         if schema not in schemas:
-            db2.execute(f"create schema {schema}")
+            try:
+                db2.execute(f"create schema {schema}")
+            except Exception as e:
+                logger.error(f'Error creating schema {schema}, {e}')
             
     db2.execute(f"use {db_data['current_schema']};")
-    db2.execute('\n'.join([x[1] for x in db_data['dataframes']]))
+
+    for df in db_data['dataframes']:
+        try:
+            db2.execute(df[1])
+        except Exception as e:
+            logger.error(f'Error creating table for dataframe {df[0]}, {e}')
+
 
     for schema, item, sql, cols in db_data['data']:
         if not cols:
@@ -129,11 +143,17 @@ def make_db(db_data:dict):
 
         col_txt = ',\n'.join([f'"{c[0]}" {c[1]}' for c in col_items])
         sql2 = f'create table {check_name(item)}({col_txt})'
-        db2.execute(f'use {schema}; {sql2}')
+        try:
+            db2.execute(f'use {schema}; {sql2}')
+        except Exception as e:
+            logger.error(f'Error creating table {item} in schema {schema}, {e}')
 
     db2.execute(f"use {db_data['current_schema']};")
     if db_data['file_search_path']:
-        db2.execute(f"""set file_search_path to '{db_data['file_search_path']}';""")
+        try:
+            db2.execute(f"""set file_search_path to '{db_data['file_search_path']}';""")
+        except Exception as e:
+            logger.error(f'Error setting file_search_path to {db_data["file_search_path"]}, {e}')
     
     return db2
 
@@ -274,10 +294,10 @@ def make_completion_map(db:duckdb.DuckDBPyConnection,db_data):
             doc=None)
         
         if cat == cur_db:
-            if schema not in item_map and schema not in item_map['root_namespace']:
-                if not cat_schema in item_map:
-                    item_map[cat_schema] = []
-                item_map[schema] = item_map[cat_schema]
+            if schema not in item_map['root_namespace']:
+                # if not cat_schema in item_map:
+                    # item_map[cat_schema] = []
+                # item_map[schema] = item_map[cat_schema]
                 item_map['root_namespace'].append(schema_comp)
 
         if cat not in item_map:
