@@ -37,7 +37,7 @@ jobs:
         sed -i "s/__version__ = \".*\"/__version__ = \"${{ github.ref_name }}\"/" dabbler/__init__.py
         git add dabbler/__init__.py
         git commit -m "Bump version to ${{ github.ref_name }}"
-        git push origin master
+        git push origin HEAD:master
 
     - name: Build package
       run: python -m build
