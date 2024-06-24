@@ -54,6 +54,22 @@ class InlineSqlLangServer(LanguageServer):
         self.pathlibs_paths = {}
         self.key_file: KeyFile = None
 
+    def create_default_compelter(self):
+        if not self.completer is None:
+            return
+        blank_db_data = {
+            'data':[],
+            'dataframes':[],
+            'databases':[],
+            'functions':[],
+            'paths':[],
+            'schemas':[],
+            'current_schema':'memory.main',
+            'cwd':self.workspace.root_path,
+            'file_search_path':None,
+        }
+        self.completer = SqlCompleter(blank_db_data, self)
+
     def start_io(self, stdin = None, stdout = None):
 
         self.loop.create_task(self.zmq_recv(self.poller))

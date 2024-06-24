@@ -165,6 +165,7 @@ def did_change(ls: InlineSqlLangServer, params: lsp.DidChangeTextDocumentParams)
 async def did_open(ls: InlineSqlLangServer, params: lsp.DidOpenTextDocumentParams):
     ls.log_workspace_info()
     ls.save_key_file()
+    ls.create_default_compelter()
 
 
 @sql_server.command(InlineSqlLangServer.CMD_SEND_SQL_TO_GUI)
