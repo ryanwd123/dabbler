@@ -3,6 +3,7 @@ import sys
 import logging
 from pathlib import Path
 from logging.handlers import SocketHandler
+from functools import partial
 import re as regex
 import zmq
 from dataclasses import dataclass
@@ -132,65 +133,67 @@ class InlineSqlLangServer(LanguageServer):
             },
         )
         self.connection_info = connection
+        self.show_message_log(f"main_port {self.main_port}, handshake_port {self.handshake_port}")
         self.log.debug(f"key_file {self.key_file.connections}")
+
         self.zmq_send({"cmd": "db_data_update","con_id":self.connection_info['server_id']})
 
+    def initialize_sql_completer(self, data: dict):
+        self.completer = SqlCompleter(data, self)
+        self.pathlibs_paths = {x[0]:x[1] for x in data["paths"]}
+        self.show_message_log("SqlCompleter initialized")
+
+    async def handle_zmq_message(self, msg: ToLangServer):
+        if msg["cmd"] == "db_data":
+            self.show_message_log("received db_data")
+            await self.loop.run_in_executor(
+                self.thread_pool_executor,
+                partial(self.initialize_sql_completer, msg["data"])
+            )
+        elif msg["cmd"] == "ip_python_started":
+            self.show_message_log(f"ip_python_started = {msg['data']}")
+            self.zmq_send({"cmd": "db_data_update"})
+        elif msg["cmd"] == "ip":
+            self.show_message_log(f"ipython event = {msg['data']}")
+        elif msg["cmd"] == "no_update":
+            self.show_message_log("check update: no update")
+        elif msg["cmd"] == "debug":
+            if msg["data"]:
+                self.show_message_log("started in debug mode")
+                self.start_logging()
+        elif msg["cmd"] == "heartbeat":
+            await self.handshake_socket.send(pickle.dumps({"cmd": "heartbeat"}))
+        elif msg["cmd"] == "connection_id":
+            con_id = msg["data"]
+            if con_id == self.connection_info["client_id"]:
+                await self.handshake_socket.send(pickle.dumps({"cmd": "connection_id", "data": self.connection_info["server_id"]}))
+            else:
+                self.log.debug(f"connection_id {con_id} != {self.connection_info['client_id']}")
+                self.show_message_log(f"connection_id {con_id} != {self.connection_info['client_id']}")
+
+
     async def zmq_recv(self, poller: Poller):
-        # self.show_message_log('zmq_recv started')
         while self._stop_event is None:
-            # self.show_message_log('waiting for stop event to be created')
             await asyncio.sleep(0.1)
         stop = self._stop_event
-        # self.show_message_log(f'{type(self._stop_event)}')
 
         while not stop.is_set():
-            # buff = await self.socket.recv()
+            try:
+                socks: dict[AsyncSocket, AsyncSocket] = dict(await poller.poll())
+                for socket in socks:
+                    buff = await socket.recv()
 
-            # if not await socket.poll(100):
-            # continue
-
-            socks: dict[AsyncSocket, AsyncSocket] = dict(await poller.poll())
-
-            for socket in socks:
-                buff = await socket.recv()
-
-                if not self.socket_connected:
-                    self.socket_connected = True
-                    self.show_message_log("connected to IPython")
-                msg: ToLangServer = pickle.loads(buff)
-                # self.show_message_log(f"zmq recv {msg}")
-                if msg["cmd"] == "db_data":
-                    # self.db_data = read_db_data(msg['data'])
-                    self.completer = SqlCompleter(msg["data"], self)
-                    self.pathlibs_paths = {x[0]:x[1] for x in msg["data"]["paths"]}
-                    # self.comp_thread_put({'cmd':'new_completer','data':SqlCompleter(msg['data'],None)},0)
-                    self.show_message_log("recieved db_data")
-
-                if msg["cmd"] == "ip_python_started":
-                    self.show_message_log(f"ip_python_started = {msg['data']}")
-                    self.zmq_send({"cmd": "db_data_update"})
-
-                if msg["cmd"] == "ip":
-                    self.show_message_log(f"ipython event = {msg['data']}")
-
-                if msg["cmd"] == "no_update":
-                    self.show_message_log("check update: no update")
-
-                if msg["cmd"] == "debug":
-                    if msg["data"]:
-                        self.start_logging()
-                        
-                if msg["cmd"] == "heartbeat":
-                    self.handshake_socket.send(pickle.dumps({"cmd": "heartbeat"}))
-                
-                if msg["cmd"] == "connection_id":
-                    con_id = msg["data"]
-                    if con_id == self.connection_info["client_id"]:
-                        self.handshake_socket.send(pickle.dumps({"cmd": "connection_id", "data": self.connection_info["server_id"]}))
-                    else:
-                        self.log.debug(f"connection_id {con_id} != {self.connection_info['client_id']}")
-                        self.show_message_log(f"connection_id {con_id} != {self.connection_info['client_id']}")
-
+                    if not self.socket_connected:
+                        self.socket_connected = True
+                        self.show_message_log(f"connected to IPython")
+                        self.log.info("connected to IPython")
+                    
+                    msg: ToLangServer = pickle.loads(buff)
+                    await self.handle_zmq_message(msg)
+            
+            except Exception as e:
+                self.log.error(f"Error in zmq_recv: {str(e)}", exc_info=True)
+                await asyncio.sleep(1)  # Prevent tight error loop
 
 
     def zmq_send(self, msg:FromLangServer, no_block=False):

@@ -5,9 +5,11 @@ import pandas as pd
 sys.path.append(str(Path(__file__).parent.parent))
 import duckdb
 db = duckdb.connect()
+import tempfile
+print(tempfile.gettempdir())
 # import paths_z as pp
 # db.execute("set file_search_path to 'C:\\scripts'")
-###!%load_ext dabbler.ext_debug
+##!%load_ext dabbler.ext_debug
 #!%load_ext dabbler.ext
 
 df1 = pd.DataFrame({'a':[1,2,3],'b':[4,5,6]})
@@ -33,9 +35,14 @@ for f in files:
         """)
 db.execute("force checkpoint")
 
+
+
 #%%
 aa = Path(__file__).parent.parent.parent.parent
-aa
+ab = Path(__file__).parent.parent.parent.parent
+ac = Path(__file__).parent.parent.parent.parent
+
+j=aa/'copy_pictures'
 
 
 #%%
@@ -43,7 +50,7 @@ db.sql(
 """--sql,
 select
     count(i.CROWN_REMOVAL) FILTER (WHERE i.PERMIT_STATUS ~ '%losed') OVER (PARTITION BY i.SPECIES) as crown_removal_count,
-    
+
 from Issued_Tree_Permits i
 """
 )
@@ -66,10 +73,14 @@ ALTER TABLE Issued_Tree_Permits ALTER COLUMN PERMIT_STATUS SET DATA TYPE abc;
 db.sql(
 """--sql,
 select
-    i.PERMIT_STATUS,
+    i.PERMIT_STATUS
 from Issued_Tree_Permits i
 """
 )
+
+
+
+
 
 #%%
 df7898 = pd.DataFrame({'a':[1,2,3],'b':[4,5,6]})
@@ -78,8 +89,8 @@ df7898 = pd.DataFrame({'a':[1,2,3],'b':[4,5,6]})
 db.sql(
 """--sql,
 select
-    *
-from Issued_Tree_Permits
+    i.PERMIT_STATUS
+from Issued_Tree_Permits i
 limit 10
 """
 )
@@ -99,7 +110,7 @@ p.joinpath('/../../')
 
 root = Path('/').resolve()
 root.joinpath('Users/ryanw/Documents/test.csv').read_text()
-(pp.main / 'sql_tst/01c.sql').read_text()
+
 new_path = root / 'Users/ryanw/Documents/test.csv'
 jj = new_path.parent.parent / 'python_projects/cust_tk'
 jj.joinpath('main.spec').read_text()
@@ -154,6 +165,7 @@ db.sql(
         g.APPENDIX_F_REMOVED,
         g.JURISDICTION,
         g.APPENDIX_F_REMOVED,
+        g.PROJECT_ID
     from t1234 g 
 
         
@@ -193,10 +205,24 @@ sssss = db.sql(
 """--sql,
 select
     i.APPENDIX_F_REMOVED,
-    i.COUNCIL_DISTRICT
+    i.COUNCIL_DISTRICT,
+    i
+
 from Issued_Tree_Permits i
 """
 )
+#%%
+for i in range(5000):
+    db.sql(
+    f"""--sql,
+    CREATE or REPLACE TABLE table_{i} (
+        a INTEGER,
+        b DOUBLE,
+        c VARCHAR
+    );
+    
+    """
+    )
 
 
 #%%

@@ -48,7 +48,6 @@ class IPythonExecutionMonitor(object):
         self.timer = timer
 
     def pre_run_cell(self, info):
-        # self.q.put("cell_start")
         self.timer.start(1_000_000)
 
     def post_run_cell(self, result):
@@ -56,14 +55,14 @@ class IPythonExecutionMonitor(object):
             self.timer.start(200)
 
 
-
 class RepChannel(QtCore.QThread):
     trigger = Signal(object)
 
-    def __init__(self, socket: zmq.Socket) -> None:
+    def __init__(self, socket: zmq.Socket, log: logging.Logger = None) -> None:
         super().__init__()
         self.thead_active = True
         self.socket = socket
+        self.logger = log
 
     def run(self):
         while self.thead_active:
@@ -76,6 +75,7 @@ class RepChannel(QtCore.QThread):
         self.thead_active = False
         self.quit()
         self.wait()
+        self.logger.debug("rep thread stopped")
         self.finished.emit()
         self.deleteLater()
 
@@ -87,7 +87,6 @@ class HBChannel(QtCore.QThread):
         super().__init__()
         self.thead_active = True
         self.socket = socket
-
         self.logger = log
         self.log("hb thread init")
 
@@ -101,7 +100,6 @@ class HBChannel(QtCore.QThread):
             if not self.socket.poll(5000):
                 self.log("lost connection to lang server")
                 self.trigger.emit("reset_sockets")
-                # reset sockets
                 break
             buff = self.socket.recv()
             msg: FromLangServer = pickle.loads(buff)
@@ -140,6 +138,7 @@ class ZmqServer(QtCore.QObject):
         self.connection_id: int = None
         self.new_data = False
         self.data_sent = False
+        self.context = zmq.Context()
         self.db_data = get_db_data_new(self.db, self.app.file_search_path)
 
         self.hb_channels: list[HBChannel] = []
@@ -152,43 +151,67 @@ class ZmqServer(QtCore.QObject):
         self.monitor_ip = IPythonExecutionMonitor(ip, self, self.ipython_cell_timer)
         ip.events.register("pre_run_cell", self.monitor_ip.pre_run_cell)
         ip.events.register("post_run_cell", self.monitor_ip.post_run_cell)
-        
-    
 
-    def clear_conn_info(self,delete=False):
+    def clear_conn_info(self, delete=False):
         if delete:
             self.key_file.delete_connection(self.connection["workspace_path"])
-        self.log.debug("deleted connection info from keyfile")
+            self.log.debug("deleted connection info from keyfile")
         self.connection = None
         self.key_file = None
         self.main_port = None
         self.handshake_port = None
 
+    def attempt_connection(self):
+        self.clear_conn_info()
+        self.key_file = KeyFile()
+        self.connection = self.key_file.get_connection(self.app.py_file)
+        if not self.connection:
+            self.log.debug("Connection info not found in keyfile")
+            return False
+
+        self.main_port = self.connection["main_port"]
+        self.handshake_port = self.connection["handshake_port"]
+
+        try:
+            self.create_sockets()
+            self.initialize_channels()
+            return True
+        except Exception as e:
+            self.log.error(f"Failed to connect_: {e}")
+            return False
+
     def connect_sockets(self):
         if self.sockets_created:
             return
 
-        self.key_file = KeyFile()
-        self.log.debug(self.key_file)
+        if self.attempt_connection():
+            self.sockets_created = True
+            self.log.debug(f"Sockets created, main port {self.main_port}, handshake port {self.handshake_port}")
+            print(f'Connected to language server, workspace {self.connection["workspace_path"]}')
 
-        self.connection = self.key_file.get_connection(self.app.py_file)
-        self.log.debug(["connection_info_from_keyfile", self.connection])
-
-        if self.connection:
-            self.main_port = self.connection["main_port"]
-            self.handshake_port = self.connection["handshake_port"]
+            if self.data_sent is False:
+                self.handshake_send({"cmd": "ip_python_started", "data": 1})
+                if self.app.debug:
+                    self.handshake_send({"cmd": "debug", "data": True})
         else:
-            self.log.debug("connection info not found in keyfile")
-            return
+            self.log.debug("Failed to connect, will retry later")
 
+    def reconnect(self):
+        self.log.debug("Attempting to reconnect")
+        while not self.attempt_connection():
+            time.sleep(5)  # Wait for 5 seconds before trying again
+        self.sockets_created = True
+        self.connected = True
+        self.log.debug(f"Reconnected successfully, {self.sockets_created}")
+        self.send_db_data()
+
+    def create_sockets(self):
         self.log.debug(f"connecting to main port {self.main_port}")
-        self.context = zmq.Context()
         self.socket = self.context.socket(zmq.PAIR)
         self.socket.bind(f"tcp://127.0.0.1:{self.main_port}")
 
         self.log.debug(f"connecting to handshake port {self.handshake_port}")
-        self.context2 = zmq.Context()
-        self.handeshake_socket = self.context2.socket(zmq.PAIR)
+        self.handeshake_socket = self.context.socket(zmq.PAIR)
         self.handeshake_socket.connect(f"tcp://127.0.0.1:{self.handshake_port}")
 
         handshake_msg: ToLangServer = {
@@ -196,84 +219,57 @@ class ZmqServer(QtCore.QObject):
             "data": self.connection["client_id"],
         }
 
+
+        self.log.debug(f"sending handshake message {handshake_msg}")
         self.handeshake_socket.send(pickle.dumps(handshake_msg))
+        self.log.debug(f"sent handshake message")
+
 
         if not self.handeshake_socket.poll(1000):
-            self.log.error("handshake socket not connected")
-            self.clear_conn_info(True)
-            self.connect_sockets()
-            return
+            raise Exception("Handshake socket not connected")
 
         handshake_response_buff = self.handeshake_socket.recv()
         handshake_response: FromLangServer = pickle.loads(handshake_response_buff)
 
         if (
-            not handshake_response["cmd"] == "connection_id"
-            and handshake_response["data"] == self.connection["server_id"]
+            handshake_response["cmd"] != "connection_id"
+            or handshake_response["data"] != self.connection["server_id"]
         ):
-            self.log.error("handshake response not correct")
-            # self.key_file.delete_connection(self.connection["workspace_path"])
-            # self.clear_conn_info()
-            return
+            raise Exception("Handshake response not correct")
 
-        self.log.debug("handshake sockets connected")
-        # self.poller = zmq.Poller()
-        # self.poller.register(self.socket, zmq.POLLIN)
-        # self.poller.register(self.handeshake_socket, zmq.POLLIN)
-
-        # if self.socket.poll(100):
-        #     self.rec_manual()
-        #     self.start_lsp_logger()
-
-        self.rep_server = RepChannel(self.socket)
+    def initialize_channels(self):
+        self.rep_server = RepChannel(self.socket, log=self.log)
         self.rep_server.trigger.connect(self.socket_reply)
         self.rep_server.start()
         self.log.debug("rep thread started")
 
         hb = HBChannel(self.handeshake_socket, log=self.log)
-        self.log.debug("hb channel init1")
         self.hb_channels.append(hb)
-        # self.hb_channel.
-
-        # self.hb_channel = hb
-        self.log.debug("hb channel init")
         self.hb_channels[-1].trigger.connect(self.heartbeat_signal_handler)
-        self.log.debug("hb channel trigger connected")
         self.hb_channels[-1].start()
         self.log.debug("hb thread started")
 
-        self.sockets_created = True
-        self.log.debug(
-            f"sockets created, main port {self.main_port}, handshake port {self.handshake_port}"
-        )
-
-        print(
-            f'connected to language server, workspace {self.connection["workspace_path"]}'
-        )
-
-        if self.data_sent is False:
-            self.handshake_send({"cmd": "ip_python_started", "data": 1})
-            if self.app.debug:
-                self.handshake_send({"cmd": "debug", "data": True})
-
-        self.log.debug("sockets connected")
-
     def restart_sockets(self):
-        self.log.debug("restarting sockets")
-        self.rep_server.stop()
-        self.log.debug("rep thread stopped")
-        self.hb_channels[-1].stop()
-        self.log.debug("hb thread stopped")
+        self.log.debug("Restarting sockets")
+        self.stop_channels()
+        self.close_sockets()
         self.sockets_created = False
         self.connection_id = None
         self.connected = False
-        self.connection = None
-        self.key_file = None
+        self.reconnect()
+
+    def stop_channels(self):
+        if self.rep_server:
+            self.rep_server.stop()
+        for hb in self.hb_channels:
+            hb.stop()
+        self.hb_channels = []
+
+    def close_sockets(self):
+        # if hasattr(self, 'socket'):
         self.socket.close()
-        self.log.debug("main socket closed")
+        # if hasattr(self, 'handeshake_socket'):
         self.handeshake_socket.close()
-        self.log.debug("handshake socket closed")
-        self.connect_sockets()
 
     def handshake_send(self, msg: ToLangServer):
         if not self.sockets_created:
@@ -291,7 +287,6 @@ class ZmqServer(QtCore.QObject):
 
     @Slot(str)
     def msg_routing(self, item):
-        # print(f'msg routing {item}')
         self.check_for_update()
 
     def check_for_update(self):
@@ -308,10 +303,8 @@ class ZmqServer(QtCore.QObject):
         if need_update:
             self.new_data = True
             self.db_data = data2
-            # print('data changed')
             self.send_db_data()
             self.app.update_tables()
-            # print('updated tables')
 
     def start_lsp_logger(self):
         if self.app.debug:
@@ -322,24 +315,21 @@ class ZmqServer(QtCore.QObject):
         if not self.sockets_created:
             self.connect_sockets()
             if not self.sockets_created:
-                self.log.warning(f"msg send failed, sockets not created {msg}")
+                self.log.warning(f"Message send failed, sockets not created {msg}")
                 return
 
-        buff = pickle.dumps(msg)
-
-        # if no_block:
-        if self.connected:
-            try:
-                # print(f'responding_no_block {msg}')
-                self.socket.send(buff, zmq.NOBLOCK)
-            except:  # noqa: E722
-                self.log.exception(f"lost server when sending message {msg['cmd']}")
-                self.restart_sockets()
-            return
-            # self.log.debug(msg)
-            # self.socket.send(buff)
-        else:
-            self.log.error(f"try to send message when not connected {msg['cmd']}")
+        try:
+            buff = pickle.dumps(msg)
+            if self.connected:
+                self.socket.send(buff, zmq.NOBLOCK if no_block else 0)
+            else:
+                self.log.error(f"Tried to send message when not connected {msg['cmd']}")
+        except zmq.ZMQError as e:
+            self.log.error(f"ZMQ error when sending message: {e}")
+            self.restart_sockets()
+        except Exception as e:
+            self.log.error(f"Unexpected error when sending message: {e}")
+            self.restart_sockets()
 
     def rec_manual(self):
         buff = self.socket.recv()
@@ -351,45 +341,42 @@ class ZmqServer(QtCore.QObject):
     def heartbeat_signal_handler(self, msg):
         if msg == "reset_sockets":
             self.restart_sockets()
-            return
 
     @Slot(object)
     def socket_reply(self, msg: FromLangServer):
-        if not self.connected:
-            self.connected = True
-            self.start_lsp_logger()
-            # print('connected')
+        try:
+            if not self.connected:
+                self.connected = True
+                self.start_lsp_logger()
 
-        if msg["cmd"] == "connection_id":
-            self.connection_id = msg["data"]
+            if msg["cmd"] == "connection_id":
+                self.connection_id = msg["data"]
 
-        if msg["cmd"] == "run_sql":
-            self.respond({"cmd": "run_sql", "msg": "success"})
-            self.app.msg_routing(msg["sql"])
-            return
+            elif msg["cmd"] == "run_sql":
+                self.respond({"cmd": "run_sql", "msg": "success"})
+                self.app.msg_routing(msg["sql"])
 
-        if msg["cmd"] == "db_data_update":
-            self.send_db_data()
-            self.start_lsp_logger()
-            return
-
-        if msg["cmd"] == "check_for_update":
-            if self.new_data is True:
+            elif msg["cmd"] == "db_data_update":
                 self.send_db_data()
-                # print('sent db data - check for update')
-                self.new_data = False
+                self.start_lsp_logger()
+
+            elif msg["cmd"] == "check_for_update":
+                if self.new_data is True:
+                    self.send_db_data()
+                    self.new_data = False
+                else:
+                    self.respond({"cmd": "no_update"})
+
+            elif msg["cmd"] == "heartbeat":
+                self.hb = time.time()
+
             else:
-                self.respond({"cmd": "no_update"})
-            return
+                self.respond({"cmd": "not_handled"})
 
-        if msg["cmd"] == "heartbeat":
-            self.hb = time.time()
-            return
-
-        # print(f'req not handled: {msg}')
-        self.respond({"cmd": "not_handled"})
+        except Exception as e:
+            self.log.error(f"Error in socket_reply: {e}")
+            self.restart_sockets()
 
     def send_db_data(self, no_block=False):
-        # print('sending db data')
         reply = {"cmd": "db_data", "data": self.db_data}
         self.respond(reply, no_block=no_block)

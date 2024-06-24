@@ -98,8 +98,8 @@ def pathlib_completetions(text:str, path_dict:dict[str,str],logger):
     if len(path_dict) == 0:
         return
     path_strings = '|'.join([x.replace('.',r'\.') for x in path_dict.keys()])
-    slash_pattern = r""".*(^|\s+|\()(?P<path_ojb>(""" + path_strings + r"""))(?P<parent>(\.parent|\.joinpath\(['"][A-Za-z0-9./-_, ]+['"]\))+)?(\s+)?/(\s+)?['"](?P<search>[A-Za-z0-9./-_, ]+)?$"""
-    join__pattern = r""".*(^|\s+|\()(?P<path_ojb>(""" + path_strings + r"""))(?P<parent>(\.parent|\.joinpath\(['"][A-Za-z0-9./-_, ]+['"]\))+)?\.joinpath\(["'](?P<search>[A-Za-z0-9./-_, ]+)?$"""
+    slash_pattern = r""".*(^|\s+|\(|=)(?P<path_ojb>(""" + path_strings + r"""))(?P<parent>(\.parent|\.joinpath\(['"][A-Za-z0-9./-_, ]+['"]\))+)?(\s+)?/(\s+)?['"](?P<search>[A-Za-z0-9./-_, ]+)?$"""
+    join__pattern = r""".*(^|\s+|\(|=)(?P<path_ojb>(""" + path_strings + r"""))(?P<parent>(\.parent|\.joinpath\(['"][A-Za-z0-9./-_, ]+['"]\))+)?\.joinpath\(["'](?P<search>[A-Za-z0-9./-_, ]+)?$"""
 
     m = re.search(slash_pattern,text)
     if not m:
