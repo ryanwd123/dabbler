@@ -302,22 +302,15 @@ incomplete_col_ref = re.compile('(\w+[.])([\n\s),])')
 
 class SqlParserNew:
     
-    def __init__(self, db: duckdb.DuckDBPyConnection = None, ls = None, logger:logging.Logger = None, file_search_path:str = None) -> None:
+    def __init__(self, db: duckdb.DuckDBPyConnection = None, file_search_path:str = None) -> None:
         self.db = db
         self.projection_cache = {}
-        self.ls = ls
         self.file_search_path = file_search_path
-        self.log = logger.getChild('sql_parser')
-        self.log_describe = logger.getChild('sql_describe')
-        self.log_query_output = logger.getChild('query_output')
-        self.log_interactive_parser = logger.getChild('interactive_parser')
+        self.log = logging.getLogger('sql_parser')
+        self.log_describe = logging.getLogger('sql_describe')
+        self.log_query_output = logging.getLogger('query_output')
+        self.log_interactive_parser = logging.getLogger('interactive_parser')
         
-
-    def show_message(self,msg):
-        if self.ls:
-            self.ls.show_message_log(msg)
-
-
 
     def parse_sql(self, sql: str, pos:int):
 

@@ -54,7 +54,7 @@ select
 from Issued_Tree_Permits i
 """
 )
-
+#%%
 
 #%%
 db.sql(
@@ -167,11 +167,6 @@ db.sql(
         g.APPENDIX_F_REMOVED,
         g.PROJECT_ID
     from t1234 g 
-
-        
-
-
-
     """
 )
 

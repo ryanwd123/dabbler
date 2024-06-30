@@ -12,6 +12,12 @@ lark = "*"
 sqlglot = "*"
 zmq = "*"
 cutelog = "*"
+polars = "*"
+pytest = "*"
+pytest-cov = "*"
+pyside6-essentials = "*"
+qtpy = "*"
+ipykernel = "*"
 
 [dev-packages]
 ipykernel = "*"

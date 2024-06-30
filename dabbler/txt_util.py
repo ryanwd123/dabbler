@@ -1,7 +1,9 @@
 #%%
 
 def line_col(str:str, idx:int):
-    return str.count('\n', 0, idx), idx - str.rfind('\n', 0, idx)-1
+    line = str.count('\n', 0, idx)
+    col = idx - str.rfind('\n', 0, idx)-1
+    return line, col
 
 def get_idx(txt,cur_line,cur_col):
     x = sum(len(x)+1 for i,x in enumerate(txt.split('\n'),start=0) if i < cur_line)

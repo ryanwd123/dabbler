@@ -1,9 +1,10 @@
-from filecmp import cmp
-from math import log
-from lsprotocol.types import (
-    CompletionItemKind,
-    MarkupContent,
-)
+import enum
+import attrs
+
+# from lsprotocol.types import (
+#     CompletionItemKind,
+#     MarkupContent,
+# )
 from pathlib import Path
 from dabbler.lsp.sql_utils import CmpItem
 import duckdb
@@ -12,6 +13,79 @@ from dabbler.common import check_name
 import logging
 logger = logging.getLogger(__name__)
 
+@enum.unique
+class CompletionItemKind(int, enum.Enum):
+    """The kind of a completion entry."""
+
+    Text = 1
+    Method = 2
+    Function = 3
+    Constructor = 4
+    Field = 5
+    Variable = 6
+    Class = 7
+    Interface = 8
+    Module = 9
+    Property = 10
+    Unit = 11
+    Value = 12
+    Enum = 13
+    Keyword = 14
+    Snippet = 15
+    Color = 16
+    File = 17
+    Reference = 18
+    Folder = 19
+    EnumMember = 20
+    Constant = 21
+    Struct = 22
+    Event = 23
+    Operator = 24
+    TypeParameter = 25
+
+@enum.unique
+class MarkupKind(str, enum.Enum):
+    """Describes the content type that a client supports in various
+    result literals like `Hover`, `ParameterInfo` or `CompletionItem`.
+
+    Please note that `MarkupKinds` must not start with a `$`. This kinds
+    are reserved for internal usage."""
+
+    PlainText = "plaintext"
+    """Plain text is supported as a content format"""
+    Markdown = "markdown"
+    """Markdown is supported as a content format"""
+
+@attrs.define
+class MarkupContent:
+    """A `MarkupContent` literal represents a string value which content is interpreted base on its
+    kind flag. Currently the protocol supports `plaintext` and `markdown` as markup kinds.
+
+    If the kind is `markdown` then the value can contain fenced code blocks like in GitHub issues.
+    See https://help.github.com/articles/creating-and-highlighting-code-blocks/#syntax-highlighting
+
+    Here is an example how such a string can be constructed using JavaScript / TypeScript:
+    ```ts
+    let markdown: MarkdownContent = {
+     kind: MarkupKind.Markdown,
+     value: [
+       '# Header',
+       'Some text',
+       '```typescript',
+       'someCode();',
+       '```'
+     ].join('\n')
+    };
+    ```
+
+    *Please Note* that clients might sanitize the return markdown. A client could decide to
+    remove HTML from the markdown to avoid script execution."""
+
+    kind: MarkupKind = attrs.field()
+    """The type of the Markup"""
+
+    value: str = attrs.field(validator=attrs.validators.instance_of(str))
+    """The content itself"""
 
 get_records_sql = """--sql
     with
@@ -108,7 +182,7 @@ def make_db(db_data:dict):
     for db_to_add in db_data['databases']:
         if db_to_add not in databases:
             try:
-                db2.execute(f"attach ':memory:' as {db_to_add}")
+                db2.execute(f'''attach ':memory:' as "{db_to_add}" ''')
             except Exception as e:
                 logger.error(f'Error attaching dummy memory database {db_to_add}, {e}')
 
@@ -120,8 +194,11 @@ def make_db(db_data:dict):
                 db2.execute(f"create schema {schema}")
             except Exception as e:
                 logger.error(f'Error creating schema {schema}, {e}')
-            
-    db2.execute(f"use {db_data['current_schema']};")
+    
+    try:
+        db2.execute(f"use {db_data['current_schema']};")
+    except Exception as e:
+        logger.error(f'Error setting current schema to {db_data["current_schema"]}, {e}')
 
     for df in db_data['dataframes']:
         try:
@@ -178,7 +255,10 @@ def make_completion_map(db:duckdb.DuckDBPyConnection,db_data):
     item_map:dict[str,list[CmpItem]] = {}
     item_map['root_namespace'] = []
 
-    cur_db = db_data['current_schema'].split('.')[0]
+    try:
+        cur_db = db_data['current_schema'].split('.')[0]
+    except:
+        cur_db = 'memory'
 
     for db_scm, fn_name, fn_type in db_data['functions']:
         if fn_type == 'table_macro':

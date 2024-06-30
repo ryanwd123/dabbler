@@ -4,6 +4,7 @@ import pprint
 import time
 from dabbler.lsp.parser import get_parser, SqlParserNew
 import duckdb
+from sqlglot import parse_one
 import re
 from lark import Lark, Token, UnexpectedToken, exceptions as lark_exceptions
 db2 = duckdb.connect()
@@ -22,12 +23,14 @@ db2 = duckdb.connect()
 sql_parser = get_parser()
 parse2 = sql_parser.parse
 
+tst_files = list(Path("./sql_tst").glob("*.sql"))
+
+
+
 pass_test = 0
 fail_test = 0
 
 start = time.time()
-
-tst_files = list(Path("./sql_tst").glob("*.sql"))
 
 for f in tst_files[:]:
     txt = f.read_text()
@@ -40,7 +43,25 @@ for f in tst_files[:]:
         print(f.name,e)
         fail_test += 1
 
-print(f"pass: {pass_test}, fail: {fail_test}, duration: {time.time() - start:.2f} seconds")
+print(f"pass: {pass_test}, fail: {fail_test}, duration: {time.time() - start:.2f} seconds (lark)")
+
+pass_test = 0
+fail_test = 0
+
+start = time.time()
+
+for f in tst_files[:]:
+    txt = f.read_text()
+    # print(f.name, duckdb_parse(txt)["error"])
+    try:
+        z = parse_one(txt)
+        pass_test += 1
+        # print(f'{time.time() - start:.4f} seconds')
+    except Exception as e:
+        print(f.name,e)
+        fail_test += 1
+
+print(f"pass: {pass_test}, fail: {fail_test}, duration: {time.time() - start:.2f} seconds (sqlglot)")
 
 
 #%%

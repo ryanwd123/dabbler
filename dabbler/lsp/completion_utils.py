@@ -40,10 +40,10 @@ def sizeof_fmt(num, suffix="B"):
 
 
 class PathCompleter:
-    def __init__(self,cwd:str,search_path:str,logger:logging.Logger,types_to_exclude=types_to_exclude) -> None:
+    def __init__(self,cwd:str,search_path:str,types_to_exclude=types_to_exclude) -> None:
         self.cwd = None
         self.search_path = None
-        self.log = logger
+        self.log = logging.getLogger('PathCompleter')
         if cwd and Path(cwd).is_dir():
             self.cwd = Path(cwd)
         if search_path and Path(search_path).is_dir():

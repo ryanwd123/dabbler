@@ -35,7 +35,7 @@ from dabbler.lsp.sql_utils import (
     get_range,
     get_statement,
 )
-from dabbler.lsp.completion import pathlib_completetions
+from dabbler.lsp.completion_utils import pathlib_completetions
 
 
 if sys.platform == 'win32':
@@ -93,7 +93,7 @@ def completions(
 
     # try:
     comps = ls.completer.route_completion2(
-        pos_in_range, sql_rng, trigger, params.position.line, current_line_txt
+        pos_in_range, sql_rng.txt, trigger
     )
     # ls.show_message_log(f'completion time: {time.time()-start}')
 

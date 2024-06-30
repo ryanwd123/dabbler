@@ -38,21 +38,32 @@ QListView {
 	font-size: 10pt;
 }
 
+
+"""
+
+fmt_old = """
 QTableView {
 	font-family: Consolas;
 	font-size: 10pt;
 }
-
 QHeaderView{
 	font-family: Consolas;
 	border:0px;
-	font-size: 10pt;
+	font-size: 12pt;
     font-weight: bold;
+}
+
+
+DfView::item {
+	padding: 0px;
 }
 
 QTableView::item {
 	padding: 0px;
-}"""
+}
+
+"""
+
 
 format_map = {
         'STRING':'',
