@@ -4,5 +4,4 @@ __pycache__/
 dabbler_vsc_ext/node_modules/*
 *.egg-info/
 *.pytest_cache/
-*test_files/
 dabbler/lsp/pygls.log
