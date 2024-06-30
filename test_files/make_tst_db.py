@@ -3,9 +3,9 @@ from pathlib import Path
 from re import S
 import duckdb
 db = duckdb.connect('../../sample_data/test.db')   
-#!%load_ext dabbler.ext
+#!%load_ext dabbler.ext b
 
-a
+
 f = Path(__file__).parent
 
 # %%
