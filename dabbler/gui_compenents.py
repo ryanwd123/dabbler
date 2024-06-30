@@ -103,7 +103,7 @@ class HBChannel(QtCore.QThread):
                 break
             buff = self.socket.recv()
             msg: FromLangServer = pickle.loads(buff)
-            self.log(f"heartbeat channel got message {msg}")
+            # self.log(f"heartbeat channel got message {msg}")
             if msg["cmd"] != "heartbeat":
                 self.log.error(f"heartbeat channel got wrong message {msg}")
                 break

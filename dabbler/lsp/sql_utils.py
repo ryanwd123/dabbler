@@ -69,6 +69,8 @@ class CmpItem:
 
         if self.typ and self.typ.startswith('ENUM('):
             description = 'ENUM'
+        elif self.typ and self.typ.startswith('STRUCT('):
+            description = 'STRUCT'
         else:
             description = self.typ
         
@@ -89,8 +91,8 @@ def line_col(str, idx):
 
 
 def strip_sql_whitespace(txt):
-    txt = regex.sub('(.*)--sql.*\n','\g<1>',txt,flags=regex.IGNORECASE)
-    txt = regex.sub('\s+',' ',txt,flags=regex.IGNORECASE)
+    txt = regex.sub(r'(.*)--sql.*\n',r'\g<1>',txt,flags=regex.IGNORECASE)
+    txt = regex.sub(r'\s+',' ',txt,flags=regex.IGNORECASE)
     return txt
 
 
@@ -137,7 +139,7 @@ def get_statement(rng:SqlTxtRange,txt:str) -> SqlStatement:
     for stmt in sqlparse.parse(rng.txt):
         
         skipped = 0
-        pattern = "(create\s+)(or\s+replace\s+)?(?P<type>view|table)\s+(?P<name>\w+)(\s+as\s+)(?P<select>.*)"
+        pattern = r"(create\s+)(or\s+replace\s+)?(?P<type>view|table)\s+(?P<name>\w+)(\s+as\s+)(?P<select>.*)"
         match = regex.search(pattern,stmt.value,regex.DOTALL | regex.IGNORECASE)
         if match:
             # print(match.group('select'))
@@ -215,10 +217,10 @@ def get_sel_node(stmt:SqlStatement,txt:str) -> SelectNode:
 re_patterns = [
     # '(?:"""--sql[^\n]*\n)(?P<sql>.*?)(?:""")',
     # '([^\n]*"""--sql[^\n]*\n)(?P<sql>.*?)([\n]*?""")',
-    '([^\n]*?"""--sql[^\n]*?\n)(?P<sql>.*?)(""")',
+    r'([^\n]*?"""--sql[^\n]*?\n)(?P<sql>.*?)(""")',
     # '([^\n]*?"""--sql[^\n]*?\n)(?P<sql>.*?)([\n]*?\s*?""")',
-    '(.(sql|execute|executemany)\(")(?P<sql>.*?)("\s*(\)|,))',
-    "(.(sql|execute|executemany)\(')(?P<sql>.*?)('\s*(\)|,))",
+    r'(.(sql|execute|executemany)\(")(?P<sql>.*?)("\s*(\)|,))',
+    r"(.(sql|execute|executemany)\(')(?P<sql>.*?)('\s*(\)|,))",
     ]
 
 
@@ -295,9 +297,9 @@ def clean_partial_sql(txt):
     placeholder = (f'placeholder{x}' for x in range(2000))
     
     patterns = [
-        ('(\w+[.])([\n\s)])',   f'\g<1>{next(placeholder)}\g<2>'),
-        ('(\(\s*)(\))',         f'\g<1>{next(placeholder)}\g<2>'),
-        ('(=[^\n\s]*$)',         f'\g<1> {next(placeholder)}'),
+        (r'(\w+[.])([\n\s)])',   fr'\g<1>{next(placeholder)}\g<2>'),
+        (r'(\(\s*)(\))',         fr'\g<1>{next(placeholder)}\g<2>'),
+        (r'(=[^\n\s]*$)',         fr'\g<1> {next(placeholder)}'),
         ]
     
     for pat, rep in patterns:

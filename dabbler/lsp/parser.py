@@ -10,7 +10,7 @@ import logging
 import time
 
 lark_cache = Path(__file__).parent.joinpath('lark_cache')
-lark_file = Path(__file__).parent.joinpath('sql3b.lark')
+lark_file = Path(__file__).parent.joinpath('duckdb.lark')
 
 def parser_error_handler(e:UnexpectedToken):
     # assert isinstance(e, UnexpectedToken)
@@ -298,7 +298,7 @@ class GetQueries(Visitor):
       self.queries[q.start_pos] = q
 
 
-incomplete_col_ref = re.compile('(\w+[.])([\n\s),])')
+incomplete_col_ref = re.compile(r'(\w+[.])([\n\s),])')
 
 class SqlParserNew:
     

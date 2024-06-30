@@ -12,7 +12,7 @@ import duckdb
 import time
 
 lark_cache = Path(__file__).parent.joinpath('lark_cache')
-lark_file = Path(__file__).parent.joinpath('sql3b.lark')
+lark_file = Path(__file__).parent.joinpath('duckdb.lark')
 
 def get_parser():
     sql_grammer = lark_file.read_text()
@@ -73,6 +73,7 @@ class ParseResult:
     token_history:list[TokenHistory]
     tokens_to_pos:list[TokenHistory]
     duration:float
+    accepts:list[str]
 
 
 no_space_tokens = set([".", ",", ";", "(", ")", "[", "]","{","}"])
@@ -115,7 +116,7 @@ def interactive_parse_new(sql:str,pos:int,logger:logging.Logger = None):
             TokenHistory(
                 token=prev_token,
                 choices=list(p.choices().keys()),
-                accept=list([])
+                accept=list(p.accepts())
             )
         )
 
@@ -123,7 +124,7 @@ def interactive_parse_new(sql:str,pos:int,logger:logging.Logger = None):
         TokenHistory(
             token=prev_token,
             choices=list(p.choices().keys()),
-            accept=list([])
+            accept=list(p.accepts())
         )
     )
 
@@ -140,6 +141,7 @@ def interactive_parse_new(sql:str,pos:int,logger:logging.Logger = None):
     t = result_history[-1]
     tree=find_end(p,cur_token=token)
     choices_pos = t.choices
+    accpets_pos = t.accept
     # print(t)
     return ParseResult(
         parser=p,
@@ -148,6 +150,7 @@ def interactive_parse_new(sql:str,pos:int,logger:logging.Logger = None):
         token_history=[f'{x.token} {x.token.start_pos}:{x.token.end_pos}' for x in token_history if x.token],
         tokens_to_pos=[f'{x.token} {x.token.start_pos}:{x.token.end_pos}' for x in result_history if x.token],
         duration=time.time()-start,
+        accepts=accpets_pos
     )
 
 
@@ -170,3 +173,16 @@ def interactive_parse_new(sql:str,pos:int,logger:logging.Logger = None):
 
 #%%
 
+import duckdb
+db = duckdb.connect(':memory:')
+
+db.sql(
+"""--sql,
+select 
+
+"""
+)
+
+
+
+#%%

@@ -7,7 +7,7 @@ from dabbler.common import check_name
 from pathlib import Path
 
 
-def get_db_data_new(db:duckdb.DuckDBPyConnection, file_search_path:str=None):
+def get_db_data_new(db:duckdb.DuckDBPyConnection, file_search_path:str=None, skip_ipython = False):
     """gets the data to send to the language server"""
     db_items = db.execute("""--sql
             with
@@ -65,53 +65,54 @@ def get_db_data_new(db:duckdb.DuckDBPyConnection, file_search_path:str=None):
 
     paths = []
     dataframes = []
-    try:
-        ipython = get_ipython()
-        
-        for item in (ipython.ev('dir()')):
-            i_type = str(type(ipython.ev(item)))
-            df_type = check_dataframe_type(i_type)
-
-            if 'WindowsPath' in i_type or 'PosixPath' in i_type:
-                paths.append(
-                    (item, str(ipython.ev(item)))
-                )
-
-            if i_type == "<class 'module'>":
-                if '__file__' not in ipython.ev(f'dir({item})'):
-                    continue
-                if 'site-packages' in ipython.ev(item).__file__:
-                    continue
-                if Path(ipython.ev(item).__file__).parent.name == 'Lib':
-                    continue
-                if Path(ipython.ev(item).__file__).parent.parent.name == 'Lib':
-                    continue
-                
-                for item2 in ipython.ev(f'dir({item})'):
-                    item_item2 = f'{item}.{item2}'
-                    i_type2 = str(type(ipython.ev(item_item2)))
-
-                    if 'WindowsPath' in i_type2 or 'PosixPath' in i_type2:
-                        paths.append(
-                            (item_item2, str(ipython.ev(item_item2)))
-                        )
+    if not skip_ipython:
+        try:
+            ipython = get_ipython()
             
-            if df_type and item[0] != '_' and item not in taken_table_names:
-                unique_name = f'my_item_zz_{item}'
-                locals().__setitem__(unique_name,ipython.ev(item))
-                try:
-                    cols = [[x[0],x[1]] for x in  db.sql(f"describe select * from {unique_name} limit 1").fetchall()]
-                except:
-                    continue
+            for item in (ipython.ev('dir()')):
+                i_type = str(type(ipython.ev(item)))
+                df_type = check_dataframe_type(i_type)
+
+                if 'WindowsPath' in i_type or 'PosixPath' in i_type:
+                    paths.append(
+                        (item, str(ipython.ev(item)))
+                    )
+
+                if i_type == "<class 'module'>":
+                    if '__file__' not in ipython.ev(f'dir({item})'):
+                        continue
+                    if 'site-packages' in ipython.ev(item).__file__:
+                        continue
+                    if Path(ipython.ev(item).__file__).parent.name == 'Lib':
+                        continue
+                    if Path(ipython.ev(item).__file__).parent.parent.name == 'Lib':
+                        continue
+                    
+                    for item2 in ipython.ev(f'dir({item})'):
+                        item_item2 = f'{item}.{item2}'
+                        i_type2 = str(type(ipython.ev(item_item2)))
+
+                        if 'WindowsPath' in i_type2 or 'PosixPath' in i_type2:
+                            paths.append(
+                                (item_item2, str(ipython.ev(item_item2)))
+                            )
                 
-                sql = f'CREATE TABLE {item}({", ".join([f"{check_name(c[0])} {c[1]}" for c in cols])});'
-                
-                dataframes.append([
-                    item,
-                    sql,
-                    cols])
-    except:
-        pass
+                if df_type and item[0] != '_' and item not in taken_table_names:
+                    unique_name = f'my_item_zz_{item}'
+                    locals().__setitem__(unique_name,ipython.ev(item))
+                    try:
+                        cols = [[x[0],x[1]] for x in  db.sql(f"describe select * from {unique_name} limit 1").fetchall()]
+                    except:
+                        continue
+                    
+                    sql = f'CREATE TABLE {item}({", ".join([f"{check_name(c[0])} {c[1]}" for c in cols])});'
+                    
+                    dataframes.append([
+                        item,
+                        sql,
+                        cols])
+        except:
+            pass
 
     paths.sort(key=lambda x: f'{x[0]}-{x[1]}')
     current_schema:str = db.execute("select current_database()||'.'||current_schema()").fetchone()[0]
@@ -133,6 +134,11 @@ def get_db_data_new(db:duckdb.DuckDBPyConnection, file_search_path:str=None):
 
 
 
+def get_default_db_data():
+    db = duckdb.connect()
+    db_data = get_db_data_new(db)
+    db.close()
+    return db_data
 
 
 

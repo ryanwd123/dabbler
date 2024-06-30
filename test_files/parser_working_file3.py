@@ -1,13 +1,17 @@
 #%%
+from importlib.resources import read_text
 from pathlib import Path
 import pprint
 import time
+
+from regex import P
 from dabbler.lsp.parser import get_parser, SqlParserNew
 import duckdb
 from sqlglot import parse_one
 import re
 from lark import Lark, Token, UnexpectedToken, exceptions as lark_exceptions
 db2 = duckdb.connect()
+
 
 
 
@@ -18,6 +22,12 @@ db2 = duckdb.connect()
 
 # db2.sql("create or replace view tp as select * from tree_permits")
 
+# earley_parser = Lark(
+#     grammar=Path('./../dabbler/lsp/duckdb.lark').read_text(),
+#     parser='earley',
+#     propagate_positions=True,
+#     maybe_placeholders=True,
+# )
 
 
 sql_parser = get_parser()
@@ -63,6 +73,29 @@ for f in tst_files[:]:
 
 print(f"pass: {pass_test}, fail: {fail_test}, duration: {time.time() - start:.2f} seconds (sqlglot)")
 
+# pass_test = 0
+# fail_test = 0
+
+# start = time.time()
+
+# for f in tst_files[:]:
+#     txt = f.read_text()
+#     # print(f.name, duckdb_parse(txt)["error"])
+#     try:
+#         file_start = time.time()
+#         z = earley_parser.parse(txt)
+#         pass_test += 1
+#         print(f'{time.time() - file_start:.4f} seconds {f.name}')
+#         # print(f'{time.time() - start:.4f} seconds')
+#     except Exception as e:
+#         print(f.name,e)
+#         fail_test += 1
+
+# print(f"pass: {pass_test}, fail: {fail_test}, duration: {time.time() - start:.2f} seconds (earley)")
+
+
+
+
 
 #%%
 
@@ -71,7 +104,7 @@ from dabbler.lsp.parser import lark_file
 #%%
 from pathlib import Path
 import re
-grammer_txt = (Path(__file__).parent.parent / 'dabbler' / 'lsp' / 'sql3b.lark').read_text()
+grammer_txt = (Path(__file__).parent.parent / 'dabbler' / 'lsp' / 'duckdb.lark').read_text()
 reg = re.compile(r'''([A-Z_]+)\s*:\s*"[A-Z_]+"''')
 defined_kw = set(reg.findall(grammer_txt))
 

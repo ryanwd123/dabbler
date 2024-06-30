@@ -1,4 +1,5 @@
 import enum
+from math import log
 import attrs
 
 # from lsprotocol.types import (
@@ -87,7 +88,7 @@ class MarkupContent:
     value: str = attrs.field(validator=attrs.validators.instance_of(str))
     """The content itself"""
 
-get_records_sql = """--sql
+get_records_sql = r"""--sql
     with
         cols as (
             select 
@@ -191,7 +192,9 @@ def make_db(db_data:dict):
     for schema in db_data['schemas']:
         if schema not in schemas:
             try:
-                db2.execute(f"create schema {schema}")
+                sql_code = f"create schema {schema}"
+                logger.debug(sql_code)
+                db2.execute(sql_code)
             except Exception as e:
                 logger.error(f'Error creating schema {schema}, {e}')
     
@@ -374,11 +377,10 @@ def make_completion_map(db:duckdb.DuckDBPyConnection,db_data):
             doc=None)
         
         if cat == cur_db:
-            if schema not in item_map['root_namespace']:
-                # if not cat_schema in item_map:
-                    # item_map[cat_schema] = []
-                # item_map[schema] = item_map[cat_schema]
+            if schema not in item_map['root_namespace']:                    
                 item_map['root_namespace'].append(schema_comp)
+            if cat_schema in item_map:
+                item_map[schema] = item_map[cat_schema]
 
         if cat not in item_map:
             item_map[cat] = []

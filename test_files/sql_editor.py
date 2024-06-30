@@ -1,11 +1,15 @@
+from calendar import c
+import re
+from turtle import pos
 from qtpy import QtWidgets, QtCore, QtGui
 from qtpy.QtCore import Qt
 from qtpy.QtGui import QSyntaxHighlighter, QTextCharFormat, QFont
 from rapidfuzz import fuzz
 import duckdb
-from duckdb import tokenize, token_type
+from duckdb import cursor, tokenize, token_type
 from dabbler.txt_util import get_idx, line_col
 import json
+from sqlglot import parse
 
 
 class SqlSyntaxHighlighter(QSyntaxHighlighter):
@@ -47,11 +51,13 @@ class SqlSyntaxHighlighter(QSyntaxHighlighter):
 class CompletionWorker(QtCore.QObject):
     completionResult = QtCore.Signal(list, int)
     validationResult = QtCore.Signal(dict)
+    formatResult = QtCore.Signal(str)
     
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self.completer = None
+        self.indent = 2
 
     @QtCore.Slot(str)
     def validate(self, sql):
@@ -71,6 +77,20 @@ class CompletionWorker(QtCore.QObject):
 
         db_data = get_db_data_new(db)
         self.completer = SqlCompleter(db_data)
+
+    @QtCore.Slot(str)
+    def format_sql(self, sql:str):
+        try:
+            stmts = parse(sql, read='duckdb')
+            formatted = []
+            for stmt in stmts:
+                fmt = stmt.sql(dialect='duckdb', pretty=True, indent=self.indent, max_text_width=100)
+                formatted.append(fmt)
+            formatted = "\n".join(formatted)
+            self.formatResult.emit(formatted)
+        except Exception as e:
+            print(e)
+
 
     @QtCore.Slot(str, int, str)
     def request_completions(self, text:str, cursor_position, trigger):
@@ -118,11 +138,14 @@ class AutocompleteLineEdit(QtWidgets.QPlainTextEdit):
 
     request_Completions = QtCore.Signal(str, int, str)
     request_validation = QtCore.Signal(str)
+    request_format = QtCore.Signal(str)
 
     def __init__(self, parent=None, overlay:QtWidgets.QPlainTextEdit = None):
         super().__init__(parent)
         self.overlay = overlay
         self.insert_start = 0
+        self.indent = 2
+
         self.completion_widget = CompletionWidget(self)
         self.completion_widget.completion_selected.connect(self.insert_completion)
         self.textChanged.connect(self.update_completions)
@@ -132,11 +155,14 @@ class AutocompleteLineEdit(QtWidgets.QPlainTextEdit):
 
 
         self.completion_worker = CompletionWorker()
+        self.completion_worker.indent = self.indent
         self.completion_worker.completionResult.connect(self.show_completion_widget)
         self.completion_worker.validationResult.connect(self.post_validation)
+        self.completion_worker.formatResult.connect(self.post_formatted_sql)
 
         self.request_Completions.connect(self.completion_worker.request_completions)
         self.request_validation.connect(self.completion_worker.validate)
+        self.request_format.connect(self.completion_worker.format_sql)
 
         self.worker_thread = QtCore.QThread()
         self.completion_worker.moveToThread(self.worker_thread)
@@ -150,10 +176,19 @@ class AutocompleteLineEdit(QtWidgets.QPlainTextEdit):
         self.trigger_positon = 0
         self.full_completion_list = []
         self.highlighter = SqlSyntaxHighlighter(self.document())
-        self.setStyleSheet("QPlainTextEdit { background-color: #1F1F1F00; color: #ffffff; }")
         
         
         # self.document().setDefaultStyleSheet(HtmlFormatter().get_style_defs())
+
+    @QtCore.Slot(str)
+    def post_formatted_sql(self, sql:str):
+        cursor = self.textCursor()
+        cursor.setPosition(0)
+        cursor.setPosition(len(self.toPlainText()), QtGui.QTextCursor.MoveMode.KeepAnchor)
+        cursor.removeSelectedText()
+        cursor.insertText(sql)
+
+
 
     @QtCore.Slot(dict)
     def post_validation(self, p:dict):
@@ -165,8 +200,9 @@ class AutocompleteLineEdit(QtWidgets.QPlainTextEdit):
             txt = self.toPlainText()
             lines = txt.split("\n")
             row, col = line_col(txt, pos)
+            total_rows = len(lines)
 
-            val_txt = '\n' * row + ' ' * len(lines[row]) + '   ' + p['error_message']
+            val_txt = '\n' * row + ' ' * len(lines[row]) + '   ' + p['error_message'] + '\n' * (total_rows - row - 1)
             self.overlay.setPlainText(val_txt)
         else:
             self.overlay.setPlainText("")
@@ -214,7 +250,7 @@ class AutocompleteLineEdit(QtWidgets.QPlainTextEdit):
 
         
         if not self.full_completion_list:
-            self.insert_start = cursor_position
+            self.insert_start = cursor_position - 1
             self.request_Completions.emit(text, cursor_position, trigger)
             self.trigger_positon = cursor_position
 
@@ -293,20 +329,41 @@ class AutocompleteLineEdit(QtWidgets.QPlainTextEdit):
         self.completion_visible = False
         self.trigger_positon = 0
     
-
-
-    def move_selected_lines(self, direction, copy=False):
+    def get_cursor_start_end(self):
         cursor = self.textCursor()
         start = cursor.selectionStart()
         end = cursor.selectionEnd()
         start_row, start_col = line_col(self.toPlainText(), start)
         end_row, end_col = line_col(self.toPlainText(), end)
-        
+        return cursor, start, end, start_row, start_col, end_row, end_col
+
+
+    def move_selected_lines(self, direction, copy=False, indent=0):
+        cursor, start, end, start_row, start_col, end_row, end_col = self.get_cursor_start_end()    
 
         text = self.toPlainText()
     
         lines = text.split("\n")
         new_text = None
+
+        if indent != 0:
+            if indent == 1:
+                for i in range(end_row, start_row - 1, -1):
+                    cursor.setPosition(get_idx(text, i, 0))
+                    cursor.insertText(" " * self.indent)
+                return
+            elif indent == -1:
+                for i in range(end_row, start_row - 1, -1):
+                    cursor.setPosition(get_idx(text, i, 0))
+                    for i in range(self.indent):
+                        cursor.movePosition(QtGui.QTextCursor.MoveOperation.Right, QtGui.QTextCursor.MoveMode.KeepAnchor, n=1)
+                        txt = cursor.selectedText()
+                        if txt == " ":
+                            cursor.removeSelectedText()
+                return
+            
+            return
+
         
         if direction == 1 and end_row < len(lines) - 1:
             # Moving down
@@ -372,7 +429,9 @@ class AutocompleteLineEdit(QtWidgets.QPlainTextEdit):
     def keyPressEvent(self, event: QtGui.QKeyEvent):
         ctrl = event.modifiers() == Qt.KeyboardModifier.ControlModifier
         alt = event.modifiers() == Qt.KeyboardModifier.AltModifier
+        shift = event.modifiers() == Qt.KeyboardModifier.ShiftModifier
         altShift = event.modifiers() == Qt.KeyboardModifier.AltModifier | Qt.KeyboardModifier.ShiftModifier
+        ctrlShift = event.modifiers() == Qt.KeyboardModifier.ControlModifier | Qt.KeyboardModifier.ShiftModifier
         key = event.key()
         text = event.text()
 
@@ -397,32 +456,47 @@ class AutocompleteLineEdit(QtWidgets.QPlainTextEdit):
             # cursor.setPosition(0)
             # cursor.setPosition(5, QtGui.QTextCursor.MoveMode.KeepAnchor)
             # cursor.insertText("apple 222\nasdbd")
-            fmt = QtGui.QTextCharFormat()
-            fmt.setForeground(QtGui.QColor('red'))
-            self.highlighter.setFormat(0, 5, fmt)
+            self.request_format.emit(self.toPlainText())
             return
 
-        
-
-
-        
+                
         if not self.completion_widget.isVisible():
             
             if key in (Qt.Key.Key_Enter, Qt.Key.Key_Return):
                 cursor = self.textCursor()
+                pos = cursor.position()
+                cur_text = self.toPlainText()
+            
                 cursor2 = self.textCursor()
-
                 cursor.select(QtGui.QTextCursor.SelectionType.LineUnderCursor)
                 txt = cursor.selectedText()
                 indent = len(txt) - len(txt.lstrip())
+                print('key enter', pos, cur_text[pos-1], cur_text[pos])
+                if len(cur_text) -1 > pos and cur_text[pos-1] in ['(','[','{'] and cur_text[pos] in [')',']','}']:
+                    cursor2.insertText("\n")
+                    cursor2.insertText(" " * (indent + self.indent) + "\n")
+                    cursor2.insertText(" " * (indent) )
+                    cursor2.movePosition(QtGui.QTextCursor.MoveOperation.Up)
+                    cursor2.movePosition(QtGui.QTextCursor.MoveOperation.EndOfLine)
+                    self.setTextCursor(cursor2)
+                    return
             
                 cursor2.insertText("\n")
-                cursor2.insertText(" " * indent)                
+                cursor2.insertText(" " * indent)                 
                 self.setTextCursor(cursor2)
                 return
 
-
-
+            if key == Qt.Key.Key_Tab or key == Qt.Key.Key_Backtab:
+                cursor, start, end, start_row, start_col, end_row, end_col = self.get_cursor_start_end()
+                direction = -1 if shift else 1
+                if start_row != end_row:
+                    print(f"change indent {direction}")
+                    self.move_selected_lines(1,indent=direction)
+                    return
+                if start_row == end_row and shift:
+                    print(f"change indent {direction}")
+                    self.move_selected_lines(1,indent=direction)
+                    return
 
             if key == Qt.Key.Key_Space and ctrl:
                 self.update_completions()
@@ -445,7 +519,7 @@ class AutocompleteLineEdit(QtWidgets.QPlainTextEdit):
 
             if key == Qt.Key.Key_Tab:
                 cursor = self.textCursor()
-                cursor.insertText("    ")
+                cursor.insertText(" " * self.indent)
                 return
 
         if self.completion_widget.isVisible():
@@ -492,17 +566,29 @@ class MainWindow(QtWidgets.QMainWindow):
         self._layout = QtWidgets.QVBoxLayout()
         central_widget.setLayout(self._layout)
 
+        #set background of central widget wihtout using sytlesheet
+        central_widget.setAutoFillBackground(False)
+
         self.overlay_text_area = QtWidgets.QPlainTextEdit(self)
         self.editor = AutocompleteLineEdit(self,self.overlay_text_area)
+        
+
         self.overlay_text_area.setReadOnly(True)
+
         self.overlay_text_area.setStyleSheet("QPlainTextEdit { background-color: #1F1F1F; color: red; }")
+        self.editor.setStyleSheet("QPlainTextEdit { background-color: #1F1F1F00; color: #CCCCCC; }")
+
         self.overlay_text_area.show()
         self.overlay_text_area.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        self.overlay_text_area.setPlainText("           test")
+        self.overlay_text_area.setPlainText("")
         self.overlay_text_area.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.overlay_text_area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.overlay_text_area.lower()
+        self.editor.setWordWrapMode(QtGui.QTextOption.WrapMode.NoWrap)
+        self.overlay_text_area.setWordWrapMode(QtGui.QTextOption.WrapMode.NoWrap)
+
         #sync overlay scrollbars
+
         self.editor.verticalScrollBar().valueChanged.connect(self.overlay_text_area.verticalScrollBar().setValue)
         self.editor.horizontalScrollBar().valueChanged.connect(self.overlay_text_area.horizontalScrollBar().setValue)
         

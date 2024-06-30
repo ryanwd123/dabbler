@@ -1,5 +1,5 @@
 # dabbler
-An IPython extension and sql language server (for sql text with python files) that works with DuckDB.  This project includes a vscode extension to work with the language server.  This project is a work in progress and there could be many bugs.
+An IPython extension and sql language server (for sql text with python files) that works with DuckDB.  This project includes a vscode extension to work with the language server.  This project is a work in progress and there still some bugs.
 
 Table/Query browser:
 ![screenshot of browser](images/gui_screenshot.png)
@@ -19,6 +19,7 @@ Intellisnse / autocomplete:
     - ✔️file paths (triggered by characters **`'./`**  )
     - ✔️keywords
     - 🔲function signature / parameters
+    - 🔲re-use of named columns in current query
 - Send/Execute SQL query from vscode editor to view in dabbler window
 
 ### Current Limitations
@@ -81,14 +82,17 @@ Intellisnse / autocomplete:
 
 ### Next steps
 - Updates to vs_code extension
-    - make configuration option to set default python env
     - better handling of server failing to start when dabbler not installed in python env
 - SQL grammer features missing:
     - SQL standard syntax for pivot/unpivot (simplified is supported)
     - delete statement
     - update statement
+    - create type
     - qualify clause
     - grouping sets, cube, rollup
+- Ipython extension updates
+    - Make it so you can Load dabbler without first creating DB
+    - Support multiple cursors
 
 
 

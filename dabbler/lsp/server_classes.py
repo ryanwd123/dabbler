@@ -11,6 +11,7 @@ import pickle
 import asyncio
 from dabbler.common import FromLangServer, ToLangServer, KeyFile, PprintSocketHandler
 from dabbler.lsp.completer import SqlCompleter
+from dabbler.db_stuff import get_default_db_data
 # from dabbler.lsp.completer import CmpItem
 
 
@@ -40,17 +41,8 @@ class InlineSqlLangServer(LanguageServer):
     def create_default_compelter(self):
         if not self.completer is None:
             return
-        blank_db_data = {
-            'data':[],
-            'dataframes':[],
-            'databases':[],
-            'functions':[],
-            'paths':[],
-            'schemas':[],
-            'current_schema':'memory.main',
-            'cwd':self.workspace.root_path,
-            'file_search_path':None,
-        }
+        blank_db_data = get_default_db_data()
+        blank_db_data['cwd'] = self.workspace.root_path
         self.completer = SqlCompleter(blank_db_data)
 
     def start_io(self, stdin = None, stdout = None):

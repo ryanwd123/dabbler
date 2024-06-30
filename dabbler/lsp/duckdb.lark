@@ -7,7 +7,7 @@ statement: query -> select_statement
         |LOAD STRING -> load_ext_statement
         |SET [(LOCAL|GLOBAL|SESSION)] IDENT (EQUAL|TO) (IDENT|STRING|NUMBER) -> set_statement
         |RESET [(LOCAL|GLOBAL|SESSION)] IDENT -> reset_statement
-        |ATTACH [DATABASE] databse_name [_AS alias] "(" [attach_options ("," attach_options)*] ")" -> attach_statement
+        |ATTACH [DATABASE] [IF NOT EXISTS] databse_name [_AS alias] "(" [attach_options ("," attach_options)*] ")" -> attach_statement
         |DETACH [DATABASE [IF EXISTS]] databse_name -> detach_statement
         |create_view -> create_view
         |alter_view -> alter_view
@@ -311,7 +311,7 @@ expression.3: _col_ref  -> col_ref
         | CAST"(" expression _AS type ")" -> cast
         | "(" query ")" -> subquery
         | NULL -> null   
-        | expression IS [NOT] NULL -> is_null
+        | expression [IS | NOT | IS NOT] NULL -> is_null
         | [NOT] EXISTS "(" query ")" -> exists
         | COALESCE "(" expression ("," expression)* ")" -> coalesce
         | EXTRACT "("IDENT FROM expression")" -> extract
@@ -519,7 +519,7 @@ USING: "USING"i
 CONSTRAINT: "CONSTRAINT"i
 FOREIGN: "FOREIGN"i
 OVERLAPS: "OVERLAPS"i
-ORDER.5: "ORDER"i
+ORDER: "ORDER"i
 INTO: "INTO"i
 NOT: "NOT"i
 TABLE: "TABLE"i

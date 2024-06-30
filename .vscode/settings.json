@@ -1,4 +1,7 @@
 {
+    "jupyter.runStartupCommands": [
+        "%load_ext autoreload", "%autoreload 2"
+    ],
     "[python]": {
         "editor.defaultFormatter": "ms-python.black-formatter"
     },

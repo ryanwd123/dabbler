@@ -1,8 +1,8 @@
 #%%
 
 from qtpy import QtWidgets, QtGui, QtCore
-from txt_util import line_col, move_line, get_idx
-from gui_stuff import gui_style
+from dabbler.txt_util import line_col, move_line, get_idx
+from dabbler.gui_stuff import gui_style
 from dabbler.lsp.new_parser import interactive_parse_new
 
 
@@ -70,9 +70,15 @@ class SqlTextBox(QtWidgets.QPlainTextEdit):
 
             if result.choices:
                 self.editor.choices_box.clear()
-                self.editor.choices_box.addItems(result.choices)
+                self.editor.choices_box.addItems(sorted(result.choices))
             else:
                 self.editor.choices_box.clear()
+
+            if result.accepts:
+                self.editor.accepts.clear()
+                self.editor.accepts.addItems(sorted(result.accepts))
+            else:
+                self.editor.accepts.clear()
 
             if result.tokens_to_pos:
                 self.editor.token_history.clear()
@@ -84,6 +90,7 @@ class SqlTextBox(QtWidgets.QPlainTextEdit):
 
         else:
             self.editor.choices_box.clear()
+            self.editor.accepts.clear()
             self.editor.token_history.clear()
             self.editor.all_toekns_box.clear()
 
@@ -167,6 +174,9 @@ class EditorWindow(QtWidgets.QWidget):
         self.choices_box = QtWidgets.QListWidget()
         self.choices_box.setSelectionMode(QtWidgets.QAbstractItemView.SelectionMode.MultiSelection)
         self.choices_box.setFixedWidth(200)
+        self.accepts = QtWidgets.QListWidget()
+        self.accepts.setSelectionMode(QtWidgets.QAbstractItemView.SelectionMode.MultiSelection)
+        self.accepts.setFixedWidth(200)
         self.all_toekns_box = QtWidgets.QListWidget()
         self.all_toekns_box.setFixedWidth(200)
         self.duartion = QtWidgets.QListWidget()
@@ -183,15 +193,17 @@ class EditorWindow(QtWidgets.QWidget):
         self.layoutz.addWidget(self.text_edit, 1, 0, 2, 1)
         self.layoutz.addWidget(QtWidgets.QLabel('choices'),0,1)
         self.layoutz.addWidget(self.choices_box,1,1)
-        self.layoutz.addWidget(QtWidgets.QLabel('choices'),2,1)
-        self.layoutz.addWidget(QtWidgets.QLabel('all tokens'),0,2)
-        self.layoutz.addWidget(self.all_toekns_box,1,2)
-        self.layoutz.addWidget(QtWidgets.QLabel('tokens before cursor'),0,3)
-        self.layoutz.addWidget(self.token_history,1,3)
-        self.layoutz.addWidget(QtWidgets.QLabel('duration'),0,4)
-        self.layoutz.addWidget(self.duartion,1,4)
+        # self.layoutz.addWidget(QtWidgets.QLabel('choices'),2,1)
+        self.layoutz.addWidget(self.accepts,1,2)
+        self.layoutz.addWidget(QtWidgets.QLabel('accepts'),0,2)
+        self.layoutz.addWidget(QtWidgets.QLabel('all tokens'),0,3)
+        self.layoutz.addWidget(self.all_toekns_box,1,3)
+        self.layoutz.addWidget(QtWidgets.QLabel('tokens before cursor'),0,4)
+        self.layoutz.addWidget(self.token_history,1,4)
+        self.layoutz.addWidget(QtWidgets.QLabel('duration'),0,5)
+        self.layoutz.addWidget(self.duartion,1,5)
 
-        self.layoutz.addWidget(self.tree_text,1,5)
+        self.layoutz.addWidget(self.tree_text,1,6)
 
 
         self.setLayout(self.layoutz)

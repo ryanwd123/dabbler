@@ -20,7 +20,17 @@ from lsprotocol.types import (
     CompletionItemKind,
 )
 
-table_types = set(["table", "database", "schema", "cte"])
+table_types = set(["table", "database", "schema", "cte", "table_macro"])
+kw_replace = {
+    'ORDER': 'ORDER BY',
+    'GROUP': 'GROUP BY',
+    'PARTITION': 'PARTITION BY',
+}
+kw_adds = {
+    'CREATE' : 'CREATE OR REPLACE',
+    'GROUP' : 'GROUP BY ALL',
+    'ORDER': 'ORDER BY ALL',
+}
 
 class SqlCompleter:
     def __init__(self, db_data) -> None:
@@ -58,6 +68,13 @@ class SqlCompleter:
             kw_comps = []
             for c in choices_pos:
                 if c in grammer_kw:
+                    if c in kw_adds:
+                        kw_comps.append(
+                            CmpItem(kw_adds[c], CompletionItemKind.Keyword, None, "keyword", "3", "keyword")
+                        )
+
+                    c = kw_replace.get(c, c)
+                    
                     kw_comps.append(
                         CmpItem(c, CompletionItemKind.Keyword, None, "keyword", "3", "keyword")
                     )

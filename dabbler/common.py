@@ -14,7 +14,8 @@ from dabbler.lsp.parser import lark_file
 
 def get_grammer_kw():
     grammer_txt = lark_file.read_text()
-    reg = re.compile(r'''([A-Z_]+)\s*:\s*"[A-Z_]+"i''')
+    # reg = re.compile(r'''([A-Z_]+)\s*:\s*"[A-Z_]+"i''')
+    reg = re.compile(r'''([A-Z_]+(?:\.\d+)?)\s*:\s*"[A-Z_]+"i''')
     return reg.findall(grammer_txt)
 
 
