@@ -4,10 +4,11 @@ import json
 import duckdb
 from pathlib import Path
 
-url = 'https://github.com/duckdb/duckdb-web/blob/main/docs/functions.json'
+url = 'https://raw.githubusercontent.com/duckdb/duckdb-web/main/docs/functions.json'
 
 data = requests.get(url).json()
-data = json.loads('\n'.join(data['payload']['blob']['rawLines']))
+Path(__file__).parent.joinpath('functions_data_raw.json').write_text(json.dumps(data))
+
 
 
 # %%
@@ -16,6 +17,7 @@ functions = {d['name']:d for d in data}
 
 all_functions = {}
 all_functions.update(functions)
+
 #%%
 
 for fn in functions:
@@ -152,6 +154,13 @@ print(function_lookup['strftime']['documentation']['documentation'])
 fn_lu = json.loads(output.read_text())
 
 #%%
+import duckdb
+db = duckdb.connect(":memory:")
+#%%
+db.sql(
+"""--sql,
+select date_part('quarter',DATE '2021-01-31') as date, date_p
 
-
-
+"""
+)
+#%%
