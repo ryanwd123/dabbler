@@ -121,6 +121,10 @@ from pathlib import Path
 # df = get_imdb_df()
 # df.write_parquet('tst.parquet')
 df = pl.read_parquet(Path(__file__).parent/'tst.parquet')
+df = pl.DataFrame({
+    "a": [1, 2, 3, 4, 5, 0],
+})
+
 # print(filtered_df)
 # df['parameters'].list.join(', ').cast(pl.String)
 # %%

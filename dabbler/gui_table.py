@@ -30,13 +30,12 @@ def get_col_fmts(c: str, df: pl.DataFrame, dtype: pl.DataType, fm: QFontMetrics)
         return "%Y-%m-%d"
     return ""
 
-
 def get_str(val, fmt: str):
-    if not val:
+    if val is None:
         return ""
     try:
-        result = f"{val:{fmt}}"
-    except:
+        result = format(val, fmt)
+    except Exception:
         result = str(val)
     return result
 

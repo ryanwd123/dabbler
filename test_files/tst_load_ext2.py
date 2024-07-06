@@ -40,7 +40,9 @@ db.sql("""--sql
            """)
 
 #%%
+df1 = pl.DataFrame({'a':[1,2,3,0],'b':[4,5,6,0]})
 
+#%%
 aa = db.sql(
 """--sql,
 select
