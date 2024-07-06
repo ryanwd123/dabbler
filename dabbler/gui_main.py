@@ -343,7 +343,7 @@ class mainWindow(QtWidgets.QMainWindow):
 
     def set_inital_position(self):
         saved_pos = self.app.settings.value("pos", QtCore.QPoint(100, 100))
-        saved_size = self.app.settings.value("size", QtCore.QPoint(1200, 800))
+        saved_size = self.app.settings.value("size", QtCore.QSize(1200, 800))
         saved_geometry = QtCore.QRect(saved_pos, saved_size)  # type: ignore
         screens = QtWidgets.QApplication.screens()
 
