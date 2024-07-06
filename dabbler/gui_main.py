@@ -308,7 +308,7 @@ class mainWindow(QtWidgets.QMainWindow):
 
 
         self.table.search.setTabOrder(self.table.search, self.table.table)
-        self.font_size:int = self.app.settings.value("font_size", 12)  # type: ignore
+        self.font_size:int = int(self.app.settings.value("font_size", 12))  # type: ignore
         self.set_font_size()
 
         self.set_inital_position()
