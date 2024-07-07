@@ -1,3 +1,4 @@
+from ctypes import Union
 import logging
 import os
 from pathlib import Path
@@ -6,6 +7,7 @@ from dabbler.common import grammer_kw
 from dabbler.lsp.parser import SqlParserNew
 from dabbler.lsp.db_data import make_db, make_completion_map
 from dabbler.lsp.sql_utils import strip_sql_whitespace, SelectNode, CmpItem
+from typing import Union
 from dabbler.lsp.completion_utils import (
     PathCompleter,
     duckdb_extensions,
@@ -46,7 +48,7 @@ class SqlCompleter:
         self.parser2 = SqlParserNew(self.db, self.file_search_path)
 
     def get_queries(self, pos, sql):
-        queries, choices_pos = self.parser2.parse_sql(sql, pos)
+        queries, choices_pos = self.parser2.parse_sql(sql, pos)   # type: ignore
         if not queries:
             return None, None, choices_pos
         queries.queries_list.sort(key=lambda x: x.end_pos - x.start_pos)
@@ -87,7 +89,11 @@ class SqlCompleter:
             return comp_map
         for k, v in q.from_refs.items():
             if v.kind.name == "subquery":
+                if not queries or not v.start_pos:
+                    continue
                 projection = queries.queries[v.start_pos].projection
+                if not projection:
+                    continue
                 comp_map[k] = [
                     CmpItem(x[0], CompletionItemKind.Field, None, x[1], "1", "column")
                     for x in projection
@@ -112,18 +118,24 @@ class SqlCompleter:
             
             # self.show_message_log(f'{v}')
             if q.ctes and v.name in q.ctes.map:
+                projection = q.ctes.map[v.name].projection
+                if not projection:
+                    continue
                 comp_map[k] = [
                     CmpItem(x[0], CompletionItemKind.Field, None, x[1], "1", "column")
-                    for x in q.ctes.map[v.name].projection
+                    for x in projection
                 ]
                 comp_map["root_namespace"].append(
                     CmpItem(k, CompletionItemKind.File, None, "cte", "1", "cte")
                 )
                 continue
             elif v.name in q.cte_sibblings:
+                projection = q.cte_sibblings[v.name].projection
+                if not projection:
+                    continue
                 comp_map[k] = [
                     CmpItem(x[0], CompletionItemKind.Field, None, x[1], "1", "column")
-                    for x in q.cte_sibblings[v.name].projection
+                    for x in projection
                 ]
                 comp_map["root_namespace"].append(
                     CmpItem(k, CompletionItemKind.File, None, "cte", "1", "cte")
@@ -141,18 +153,24 @@ class SqlCompleter:
 
         if q.ctes:
             for k, v in q.ctes.map.items():
+                projection = v.projection
+                if not projection:
+                    continue
                 comp_map[k] = [
                     CmpItem(x[0], CompletionItemKind.Field, None, x[1], "1", "column")
-                    for x in v.projection
+                    for x in projection
                 ]
                 comp_map["root_namespace"].append(
                     CmpItem(k, CompletionItemKind.File, None, "cte", "1", "cte")
                 )
 
         for k, v in q.cte_sibblings.items():
+            projection = v.projection
+            if not projection:
+                continue
             comp_map[k] = [
                 CmpItem(x[0], CompletionItemKind.Field, None, x[1], "1", "column")
-                for x in v.projection
+                for x in projection
             ]
             comp_map["root_namespace"].append(
                 CmpItem(k, CompletionItemKind.File, None, "cte", "1", "cte")
@@ -182,7 +200,7 @@ class SqlCompleter:
         self,
         cursor_pos: int,
         txt: str,
-        trigger: str,
+        trigger: Union[str,None],
         # current_line: int,
         # current_line_txt: str,
     ):

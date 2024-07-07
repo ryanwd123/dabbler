@@ -2,7 +2,7 @@
 from itertools import tee
 from dabbler.lsp.parser import interactive_parse
 from pprint import pprint
-from lark import Visitor, Transformer, v_args, Tree, Discard
+from lark import Visitor, Transformer, v_args, Tree, Discard, ast_utils
 from dataclasses import dataclass
 import logging
 logger = logging.getLogger()

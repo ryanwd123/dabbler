@@ -25,6 +25,7 @@ from lsprotocol.types import (
     CompletionList,
 )
 
+from dabbler.common import FromLangServer
 from dabbler.lsp.parser import sql_parser
 from lark import UnexpectedToken
 
@@ -60,9 +61,15 @@ def completions(
     """Returns completion items."""
     # ls.zmq_check_for_update()
     # ls.check_sockets()
+    if not params:
+        return CompletionList(is_incomplete=False, items=[])
+    
+
     document = ls.workspace.get_document(params.text_document.uri)
     current_line_txt = document.lines[params.position.line]
 
+    if not params.context:
+        return CompletionList(is_incomplete=False, items=[])
 
     trigger = params.context.trigger_character
 
@@ -78,18 +85,18 @@ def completions(
         try:
             path_completions = pathlib_completetions(current_line_txt[:params.position.character], ls.pathlibs_paths, ls.log)
             if path_completions:
-                return path_completions
+                return CompletionList(is_incomplete=False, items=path_completions)
         except Exception as e:
             ls.log.debug(['pathlib completion error',e])
-        return None
+        return CompletionList(is_incomplete=False, items=[])
 
     if trigger in ['"',"'"]:
-        return None
+        return CompletionList(is_incomplete=False, items=[])
 
     pos_in_range = sql_rng.cur_idx - sql_rng.start
 
     if not ls.completer:
-        return None
+        return CompletionList(is_incomplete=False, items=[])
 
     # try:
     comps = ls.completer.route_completion2(
@@ -100,7 +107,9 @@ def completions(
     # except:
     # ls.show_message_log('problem with completion')
     # return None
-    return comps
+    if comps:
+        return comps
+    return CompletionList(is_incomplete=False, items=[])
 
 
 
@@ -121,12 +130,18 @@ def publish_diagnostics(ls:InlineSqlLangServer, uri, line, char,  msg):
 @sql_server.feature(lsp.TEXT_DOCUMENT_DID_CHANGE)
 def did_change(ls: InlineSqlLangServer, params: lsp.DidChangeTextDocumentParams):
     """Text document did change notification."""
-    if not params.content_changes[0].range:
+    if not params:
+        return
+    
+    if not params.content_changes:
+        return
+
+    if not params.content_changes[0].range: # type: ignore
         return
     # ls.show_message_log(f'did change: {params}')
     # ls.show_message_log(f'did change: {params.content_changes[0].range.start}')
-    start_line = params.content_changes[0].range.end.line
-    char = params.content_changes[0].range.end.character
+    start_line = params.content_changes[0].range.end.line # type: ignore
+    char = params.content_changes[0].range.end.character # type: ignore
     document = ls.workspace.get_document(params.text_document.uri)
     # current_line_txt = document.lines[start_line]
     # ls.show_message_log(f"did change: {start_line,char}, line txt: {current_line_txt}")
@@ -201,9 +216,13 @@ def send_sql_to_gui(ls: InlineSqlLangServer, *args):
         ls.show_message_log(
             f"did not find sql range at line:{line + 1} char: {char + 1}"
         )
+        return
 
     pos_in_range = sql_rng.cur_idx - sql_rng.start
+
     try:
+        if not ls.completer:
+            return
         q, queries, choices_pos = ls.completer.get_queries(pos_in_range,sql_rng.txt)
     except Exception as e:
         ls.log.debug(['error getting queries',e])
@@ -218,7 +237,7 @@ def send_sql_to_gui(ls: InlineSqlLangServer, *args):
         cte_sql = f'with {sibblings}'
     sql = f'{cte_sql}\n{q.sql}'
     
-    msg = {"cmd": "run_sql", "sql": sql}
+    msg:FromLangServer = {"cmd": "run_sql", "data": sql, "con_id": ls.connection_info['server_id']}
 
     resp = ls.zmq_send(msg)
 

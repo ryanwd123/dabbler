@@ -34,7 +34,7 @@ Intellisnse / autocomplete:
 - Install Python VScode Extension
 - Install Jupyter VScode Extension
 #### Install dabbler
-- `pip install dabbler` (note: one of the depenecies is "notebook" which is Jupyter Notebook - this installs a ton of stuff)
+- `pip install dabbler`
 - install PySide or PyQt e.g. `pip install PySide6`  (note: pyqt5 seems to work better on Linux)
 - install "dabbler" vscode extension
 
@@ -81,6 +81,9 @@ Intellisnse / autocomplete:
 
 
 ### Next steps
+- known bugs
+    - autocompletion will not work with for database / schema names with spaces
+    - update completions to use 'search_path' setting for multiple databases
 - Updates to vs_code extension
     - better handling of server failing to start when dabbler not installed in python env
 - SQL grammer features missing:

@@ -5,6 +5,7 @@ from pathlib import Path
 from enum import Enum
 from lark import Lark, Transformer, v_args, Discard, Visitor, Tree, UnexpectedToken, Token, UnexpectedCharacters
 from lark.parsers.lalr_interactive_parser import InteractiveParser
+from typing import Union
 import duckdb
 import logging
 import time
@@ -56,7 +57,7 @@ sql_parser = get_parser()
 class Cte:
     name: str
     sql: str
-    projection: list[str]
+    projection: Union[list[tuple[str,Union[str,None]]], None]
     cte_start: int
     self_start: int
 
@@ -67,14 +68,14 @@ class Ctes:
     map: dict[str, Cte]
     start_pos: int
     end_pos: int
-    parent: "Query" = None
+    parent: Union["Query",None] = None
 
 
 @dataclass
 class Query:
-    ctes: Ctes
+    ctes: Union[Ctes,None]
     sql: str
-    projection: list[str]
+    projection: Union[list[tuple[str, Union[str,None]]], None]
     from_refs: dict[str, 'FromRef']
     start_pos: int
     end_pos: int
@@ -93,9 +94,9 @@ class FromRef:
     kind: FromRefKind
     alias: str
     name: str
-    sql: str = None
-    start_pos: int = None
-    projection: list[tuple[str,str]] = None
+    sql: Union[str,None] = None
+    start_pos: Union[int,None] = None
+    projection: Union[list[tuple[str,str]],None] = None
 
 
 class TransformFromClause(Transformer):
@@ -127,7 +128,7 @@ class TransformFromClause(Transformer):
     def table_function(self, value):
         if value[1]:
             
-            sql = self.sql[value[0].meta.start_pos : value[0].meta.end_pos]
+            sql:str = self.sql[value[0].meta.start_pos : value[0].meta.end_pos]
             
             self.map[value[1]] = FromRef(
                 kind=FromRefKind.table_function,
@@ -146,9 +147,9 @@ class TransformFromClause(Transformer):
             sql = value[0]
             self.map[alias] = FromRef(
                 kind=FromRefKind.subquery,
-                alias=alias,
-                name=sql,
-                sql=sql,
+                alias=alias, # type: ignore
+                name=sql, # type: ignore
+                sql=sql, # type: ignore
                 start_pos=tree.meta.start_pos+1,
             )
             # return {alias:sql}
@@ -190,10 +191,10 @@ class GetQueries(Visitor):
          if len(col.children) < 2:
             continue
          if col.children[1]:
-            col_names.append(col.children[1].children[0].value)
+            col_names.append(col.children[1].children[0].value) # type: ignore
             continue
          if col.children[0].data == 'col_ref':
-            col_names.append(col.children[0].children[1].value)
+            col_names.append(col.children[0].children[1].value) # type: ignore
             continue
       return [(x,None) for x in col_names]
 
@@ -209,7 +210,7 @@ class GetQueries(Visitor):
       for x in cte.children:
          if not isinstance(x, Tree):
                continue
-         name = x.children[0].value
+         name = x.children[0].value # type: ignore
 
          q = self.get_query(x.children[3])
          if not q:
@@ -272,7 +273,7 @@ class GetQueries(Visitor):
       q = Query(
          ctes=cte_data,
          sql=sql_txt,
-         projection=cols,
+         projection=cols,   # type: ignore
          from_refs=from_refs,
          start_pos=start,
          end_pos=end,
@@ -302,7 +303,7 @@ incomplete_col_ref = re.compile(r'(\w+[.])([\n\s),])')
 
 class SqlParserNew:
     
-    def __init__(self, db: duckdb.DuckDBPyConnection = None, file_search_path:str = None) -> None:
+    def __init__(self, db: Union[duckdb.DuckDBPyConnection,None] = None, file_search_path:Union[str,None] = None) -> None:
         self.db = db
         self.projection_cache = {}
         self.file_search_path = file_search_path
@@ -347,14 +348,20 @@ class SqlParserNew:
         for q in queries.queries_list:
             if q.start_pos not in cte_lu:
                 continue
-            parent_map = queries.queries[cte_lu[q.start_pos]].ctes.map
+            subq_1 = queries.queries[cte_lu[q.start_pos]]
+            if not subq_1.ctes:
+                continue
+            parent_map = subq_1.ctes.map
             sibblings = {k: v for k, v in parent_map.items() if v.self_start < q.start_pos}
             q.cte_sibblings = sibblings
 
         for q in queries.queries_list:
             if q.start_pos not in subq_lu:
                 continue
-            q.cte_sibblings = queries.queries[subq_lu[q.start_pos]].ctes.map
+            subq = queries.queries[subq_lu[q.start_pos]]
+            if not subq.ctes:
+                continue
+            q.cte_sibblings = subq.ctes.map
 
         for q in queries.queries_list:
             if q.set_operation:
@@ -408,6 +415,8 @@ class SqlParserNew:
             return
 
         try:
+            if not self.db:
+                return
             db = self.db.cursor()
             if self.file_search_path and len(self.file_search_path)>0:
                 db.execute(f"set file_search_path = '{self.file_search_path}';")
@@ -418,12 +427,11 @@ class SqlParserNew:
         except Exception as e:  # noqa: E722
             # self.log.debug(['failed to run describe',sql,e,os.getcwd()])
             return
-        
 
 
-def find_end(p:InteractiveParser,cur_token:Token=None):
+def find_end(p:InteractiveParser,cur_token:Union[Token,None]=None):
     choices = list(p.choices().keys())
-    if 'table_ref' in choices and cur_token.upper() in ['FROM','JOIN']:
+    if 'table_ref' in choices and cur_token and cur_token.upper() in ['FROM','JOIN']:
         try:
             p.feed_token(Token('IDENT', 'placeholder'))
             choices = list(p.choices().keys())
@@ -440,7 +448,7 @@ def find_end(p:InteractiveParser,cur_token:Token=None):
 
 @dataclass
 class TokenHistory:
-    token:Token
+    token:Union[Token,None]
     choices:list
     accept:list
 
@@ -514,6 +522,8 @@ def interactive_parse(sql:str,pos:int,logger:logging.Logger, parser=sql_parser):
         if t.token is None:
             result_history.append(t)
             continue
+        if not t.token.end_pos:
+            break
         if t.token.end_pos < pos or (t.token.end_pos <= pos and t.token in no_space_tokens):
             result_history.append(t)
         else:

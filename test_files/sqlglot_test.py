@@ -1,31 +1,18 @@
 #%%
-from sqlglot import tokenize, Token, tokens, TokenType, Tokenizer
+from sqlglot import tokenize, Token, tokens, TokenType, Tokenizer, parse_one, Expression, exp, parse
 import duckdb
 from duckdb import token_type
 
 sql = """--sql
-CREATE OR REPLACE MACRO custom_summarize() AS TABLE (
-    WITH metrics AS (
-        FROM any_cte 
-        SELECT 
-            {
-                name: first(alias(COLUMNS(*))),
-                type: first(typeof(COLUMNS(*))),
-                max: max(COLUMNS(*))::VARCHAR,
-                min: min(COLUMNS(*))::VARCHAR,
-                approx_unique: approx_count_distinct(COLUMNS(*)),
-                nulls: count(*) - count(COLUMNS(*)),
-            }
-    ), stacked_metrics AS (
-        UNPIVOT metrics 
-        ON COLUMNS(*)
-    )
-    SELECT value.* FROM stacked_metrics
-);
+
 """
 toks = tokenize(sql)
-Tokenizer.KEYWORDS
-
+tree = parse_one(sql, read='duckdb')
+for e in tree.find_all(exp.Select):
+    print(e.depth)
+a = tree.find(exp.Select).find(exp.Limit)
+print(a)
+#%%
 for t in toks:
     if t.token_type.name in Tokenizer.KEYWORDS:
         print(f'{t} is a keyword')

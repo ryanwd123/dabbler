@@ -1,5 +1,4 @@
 from IPython.core.magic import cell_magic, magics_class, Magics
-from queue import Queue
 from dabbler.gui_main import MyApp
 
 
@@ -8,6 +7,9 @@ class DbDabbler(Magics):
     def __init__(self, ipython, debug=False):
         super(DbDabbler, self).__init__(ipython)
         db = None
+        db_name = 'db'
+        file_search_path = None
+
         ev_dir = ipython.ev("dir()")
         if '__file__' in ev_dir:
             file = ipython.ev('__file__')

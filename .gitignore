@@ -5,3 +5,4 @@ dabbler_vsc_ext/node_modules/*
 *.egg-info/
 *.pytest_cache/
 dabbler/lsp/pygls.log
+**/*_ext_gui_settings.json

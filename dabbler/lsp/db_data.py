@@ -180,34 +180,36 @@ def make_db(db_data:dict):
     db2 = duckdb.connect()
     databases = [x[0] for x in db2.execute("select database_name from duckdb_databases()").fetchall()]
 
+
+
     for db_to_add in db_data['databases']:
         if db_to_add not in databases:
             try:
                 db2.execute(f'''attach ':memory:' as "{db_to_add}" ''')
             except Exception as e:
-                logger.error(f'Error attaching dummy memory database {db_to_add}, {e}')
+                logger.exception(f'Error attaching dummy memory database {db_to_add}, {e}')
 
     schemas = [x[0] for x in db2.execute("select database_name ||'.'|| schema_name from duckdb_schemas()").fetchall()]
 
     for schema in db_data['schemas']:
         if schema not in schemas:
             try:
-                sql_code = f"create schema {schema}"
+                sql_code = f'create schema {schema}'
                 logger.debug(sql_code)
                 db2.execute(sql_code)
             except Exception as e:
-                logger.error(f'Error creating schema {schema}, {e}')
+                logger.exception(f'Error creating schema {schema}, {e}')
     
     try:
-        db2.execute(f"use {db_data['current_schema']};")
+        db2.execute(f'''use {db_data['current_schema']};''')
     except Exception as e:
-        logger.error(f'Error setting current schema to {db_data["current_schema"]}, {e}')
+        logger.exception(f'Error setting current schema to {db_data["current_schema"]}, {e}')
 
     for df in db_data['dataframes']:
         try:
             db2.execute(df[1])
         except Exception as e:
-            logger.error(f'Error creating table for dataframe {df[0]}, {e}')
+            logger.exception(f'Error creating table for dataframe {df[0]}, {e}')
 
 
     for schema, item, sql, cols in db_data['data']:
@@ -224,16 +226,19 @@ def make_db(db_data:dict):
         col_txt = ',\n'.join([f'"{c[0]}" {c[1]}' for c in col_items])
         sql2 = f'create table {check_name(item)}({col_txt})'
         try:
-            db2.execute(f'use {schema}; {sql2}')
+            db2.execute(f'''use {schema}; {sql2}''')
         except Exception as e:
-            logger.error(f'Error creating table {item} in schema {schema}, {e}')
+            logger.exception(f'Error creating table {item} in schema {schema}, {e}')
 
-    db2.execute(f"use {db_data['current_schema']};")
+    try:
+        db2.execute(f'''use {db_data['current_schema']};''')
+    except Exception as e:
+        logger.exception(f'Error setting current schema to {db_data["current_schema"]}, {e}')
     if db_data['file_search_path']:
         try:
             db2.execute(f"""set file_search_path to '{db_data['file_search_path']}';""")
         except Exception as e:
-            logger.error(f'Error setting file_search_path to {db_data["file_search_path"]}, {e}')
+            logger.exception(f'Error setting file_search_path to {db_data["file_search_path"]}, {e}')
     
     return db2
 
@@ -258,6 +263,10 @@ def make_completion_map(db:duckdb.DuckDBPyConnection,db_data):
     item_map:dict[str,list[CmpItem]] = {}
     item_map['root_namespace'] = []
 
+    for cat_schema in db_data['schemas']:
+        item_map[cat_schema] = []
+
+
     try:
         cur_db = db_data['current_schema'].split('.')[0]
     except:
@@ -281,6 +290,9 @@ def make_completion_map(db:duckdb.DuckDBPyConnection,db_data):
             item_map[db_scm] = []
         item_map[db_scm].append(comp_item)
 
+        # if db_scm == db_data['current_schema']:
+        #     item_map['root_namespace'].append(comp_item)
+
 
     for db_scm, item, obj_type, comp_detial, sql, cols in records:
 
@@ -289,18 +301,21 @@ def make_completion_map(db:duckdb.DuckDBPyConnection,db_data):
 
         if not db_scm:
             db_scm = 'root_namespace'
+        
+        if item in [x.label for x in item_map['root_namespace']]:
+            continue
 
         db_schema_split = db_scm.split('.')
         if len(db_schema_split) == 2:
-            db, schema = db_schema_split
+            database, schema = db_schema_split
         else:
-            db = 'aa'
-            schema = 'aabb'
+            database = 'memory'
+            schema = 'main'
 
         if db_scm not in item_map:
             item_map[db_scm] = []
 
-        if db == cur_db:
+        if database == cur_db:
             if schema not in item_map:
                 item_map[schema] = []
         
@@ -314,7 +329,7 @@ def make_completion_map(db:duckdb.DuckDBPyConnection,db_data):
         if obj_type == 'function' or comp_detial == 'table_macro':
             if item in function_docs:
                 fn_doc = MarkupContent(
-                    kind='markdown',
+                    kind=MarkupKind.Markdown,
                     value=function_docs[item]['documentation']['documentation']) 
                 fn_detail = function_docs[item]['documentation']['detail'] 
         
@@ -325,15 +340,15 @@ def make_completion_map(db:duckdb.DuckDBPyConnection,db_data):
                 typ=comp_detial,
                 sort=sort,
                 obj_type=obj_type,
-                doc=fn_doc)
+                doc=fn_doc) # type: ignore
         
 
         item_map[db_scm].append(comp_item)
-        if db == cur_db:
+        if database == cur_db:
             item_map[schema].append(comp_item)
 
-        if db_scm == db_data['current_schema']:
-            item_map['root_namespace'].append(comp_item)
+        # if db_scm == db_data['current_schema']:
+        #     item_map['root_namespace'].append(comp_item)
         
         
         if cols:
@@ -346,13 +361,14 @@ def make_completion_map(db:duckdb.DuckDBPyConnection,db_data):
                 obj_type='column',
                 doc=None) for c in cols]
             item_map[f'{db_scm}.{item}'] = col_completions
-            if db == cur_db:
+            if database == cur_db:
                 item_map[f'{schema}.{item}'] = col_completions
             if db_scm == db_data['current_schema']:
                 if item in item_map:
                     item_map[item].extend(col_completions)
                 else:
                     item_map[item] = col_completions
+
 
 
 
@@ -388,8 +404,22 @@ def make_completion_map(db:duckdb.DuckDBPyConnection,db_data):
             
         item_map[cat].append(schema_comp)
         
-        root_labels = [x.label for x in item_map['root_namespace']]
-        item_map['root_namespace'].extend([x for x in item_map['system.main'] if x.label not in root_labels])
+    
+    
+    
+    
+        # item_map['root_namespace'].extend([x for x in item_map['system.main'] if x.label not in root_labels])
+    root_labels = set([f'{x.label}-{x.obj_type}' for x in item_map['root_namespace']])
+
+    curr_schema = db_data['current_schema']
+    if curr_schema not in item_map:
+        item_map[curr_schema] = []
+
+    for item in item_map[curr_schema]:
+        identifier = f'{item.label}-{item.obj_type}'
+        if identifier not in root_labels:
+            item_map['root_namespace'].append(item)
+            root_labels.add(identifier)
     
     # for cat_schema in db_data['schemas']:
     #     cat, schema = cat_schema.split('.')

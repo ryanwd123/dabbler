@@ -1,6 +1,4 @@
-from math import log
 import os
-import sys
 import logging
 from pathlib import Path
 from functools import partial
@@ -12,6 +10,7 @@ import asyncio
 from dabbler.common import FromLangServer, ToLangServer, KeyFile, PprintSocketHandler
 from dabbler.lsp.completer import SqlCompleter
 from dabbler.db_stuff import get_default_db_data
+from typing import Union
 # from dabbler.lsp.completer import CmpItem
 
 
@@ -29,14 +28,14 @@ class InlineSqlLangServer(LanguageServer):
 
         self.log = logging.getLogger("dabbler_lsp")
         self.debug = False
-        self.ctx = Context()
+        self.ctx = Context()   # type: ignore
         self.create_sockets2()
 
-        self.completer: "SqlCompleter" = None
+        self.completer: Union["SqlCompleter",None] = None
         self.socket_connected = False
         self.socket_created = False
         self.pathlibs_paths = {}
-        self.key_file: KeyFile = None
+        self.key_file: Union[KeyFile,None] = None
 
     def create_default_compelter(self):
         if not self.completer is None:
@@ -127,7 +126,7 @@ class InlineSqlLangServer(LanguageServer):
         self.show_message_log(f"main_port {self.main_port}, handshake_port {self.handshake_port}")
         self.log.debug(f"key_file {self.key_file.connections}")
 
-        self.zmq_send({"cmd": "db_data_update","con_id":self.connection_info['server_id']})
+        self.zmq_send({"cmd": "db_data_update","con_id":self.connection_info['server_id'], "data": 1})
 
     def initialize_sql_completer(self, data: dict):
         self.completer = SqlCompleter(data)
@@ -139,11 +138,11 @@ class InlineSqlLangServer(LanguageServer):
             self.show_message_log("received db_data")
             await self.loop.run_in_executor(
                 self.thread_pool_executor,
-                partial(self.initialize_sql_completer, msg["data"])
+                partial(self.initialize_sql_completer, msg["data"])  # type: ignore
             )
         elif msg["cmd"] == "ip_python_started":
             self.show_message_log(f"ip_python_started = {msg['data']}")
-            self.zmq_send({"cmd": "db_data_update"})
+            self.zmq_send({"cmd": "db_data_update", "con_id": self.connection_info["server_id"], "data": 1})
         elif msg["cmd"] == "ip":
             self.show_message_log(f"ipython event = {msg['data']}")
         elif msg["cmd"] == "no_update":
@@ -170,7 +169,7 @@ class InlineSqlLangServer(LanguageServer):
 
         while not stop.is_set():
             try:
-                socks: dict[AsyncSocket, AsyncSocket] = dict(await poller.poll())
+                socks: dict[AsyncSocket, AsyncSocket] = dict(await poller.poll())  # type: ignore
                 for socket in socks:
                     buff = await socket.recv()
 
@@ -190,19 +189,19 @@ class InlineSqlLangServer(LanguageServer):
     def zmq_send(self, msg:FromLangServer, no_block=False):
         if no_block:
             try:
-                msg = pickle.dumps(msg)
+                msg = pickle.dumps(msg)   # type: ignore
                 self.socket.send(msg, zmq.NOBLOCK)
             except:  # noqa: E722
                 self.show_message_log("zmq send failed")
             return
         if self.socket_connected:
             # self.show_message_log(f"zmq send {msg}")
-            msg = pickle.dumps(msg)
+            msg = pickle.dumps(msg)    # type: ignore
             self.socket.send(msg)
 
     def zmq_check_for_update(self):
         if self.socket_connected:
-            self.zmq_send({"cmd": "check_for_update"})
+            self.zmq_send({"cmd": "check_for_update", "con_id": self.connection_info["server_id"], "data": 1})
         else:
             self.show_message_log("zmq not connected")
 

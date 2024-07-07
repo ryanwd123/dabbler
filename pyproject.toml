@@ -32,7 +32,8 @@ dependencies = [
   "ipython",
   "zmq",
   "ipykernel",
-  "polars"
+  "polars",
+  "pyarrow"
 ]
 
 

@@ -20,39 +20,42 @@ def check_dataframe_type(type_str:str):
 
 gui_style = """
 QLabel {
-	font-family: Consolas;
-	font-size: 10pt;
+	font-family: Calibri, Arial, sans-serif;
+	font-size: 12pt;
+}
+
+QLineEdit {
+	font-family: Calibri, Arial, sans-serif;
+	font-size: 12pt;
 }
 
 
 QTreeWidget {
-	font-family: Consolas;
-	font-size: 10pt;
+	font-family: Calibri, Arial, sans-serif;
+	font-size: 11pt;
 }
 QTextEdit {
 	font-family: Consolas;
-	font-size: 10pt;
+	font-size: 12pt;
 }
 QListView {
-	font-family: Consolas;
-	font-size: 10pt;
+	font-family: Calibri, Arial, sans-serif;
+	font-size: 11pt;
 }
 
 
-"""
+QHeaderView{
+	font-family: Calibri, Arial, sans-serif;
+	border:0px;
+	font-size: 12pt;
+    font-weight: bold;
+}"""
 
-fmt_old = """
+"""
 QTableView {
 	font-family: Consolas;
 	font-size: 10pt;
 }
-QHeaderView{
-	font-family: Consolas;
-	border:0px;
-	font-size: 12pt;
-    font-weight: bold;
-}
-
 
 DfView::item {
 	padding: 0px;

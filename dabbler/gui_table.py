@@ -1,12 +1,19 @@
 import re
 from qtpy import QtWidgets, QtCore, QtGui
-from qtpy.QtCore import Qt
-from qtpy.QtGui import QFont, QFontMetrics
-from dabbler.gui_compenents import Shortcut
+from qtpy.QtCore import Qt, Signal, Slot
+from qtpy.QtGui import QFont, QFontMetrics, QKeySequence
+from qtpy.QtWidgets import QShortcut
+from typing import Union
+
+# from dabbler.gui_compenents import Shortcut
 import polars as pl
 import time
 
 
+def create_shortcut(key, function, parent):
+    shortcut = QShortcut(QKeySequence(key), parent)
+    shortcut.activated.connect(function)
+    return shortcut
 
 def get_col_fmts(c: str, df: pl.DataFrame, dtype: pl.DataType, fm: QFontMetrics):
 
@@ -27,16 +34,18 @@ def get_col_fmts(c: str, df: pl.DataFrame, dtype: pl.DataType, fm: QFontMetrics)
 def get_str(val, fmt: str):
     if not val:
         return ""
-    return f"{val:{fmt}}"
+    try:
+        result = f"{val:{fmt}}"
+    except:
+        result = str(val)
+    return result
 
 
 def get_col_width(
     fm: QFontMetrics, col: str, df: pl.DataFrame, dtype: pl.DataType, format: str
 ):
     if dtype.is_numeric():
-        # print(col, dtype)
         vals = df[col].unique().top_k(10).to_list()
-        # print(col, vals, format)
         return max(
             [fm.horizontalAdvance(str(dtype))]
             + [fm.horizontalAdvance(col)]
@@ -59,7 +68,6 @@ def get_col_width(
         elif dtype == pl.Struct:
             return 200
         elif not dtype == pl.String:
-            # print(col, dtype, dtype.base_type())
             c = df[col].unique().cast(pl.String)
         elif dtype == pl.String:
             c = df[col].unique()
@@ -67,53 +75,44 @@ def get_col_width(
             c = df[col].cast(pl.String).unique()
         if df.shape[0] > 100:
             q = c.str.len_chars().quantile(0.99)
+            s = c.str.len_chars().std()
+            
+            if not s is None and int(s) == 0:
+                q = None
             if q:
                 c = c.filter(c.str.len_chars() < q)
         top = c.str.len_chars().arg_sort(descending=True)[:10].to_list()
-        # print(col, q, [c[val] for val in top])
-        # top = c.str.len_chars().arg_sort(descending=True)[:10].to_list()
-        # print(col, [c[val] for val in top])
         w = max(
             [fm.horizontalAdvance(str(dtype.base_type()))]
             + [fm.horizontalAdvance(col)]
             + [fm.horizontalAdvance(c[val]) for val in top]
         )
         w = min(w, 600)
-        return w + 40
+        return w * 1.15 + 5
 
 
 def get_col_fmts_and_widths(font: QFontMetrics, df: pl.DataFrame):
     start = time.time()
-    # fm = QFontMetrics(font)
     fm = font
     schema = df.schema
-    # if df.shape[0] > 1000_000:
-    # df = df.sample(800_000)
-
     fmts = [get_col_fmts(c, df, dt, fm) for c, dt in schema.items()]
     widths = [
         get_col_width(fm, c, df, dt, f)
         for c, dt, f in zip(schema.keys(), schema.values(), fmts)
     ]
-    print(f"time to calc widths {time.time() - start:.4f}s")
     return widths, fmts
 
 
 def get_alignment(dtype: pl.DataType):
     if dtype.is_numeric():
-        return Qt.AlignmentFlag.AlignRight
+        return Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
     if dtype.is_temporal():
-        return Qt.AlignmentFlag.AlignCenter
-    return Qt.AlignmentFlag.AlignLeft
+        return Qt.AlignmentFlag.AlignCenter | Qt.AlignmentFlag.AlignVCenter
+    return Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
 
-# catagories_predicate = pl.col(catagorical).cat.get_categories().str.contains(rf"(?i){term}")
-# catagories = pl.col(catagorical).cat.get_categories().filter(catagories_predicate)
-# pl.any_horizontal(pl.col(catagorical).is_in(catagories)),
 
 def remove_regex_special_chars(term:str):
     return re.sub(r'(?<!\\)[\[\]{}()*+?.,\\^$|#\s]', '', term)
-
-
 
 
 def build_filter(filters:list, term:str, columns):
@@ -133,7 +132,6 @@ def build_filter(filters:list, term:str, columns):
     if term[0] == "-":
         term = term[1:]
         term = remove_regex_special_chars(term)
-        print(f"negative term, {term}")
         if columns:
             non_cat_predicate = ~pl.col(columns).fill_null('').str.contains(rf"(?i){term}")
             filters.append(pl.all_horizontal(non_cat_predicate))
@@ -156,32 +154,20 @@ def get_columns_for_filter(df: pl.DataFrame):
     return columns_str
 
 
-# class CustomDelegate(QtWidgets.QStyledItemDelegate):
-#     def paint(self, painter, option   , index):
-#         if option.state & QtWidgets.QStyle.StateFlag.State_Selected:
-#             pass
-#             option.palette.setColor(option.palette.Highlight, QtGui.QColor("gold"))
-#             option.palette.setColor(option.palette.HighlightedText, QtGui.QColor("black"))
-
-        
-#         QtWidgets.QStyledItemDelegate.paint(self, painter, option, index)
-
-
-
 # MARK: TableModel
 class TableModel(QtCore.QAbstractTableModel):
 
-    def __init__(self, df: pl.DataFrame, p: "DfView" = None):
+    def __init__(self, df: pl.DataFrame, p: "DfView" = None, dtypes:list[str] = None):
         super(TableModel, self).__init__()
+        # self.reset_selection()
         self.active_cell: tuple[int, int] = None
         self.anchor_cell: tuple[int, int] = None
         self.start_row: int = None
         self.start_col: int = None
         self.end_row: int = None
         self.end_col: int = None
-
         self.p = p
-        self.set_df(df)
+        self.set_df(df, dtypes)
 
     def set_active_cell(self, index: QtCore.QModelIndex, shift: bool):
         row = index.row()
@@ -193,7 +179,6 @@ class TableModel(QtCore.QAbstractTableModel):
         else:
             self.active_cell = (row, col)
             self.update_start_end_row_col()
-        # print(f"active cell {self.active_cell} anchor cell: {self.anchor_cell}",  shift)
 
     def update_start_end_row_col(self):
         if self.active_cell is None or self.anchor_cell is None:
@@ -202,15 +187,30 @@ class TableModel(QtCore.QAbstractTableModel):
         self.start_col = min(self.active_cell[1], self.anchor_cell[1])
         self.end_row = max(self.active_cell[0], self.anchor_cell[0])
         self.end_col = max(self.active_cell[1], self.anchor_cell[1])
-        # print(f"start: {self.start_row}, {self.start_col} end: {self.end_row}, {self.end_col}")
         self.layoutChanged.emit()
+    
+    def reset_selection(self):
+        self.active_cell: tuple[int, int] = None
+        self.anchor_cell: tuple[int, int] = None
+        self.start_row: int = None
+        self.start_col: int = None
+        self.end_row: int = None
+        self.end_col: int = None
 
-    def set_df(self, df: pl.DataFrame):
+    def set_df(self, df: pl.DataFrame, dtypes:list[str] = None):
+        self.beginResetModel()
         self.df = df
-        self.formats = ["" for d in df.dtypes]
+        self.reset_selection()
+        self.formats = {i:"" for i,d in enumerate(df.dtypes)}
         self.columns = df.columns
         self.alignments = [get_alignment(d) for d in df.dtypes]
-        self.dtypes = [str(d.base_type()) for d in df.dtypes]
+
+        if dtypes:
+            self.dtypes = dtypes
+        else:
+            self.dtypes = [str(d.base_type()) for d in df.dtypes]
+
+        self.endResetModel()
         self.layoutChanged.emit()
 
     def rowCount(self, parent=None):
@@ -226,7 +226,13 @@ class TableModel(QtCore.QAbstractTableModel):
                 column = index.column()
                 if 0 <= column < self.columnCount():
                     value = self.df.item(row, column)
-                    fmt = self.formats[column]
+                    fmt = self.formats.get(column, "")
+                    if self.df.dtypes[column].base_type() == pl.Struct:
+                        if type(value) == pl.Series:
+                            return str(value.to_list())
+                    if self.df.dtypes[column].base_type() == pl.List:
+                        if type(value) == pl.Series:
+                            return str(value.to_list())
                     if not fmt:
                         return str(value)
                     return get_str(value, fmt)
@@ -262,13 +268,11 @@ class TableModel(QtCore.QAbstractTableModel):
             if orientation == QtCore.Qt.Orientation.Horizontal:
                 col = self.columns[section]
                 dtype = self.dtypes[section]
-                return f"{col}\n{dtype}"
+                return f"{col}\n{dtype}\n{self.df.dtypes[section].base_type()}"
             if orientation == QtCore.Qt.Orientation.Vertical:
-                return str(section)
-        # if role == QtCore.Qt.ItemDataRole.SizeHintRole:
-        #     if orientation == QtCore.Qt.Orientation.Horizontal:
-        #         return QtCore.QSize(400, 45)
-
+                # return str(section)
+                return None
+        
 
 class Table(QtWidgets.QTableView):
     def __init__(self, parent: "DfView" = None):
@@ -276,15 +280,9 @@ class Table(QtWidgets.QTableView):
         self.start_mouse_cell = None
         super(Table, self).__init__(parent)
 
-    def keyboardSearch(self, search: str | None) -> None:
-        # print("keyboard search", search)
-        return 
 
     def mousePressEvent(self, a0: QtGui.QMouseEvent) -> None:
         self.start_mouse_cell = self.indexAt(a0.pos())
-        print(
-            "mouse press", self.start_mouse_cell.row(), self.start_mouse_cell.column()
-        )
         return super().mousePressEvent(a0)
 
     def mouseReleaseEvent(self, a0: QtGui.QMouseEvent) -> None:
@@ -313,13 +311,12 @@ class Table(QtWidgets.QTableView):
         curIdx = selModel.currentIndex()
         clrs = QtCore.QItemSelectionModel.SelectionFlag.ClearAndSelect
 
-        # print('keypress',a0.key(), shift, ctrl, ctrlShift, QtWidgets.QApplication.keyboardModifiers())
 
         if a0.key() == QtCore.Qt.Key.Key_Comma:
             if model.active_cell:
                 col = model.active_cell[1]
                 if model.df.dtypes[col].is_numeric():
-                    fmt = model.formats[col]
+                    fmt = model.formats.get(col, "")
                     if ',' in fmt:
                         fmt = fmt.replace(',', '')
                     else:
@@ -364,16 +361,15 @@ class Table(QtWidgets.QTableView):
 
 #MARK: TableWorker
 class TableWorker(QtCore.QObject):
-    # calcWidths = QtCore.Signal(pl.DataFrame,QFontMetrics)
-    provideDf = QtCore.Signal(pl.DataFrame)
-    provideWidths = QtCore.Signal(list, list)
+
+    provideDf = Signal(pl.DataFrame)
+    provideWidths = Signal(list, list)
 
     def __init__(self, df: pl.DataFrame = None):
         super(TableWorker, self).__init__()
         self.widthsTimer = None
         self.org_df = df
         self.search_requets = []
-
 
 
     def set_up_timers(self):
@@ -386,11 +382,11 @@ class TableWorker(QtCore.QObject):
         self.searchTimer.setSingleShot(True)
         self.searchTimer.timeout.connect(self.filter_df2)
 
-    @QtCore.Slot(pl.DataFrame)
+    @Slot(pl.DataFrame)
     def set_df(self, df: pl.DataFrame):
         self.org_df = df
 
-    @QtCore.Slot(str)
+    @Slot(str)
     def filter_df(self, search: str):
         self.search_requets.append(search)
         if not self.searchTimer:
@@ -426,15 +422,13 @@ class TableWorker(QtCore.QObject):
         for term in terms:
             filters = build_filter(filters, term, col_to_filter)
 
-        # for f in filters:
-        #     print(f)
         if len(filters) > 0:   
             df = df.filter(filters)
         else:
             df = self.org_df
         self.provideDf.emit(df)
 
-    @QtCore.Slot(pl.DataFrame, QFont)
+    @Slot(pl.DataFrame, QFont)
     def calc_widths(self, df: pl.DataFrame, font: QFont):
         self.fm = QFontMetrics(font)
         self.df = df
@@ -460,9 +454,9 @@ class TableWorker(QtCore.QObject):
 #MARK: DfView
 class DfView(QtWidgets.QWidget):
 
-    setWorkerDf = QtCore.Signal(pl.DataFrame)
-    calcWidths = QtCore.Signal(pl.DataFrame, QFont)
-    searchDf = QtCore.Signal(str)
+    setWorkerDf = Signal(pl.DataFrame)
+    calcWidths = Signal(pl.DataFrame, QFont)
+    searchDf = Signal(str)
 
     def __init__(self, parent=None, app:QtWidgets.QApplication = None):
         super(DfView, self).__init__(parent)
@@ -473,32 +467,37 @@ class DfView(QtWidgets.QWidget):
         self.formats = {}
         
 
-        
-
         self.bottom_status_timer = QtCore.QTimer()
         self.bottom_status_timer.setInterval(10)
         self.bottom_status_timer.setSingleShot(True)
         self.bottom_status_timer.timeout.connect(self.update_bottom_status)
 
         self.search = QtWidgets.QLineEdit()
-        self.search.setPlaceholderText("Search...")
-        self.search.setMaximumWidth(400)
+        self.search.setPlaceholderText("Search Result...")
+        self.status_info = QtWidgets.QLabel()
+        self.status_info.setAlignment(QtCore.Qt.AlignmentFlag.AlignRight)
+        self.status_info.setMinimumWidth(200)
         self.search.textChanged.connect(self.search_df)
         self._layout = QtWidgets.QVBoxLayout()
         self.top_layout = QtWidgets.QHBoxLayout()
-        self.filter_info = QtWidgets.QLabel()
         self.top_layout.addWidget(self.search)
-        self.top_layout.addWidget(self.filter_info)
+        self.top_layout.addWidget(self.status_info)
         self._layout.addLayout(self.top_layout)
         self._layout.setSpacing(5)
-        self._layout.setContentsMargins(2, 5, 2, 5)
+        self._layout.setContentsMargins(0, 3, 0, 0)
         self._layout.addWidget(self.table)
 
+        self.clear_status_info = QtCore.QTimer()
+        self.clear_status_info.setInterval(5000)
+        self.clear_status_info.setSingleShot(True)
+        self.clear_status_info.timeout.connect(lambda: self.status_info.setText(""))
+
         self.bottom_layout = QtWidgets.QHBoxLayout()
+        self.bottom_layout.setContentsMargins(4, 0, 4, 0)
         self._layout.addLayout(self.bottom_layout)
 
-        self.bottom_left_status = QtWidgets.QLabel("R")
-        self.bottom_right_status = QtWidgets.QLabel("L")
+        self.bottom_left_status = QtWidgets.QLabel("")
+        self.bottom_right_status = QtWidgets.QLabel("")
         self.bottom_right_status.setAlignment(QtCore.Qt.AlignmentFlag.AlignRight)
 
         self.bottom_layout.addWidget(self.bottom_left_status)
@@ -546,10 +545,8 @@ class DfView(QtWidgets.QWidget):
 
     def set_up_worker(self):
         self.worker = TableWorker(pl.DataFrame())
-
         self.worker.provideWidths.connect(self.set_col_widths)
         self.worker.provideDf.connect(self.set_filter_sort_df)
-
         self.calcWidths.connect(self.worker.calc_widths)
         self.searchDf.connect(self.worker.filter_df)
         self.setWorkerDf.connect(self.worker.set_df)
@@ -558,33 +555,38 @@ class DfView(QtWidgets.QWidget):
         self.worker.moveToThread(self.workerThread)
         self.workerThread.start()
 
+
     def search_df(self):
         txt = self.search.text()
         self.searchDf.emit(txt)
 
-    def set_df(self, df: pl.DataFrame):
-        self._model.set_df(df)
+#MARK: set_df
+    def set_df(self, df: pl.DataFrame, dtypes=None):
+        new_model = TableModel(df, self, dtypes)
+        self.table.setModel(new_model)
+        self.table.selectionModel().currentChanged.connect(self.current_changed)
+        self._model = new_model
         self.total_rows = df.shape[0]
         self.setWorkerDf.emit(df)
         self.update_col_widths()
         self.bottom_status_timer.start()
 
-    @QtCore.Slot(pl.DataFrame)
+    @Slot(pl.DataFrame)
     def set_filter_sort_df(self, df: pl.DataFrame):
         self._model.df = df
+        self._model.reset_selection()
         self._model.layoutChanged.emit()
-        self.update_col_widths()
+        # self.update_col_widths()
         self.bottom_status_timer.start()
 
     def update_col_widths(self):
-        print("update col widths")
         self.calcWidths.emit(self._model.df, self.table.font())
 
 
     def update_bottom_status(self):
         total_rows = self.total_rows
         rows_in_filter = self._model.df.shape[0]
-        self.bottom_left_status.setText(f"showing {rows_in_filter} of {total_rows}")
+        self.bottom_left_status.setText(f"showing {rows_in_filter:,} of {total_rows:,}")
 
         if self._model.start_row is None:
             self.bottom_right_status.setText("")
@@ -674,27 +676,28 @@ class DfView(QtWidgets.QWidget):
 
 #MARK: set_font_size
     def set_font_size(self, size_int: int):
-        font = QtGui.QFont("Calibri", size_int)
-        # font = QtGui.QFont('Arial', size_int)
+        font = QtGui.QFont()
+        font.setPointSize(size_int)
+        # font.setFamilies(["Calibri","Arial"])
         self.font_metrics = QtGui.QFontMetrics(font)
         self.font_width = self.font_metrics.width("A")
         self.table.setFont(font)
         self.search.setFont(font)
-        self.filter_info.setFont(font)
+        self.status_info.setFont(font)
         self.bottom_left_status.setFont(font)
         self.bottom_right_status.setFont(font)
         self.table.verticalHeader().setDefaultSectionSize(
-            self.font_metrics.height() + 2
+            self.font_metrics.height() 
         )
 
-    @QtCore.Slot(list, list)
+    @Slot(list, list)
     def set_col_widths(self, widths, fmts):
+        formats = {}
         for i, w in self.formats.items():
             fmts[i] = w
-        self._model.formats = fmts
+        self._model.formats = {i:fmts[i] for i in range(len(fmts))}
 
         self.col_widths = widths
-        print(widths)
         for i, w in enumerate(self.col_widths):
             self.table.setColumnWidth(i, int(w))
 
@@ -710,12 +713,12 @@ class DfView(QtWidgets.QWidget):
 
     def set_shortcuts(self):
         self.shortcuts = [
-            Shortcut("Ctrl+=", self, self.increase_font_size),
-            Shortcut("Ctrl+-", self, self.decrease_font_size),
-            Shortcut("Ctrl+c", self, self.copy_values),
-            Shortcut("Ctrl+Shift+c", self, lambda:self.copy_values(fmt=True)),
-            Shortcut("Escape", self, self.search.clear),
-            Shortcut("f", self, self.show_child_widget),
+            # create_shortcut("Ctrl+=", self, self.increase_font_size),
+            # create_shortcut("Ctrl+-", self, self.decrease_font_size),
+            create_shortcut("Ctrl+c", self.copy_values, self),
+            create_shortcut("Ctrl+Shift+c", lambda:self.copy_values(fmt=True), self),
+            create_shortcut("Escape", self.search.clear, self),
+            # create_shortcut("f", self, self.show_child_widget),
         ]
 
     def show_child_widget(self):
@@ -728,14 +731,9 @@ class DfView(QtWidgets.QWidget):
 
 #MARK: CopyValues
     def copy_values(self, fmt=False):
-        
-        
-
         col_names = [self._model.columns[i] for i in range(self._model.start_col, self._model.end_col + 1)]
         if fmt:
             col_fmts = [self._model.formats[i] for i in range(self._model.start_col, self._model.end_col + 1)]
-            print(col_fmts)
-
 
         data = self._model.df[col_names][self._model.start_row : self._model.end_row + 1].rows()
         copy_str = "\t".join(col_names) + "\n"
@@ -750,28 +748,30 @@ class DfView(QtWidgets.QWidget):
 
     def setup_table(self):
         self._model = TableModel(pl.DataFrame(), self)
-        # self.table = QtWidgets.QTableView()
         self.table = Table(self)
-        # self.style_delegate = CustomDelegate()
-        # self.table.setItemDelegate(self.style_delegate)
         self.table.setModel(self._model)
         self.font_size = 12
         self.table.setAlternatingRowColors(True)
-        # self.table.setSelectionBehavior(
-        #     QtWidgets.QAbstractItemView.SelectionBehavior.SelectItems
-        # )
         self.table.setSelectionMode(
             QtWidgets.QAbstractItemView.SelectionMode.NoSelection
         )
         self.table.setEditTriggers(
             QtWidgets.QAbstractItemView.EditTrigger.NoEditTriggers
         )
-        self.table.verticalHeader().ResizeMode(QtWidgets.QHeaderView.ResizeMode.Fixed)
+
+        # self.table.verticalHeader().ResizeMode(QtWidgets.QHeaderView.ResizeMode.Fixed)
+        self.table.verticalHeader().setVisible(False)
         self.table.setWordWrap(False)
 
-        # self.table.selectionModel().selectionChanged.connect(self.selection_changed)
-        self.table.selectionModel().currentChanged.connect(self.current_changed)
         self.table.horizontalHeader().sectionClicked.connect(self.sort_df)
+#         self.table.setStyleSheet("""                        
+# QHeaderView {
+# 	font-family: Calibri, Arial;
+# 	border:0px;
+# 	font-size: 12pt;
+# }
+
+#                                  """)
         self.table.clicked.connect(self.click_info)
         
 
@@ -784,11 +784,9 @@ class DfView(QtWidgets.QWidget):
             | QtCore.Qt.KeyboardModifier.ShiftModifier
         )
 
-        print("click", index.row(), index.column(), shift)
         self._model.set_active_cell(index, shift)
 
-        # self.table.setSelectionModel(None)
-    def sort_df(self, index):
+    def sort_df(self, index:int):
         start = time.time()
         if index in self.sort:
             self.sort[index] = not self.sort[index]
@@ -796,16 +794,23 @@ class DfView(QtWidgets.QWidget):
             self.sort[index] = False
         col = self._model.columns[index]
         dt = self._model.df.dtypes[index]
+        if dt.base_type() == pl.List:
+            self.status_info.setText(f'Cannot sort list columns')
+            self.clear_status_info.start()
+            return
+
         if dt == pl.Categorical:
             self._model.df = self._model.df.sort(pl.col(col).cast(pl.String), descending=self.sort[index], nulls_last=True)
         else:
-            self._model.df = self._model.df.sort(col, descending=self.sort[index], nulls_last=True)
+            try:
+                self._model.df = self._model.df.sort(col, descending=self.sort[index], nulls_last=True)
+            except Exception as e:
+                self.status_info.setText(f'{type(e).__module__}.{type(e).__name__}:\n{e}')
+                self.clear_status_info.start()
         
         self._model.layoutChanged.emit()
-        print(f"sort time {time.time() - start:.4f}s")
 
     def current_changed(self, index):
-        print("current changed", index.row(), index.column())
         shift = (
             QtWidgets.QApplication.keyboardModifiers()
             == QtCore.Qt.KeyboardModifier.ShiftModifier
@@ -818,11 +823,6 @@ class DfView(QtWidgets.QWidget):
 
         self._model.set_active_cell(index, shift)
         self.bottom_status_timer.start()
-        # print("current changed", index.row(), index.column(), shift)
 
     def table_sel_changed(self):
         pass
-        # sel = self.table.selectionModel().selectedIndexes()
-
-        # print([(s.row(), s.column() ) for s in sel])
-        # print(f'{sel[0].row()}, {sel[0].column()} - {sel[-1].row()}, {sel[-1].column()}')

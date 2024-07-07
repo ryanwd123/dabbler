@@ -56,7 +56,15 @@ def test_db():
 # db2 = make_db(db_data)
 # comp_map = make_completion_map(db2, db_data)
 # db2.execute("SELECT function_name, function_type FROM duckdb_functions() WHERE schema_name = 'test_schema'").fetchall()
+# db_data['schemas']
+# db_data['databases']
 
+#%%
+
+
+# db2.sql("SELECT database_name, schema_name, table_name FROM duckdb_tables")
+
+# db2.sql('use memory.test_schema')
 
 # completer = SqlCompleter(db_data)
 
@@ -71,15 +79,14 @@ def test_db():
 #     print(c.label)
 
 
-# completer.completion_map['test_schema'][2].obj_type
-# completer.completion_map['memory.test_schema'][2].obj_type
+# completer.completion_map['test_schema']
+# completer.completion_map['memory."test schema2"']
 
 # db.sql(
 # """--sql,
 # select
-#     t.struct_col,
-#     test_schema.test_macro
-# from  test_table t
+#     *
+# from memory."test schema2".
 # """
 # )
 

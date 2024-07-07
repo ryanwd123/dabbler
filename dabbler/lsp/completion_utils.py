@@ -1,3 +1,4 @@
+from typing import Union
 import logging
 from pathlib import Path
 import duckdb
@@ -40,7 +41,7 @@ def sizeof_fmt(num, suffix="B"):
 
 
 class PathCompleter:
-    def __init__(self,cwd:str,search_path:str,types_to_exclude=types_to_exclude) -> None:
+    def __init__(self,cwd:str,search_path:Union[str,None],types_to_exclude=types_to_exclude) -> None:
         self.cwd = None
         self.search_path = None
         self.log = logging.getLogger('PathCompleter')
@@ -124,5 +125,5 @@ def pathlib_completetions(text:str, path_dict:dict[str,str],logger):
     else:
         search = ''
     
-    completer = PathCompleter(_path,None,logger)
+    completer = PathCompleter(str(_path),None,logger)
     return completer.get_items(search)

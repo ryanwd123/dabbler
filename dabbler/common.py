@@ -4,7 +4,6 @@ import json
 import uuid
 import duckdb
 from typing import Literal, TypedDict, Union
-import logging
 from logging.handlers import SocketHandler
 import pprint
 import pickle
@@ -39,6 +38,7 @@ def check_name(col:str):
             col.upper() in duckdb_keyworkds):
             return f'"{col}"'
         return col
+    return ''
 
 
 
@@ -73,7 +73,7 @@ class FromLangServer(TypedDict):
     
 
 class ToLangServer(TypedDict):
-    cmd: Literal['db_data','ip','no_update','connection_id','ip_python_started','debug','heartbeat']
+    cmd: Literal['db_data','ip','no_update','connection_id','ip_python_started','debug','heartbeat', 'run_sql_complete','not_handled']
     data: Union[str,dict,int,bool]
     con_id: int
     
@@ -83,6 +83,11 @@ class ConnInfo(TypedDict):
     handshake_port: int
     server_id: int
     client_id: int
+
+class ConnInfoFromServer(TypedDict):
+    workspace_path: str
+    main_port: int
+    handshake_port: int
 
 
 class Connections(TypedDict):
@@ -104,18 +109,23 @@ class KeyFile:
     def read(self):
         self.connections = json.loads(self.file.read_text())
         
-    def add_connection(self, name: str, conn_info: ConnInfo):
-        conn_info['server_id'] = uuid.uuid4().int
-        conn_info['client_id'] = uuid.uuid4().int
-        self.connections[name] = conn_info
+    def add_connection(self, name: str, conn_info_from_server: ConnInfoFromServer):
+        con_info:ConnInfo = {
+            "workspace_path": conn_info_from_server['workspace_path'],
+            "main_port": conn_info_from_server['main_port'],
+            "handshake_port": conn_info_from_server['handshake_port'],
+            "client_id": uuid.uuid4().int,
+            "server_id": uuid.uuid4().int,
+        }
+        self.connections[name] = con_info
         self.save()
-        return conn_info
+        return con_info
 
     def delete_connection(self, name: str):
         del self.connections[name]
         self.save()
         
-    def get_connection(self, file: Path) -> ConnInfo:
+    def get_connection(self, file: Path) -> Union[ConnInfo,None]:
         workspaces = [Path(x) for x in self.connections if Path(x).exists() and Path(x) in file.parents]
         if len(workspaces) == 0:
             return None

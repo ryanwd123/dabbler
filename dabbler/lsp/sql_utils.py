@@ -5,12 +5,15 @@ import duckdb
 import sqlparse
 import re as regex
 from dabbler.common import check_name
+from typing import Union
 
 from lsprotocol.types import (
     CompletionItem,
     CompletionItemKind,
     CompletionItemLabelDetails,
+    MarkupContent
 )
+
 
 @dataclass
 class SelectNode:
@@ -35,9 +38,9 @@ class SqlStatement:
 @dataclass
 class SqlTxtRange:
     txt:str
-    length:str
-    start:str
-    end:str
+    length:int
+    start:int
+    end:int
     cur_idx:int
 
 
@@ -45,11 +48,11 @@ class SqlTxtRange:
 class CmpItem:
     label:str
     kind:int
-    detail:str
-    typ:str
+    detail:Union[str,None]
+    typ:Union[str,None]
     sort:str
     obj_type:str
-    doc:str = None
+    doc:Union[str,MarkupContent,None] = None
     
     def __eq__(self, other) -> bool:
         return self.label == other
@@ -76,10 +79,10 @@ class CmpItem:
         
         return CompletionItem(
             label=label,
-            kind=self.kind,
+            kind=self.kind, # type: ignore
             sort_text=self.sort,
             filter_text=self.label.lower(),
-            documentation=self.doc,
+            documentation=self.doc, # type: ignore
             label_details=CompletionItemLabelDetails(
                 description=description),
                 detail=self.detail,
@@ -96,45 +99,16 @@ def strip_sql_whitespace(txt):
     return txt
 
 
-select_node_words = [
-    'select',
-    'from',
-    'pivot',
-    'unpivot',
-]
-
-whitespace_tokens = [
-    sqlparse.tokens.Newline,
-    sqlparse.tokens.Whitespace,
-]
-
-
-def get_stmts(sql_txt,pos_in_doc):
-    stmts:list[SqlStatement] = []
-    
-    for x in sqlparse.parse(sql_txt):
-        
-        start=sql_txt.find(x.value)+pos_in_doc
-        length = len(x.value)
-        
-        stmt = SqlStatement(
-            stmt=x,
-            length=length,
-            start=start,
-            end=start+length,
-            txt=x.value,
-            cur_idx=pos_in_doc
-        )
-        
-        stmts.append(stmt)
-    return stmts
-
-
-def get_statement(rng:SqlTxtRange,txt:str) -> SqlStatement:
+def get_statement(rng:SqlTxtRange,txt:str):
     
     pos = rng.cur_idx
     result = None
     length = len(rng.txt)
+    stmt = None
+    r_s = None
+    r_e = None
+    r_l = None
+
     
     for stmt in sqlparse.parse(rng.txt):
         
@@ -160,7 +134,7 @@ def get_statement(rng:SqlTxtRange,txt:str) -> SqlStatement:
             r_s, r_e, r_l = s,e,l
             
             
-    if result:
+    if result and stmt and r_l and r_s and r_e:
         return SqlStatement(
             stmt=stmt,
             length=r_l,
@@ -170,48 +144,6 @@ def get_statement(rng:SqlTxtRange,txt:str) -> SqlStatement:
             cur_idx=rng.cur_idx
         )
 
-
-def get_selects(stmt):
-    tokens = [x for x in stmt.tokens]
-    for t in tokens:
-        if t.is_group:
-            tokens.extend(t.tokens)
-        if (t.value == '(' and 
-            [x for x in t.parent.tokens if x.ttype not in whitespace_tokens][1].value.lower().split(' ')[0] in select_node_words):
-            yield t.parent
-
-
-
-def get_sel_node(stmt:SqlStatement,txt:str) -> SelectNode:
-        
-    pos = stmt.cur_idx
-    result = None
-    length = len(stmt.txt)
-    
-    for sel in get_selects(stmt.stmt):
-        s = stmt.txt.find(sel.value) + stmt.start
-        e = s + len(sel.value)
-        l = e-s
-        
-        # print(sel.value)
-        # print(txt[s:e])
-        # print(txt[pos-5:pos])
-        if pos >= s and pos <= e and l <= length:
-            result = sel
-            length = l
-            r_s, r_e, r_l = s,e,l
-            
-    if result:
-        return SelectNode(
-            stmt=sel,
-            length=r_l,
-            start=r_s,
-            end=r_e,
-            txt=result.value,
-            cur_idx=stmt.cur_idx
-        )
-    else:
-        return stmt
 
 
 re_patterns = [
@@ -258,52 +190,9 @@ def get_range(txt,cur_line,cur_col):
             )
 
 
-def get_sql2(txt,cur_line,cur_col) -> SelectNode:
+def get_sql2(txt,cur_line,cur_col):
     
     result = get_range(txt,cur_line,cur_col)
     return result
-
-def get_sql(txt,cur_line,cur_col) -> SelectNode:
-    
-    result = get_range(txt,cur_line,cur_col)
-    if not result:
-        return
-    
-    result = get_statement(result,txt)
-    if not result:
-        return
-    
-    sel_node = get_sel_node(result,txt)
-    
-    if not sel_node:
-        return result
-    
-    return sel_node
-
-
-def left_of_cur_matches(line_txt:str,search_txt_list:list[str]):
-    return any([line_txt.lower()[-len(search_txt):] == search_txt for search_txt in search_txt_list])
-
-
-# table_predicates = ['from ','join ','pivot ','unpivot ']
-
-
-# %%
-
-
-
-def clean_partial_sql(txt):
-    
-    placeholder = (f'placeholder{x}' for x in range(2000))
-    
-    patterns = [
-        (r'(\w+[.])([\n\s)])',   fr'\g<1>{next(placeholder)}\g<2>'),
-        (r'(\(\s*)(\))',         fr'\g<1>{next(placeholder)}\g<2>'),
-        (r'(=[^\n\s]*$)',         fr'\g<1> {next(placeholder)}'),
-        ]
-    
-    for pat, rep in patterns:
-        txt = regex.sub(pat,rep,txt,flags=regex.IGNORECASE)
-    return txt
 
 

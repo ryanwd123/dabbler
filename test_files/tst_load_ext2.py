@@ -1,4 +1,5 @@
 #%%
+import polars as pl
 import sys
 from pathlib import Path
 import pandas as pd
@@ -33,16 +34,106 @@ for f in files:
         create or replace table {t_name} as
         select * from read_csv_auto('{f}',header=true)
         """)
-db.execute("force checkpoint")
+
+db.sql("""--sql
+           attach './../../sample_data/imdb.db' (READ_ONLY TRUE);
+           """)
+
+#%%
+
+aa = db.sql(
+"""--sql,
+select
+    i.COUNCIL_DISTRICT,
+    i.APPENDIX_F_REMOVED
 
 
+from Issued_Tree_Permits i
+"""
+).execute()
+
+
+
+
+#%%
+aa.select('PERMIT_STATUS').distinct().fetchall()
+
+#%%
+try:
+    j = db.sql(
+    """--sql,
+    select
+        t.ended
+    from imdb.main.titles t
+    limit 100
+    """
+    ).pl()
+except Exception as e:
+    print(f'{type(e).__module__}.{type(e).__name__}:\n{e}')
 
 #%%
 aa = Path(__file__).parent.parent.parent.parent
 ab = Path(__file__).parent.parent.parent.parent
 ac = Path(__file__).parent.parent.parent.parent
 
+#%%
 
+db.sql(
+"""--sql,
+CREATE SCHEMA v;
+drop TYPE if EXISTS permit_status;
+CREATE TYPE permit_status as ENUM (SELECT DISTINCT PERMIT_STATUS from Issued_Tree_Permits);
+ALTER TABLE Issued_Tree_Permits ALTER COLUMN permit_status TYPE PERMIT_STATUS;
+"""
+)
+#%%
+db.sql(
+"""--sql,
+CREATE OR REPLACE FUNCTION addition(a, b) as a + b;
+CREATE OR REPLACE FUNCTION v.add(a, b) as a + b;
+CREATE OR REPLACE MACRO v.tbl_macro() as table select 1;
+CREATE OR REPLACE MACRO tbl_macro() as table select 1;
+CREATE or replace MACRO tbl_macro2(p) as table select * from Issued_Tree_Permits i where lower(i.PERMIT_STATUS) = lower(p);
+CREATE OR REPLACE VIEW v.test_view as select * from Issued_Tree_Permits;
+CREATE OR REPLACE VIEW test_view as select * from Issued_Tree_Permits;
+"""
+)
+
+#%%
+db.sql(
+"""--sql,
+select
+    t
+from v.tbl_macro()
+"""
+)
+
+
+#%%
+
+db.sql(
+"""--sql,
+with kk as (SELECT 
+    j.APPLICATION_TYPE, 
+    j.PROPERTY_ID
+from v.test_view j)
+from kk k
+SELECT k.APPLICATION_TYPE,
+    k.PROPERTY_ID
+
+"""
+)
+#%%
+db.sql(
+"""--sql,
+select
+    i
+from Issued_Tree_Permits i
+"""
+)
+
+
+#%%
 
 #%%
 db.sql(
@@ -119,9 +210,33 @@ db.sql(
         g.APPENDIX_F_REMOVED,
         g.JURISDICTION,
         g.APPENDIX_F_REMOVED,
-        g.PROJECT_ID
+        g.APPENDIX_F_REMOVED
     from t1234 g 
     """
 )
 
 
+
+#%%
+db.sql(
+"""--sql,
+ATTACH ':memory:' as mem2;
+CREATE table mem2.main.test1 (a INTEGER, b VARCHAR);
+INSERT into mem2.main.test1 values (1,'a'),(2,'b'),(3,'c');
+"""
+)
+
+#%%
+db.sql(
+"""--sql,
+set search_path to 'mem2.information_schema,memory';
+"""
+)
+
+#%%
+db.sql(
+"""--sql,
+SELECT current_setting('search_path');
+
+"""
+)

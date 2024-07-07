@@ -173,15 +173,7 @@ def interactive_parse_new(sql:str,pos:int,logger:logging.Logger = None):
 
 #%%
 
-import duckdb
-db = duckdb.connect(':memory:')
 
-db.sql(
-"""--sql,
-select 
-
-"""
-)
 
 
 

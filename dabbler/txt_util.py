@@ -1,5 +1,3 @@
-#%%
-
 def line_col(str:str, idx:int):
     line = str.count('\n', 0, idx)
     col = idx - str.rfind('\n', 0, idx)-1
@@ -34,4 +32,3 @@ def move_line(txt:str, idx:int, anchor:int, direction:int):
             return new_idx, new_anchor, new_txt
             
 
-# %%
