@@ -180,6 +180,11 @@ def make_db(db_data:dict):
     db2 = duckdb.connect()
     databases = [x[0] for x in db2.execute("select database_name from duckdb_databases()").fetchall()]
 
+    for ext in db_data['loaded_extensions']:
+        try:
+            db2.load_extension(ext)
+        except Exception as e:
+            logger.exception(f'Error loading extension "{ext}" to dummy db, {e}')
 
 
     for db_to_add in db_data['databases']:
@@ -408,7 +413,6 @@ def make_completion_map(db:duckdb.DuckDBPyConnection,db_data):
     
     
     
-        # item_map['root_namespace'].extend([x for x in item_map['system.main'] if x.label not in root_labels])
     root_labels = set([f'{x.label}-{x.obj_type}' for x in item_map['root_namespace']])
 
     curr_schema = db_data['current_schema']
@@ -421,6 +425,11 @@ def make_completion_map(db:duckdb.DuckDBPyConnection,db_data):
             item_map['root_namespace'].append(item)
             root_labels.add(identifier)
     
+    for item in item_map['system.main']: 
+        identifier = f'{item.label}-{item.obj_type}'
+        if identifier not in root_labels:
+            item_map['root_namespace'].append(item)
+            root_labels.add(identifier)
     # for cat_schema in db_data['schemas']:
     #     cat, schema = cat_schema.split('.')
     #     if cat == cur_db:

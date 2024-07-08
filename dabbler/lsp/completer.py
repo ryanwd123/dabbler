@@ -105,41 +105,41 @@ class SqlCompleter:
             
             if v.kind.name == "table_function":
                 projection = v.projection
+                comp_map["root_namespace"].append(
+                    CmpItem(k, CompletionItemKind.File, None, "table function", "1", "table")
+                )
                 if not projection:
                     continue
                 comp_map[k] = [
                     CmpItem(x[0], CompletionItemKind.Field, None, x[1], "1", "column")
                     for x in projection
                 ]
-                comp_map["root_namespace"].append(
-                    CmpItem(k, CompletionItemKind.File, None, "table function", "1", "table")
-                )
                 continue
             
             # self.show_message_log(f'{v}')
             if q.ctes and v.name in q.ctes.map:
                 projection = q.ctes.map[v.name].projection
+                comp_map["root_namespace"].append(
+                    CmpItem(k, CompletionItemKind.File, None, "cte", "1", "cte")
+                )
                 if not projection:
                     continue
                 comp_map[k] = [
                     CmpItem(x[0], CompletionItemKind.Field, None, x[1], "1", "column")
                     for x in projection
                 ]
-                comp_map["root_namespace"].append(
-                    CmpItem(k, CompletionItemKind.File, None, "cte", "1", "cte")
-                )
                 continue
             elif v.name in q.cte_sibblings:
                 projection = q.cte_sibblings[v.name].projection
+                comp_map["root_namespace"].append(
+                    CmpItem(k, CompletionItemKind.File, None, "cte", "1", "cte")
+                )
                 if not projection:
                     continue
                 comp_map[k] = [
                     CmpItem(x[0], CompletionItemKind.Field, None, x[1], "1", "column")
                     for x in projection
                 ]
-                comp_map["root_namespace"].append(
-                    CmpItem(k, CompletionItemKind.File, None, "cte", "1", "cte")
-                )
                 continue
             else:
                 if v.name not in self.completion_map:
@@ -154,27 +154,27 @@ class SqlCompleter:
         if q.ctes:
             for k, v in q.ctes.map.items():
                 projection = v.projection
+                comp_map["root_namespace"].append(
+                    CmpItem(k, CompletionItemKind.File, None, "cte", "1", "cte")
+                )
                 if not projection:
                     continue
                 comp_map[k] = [
                     CmpItem(x[0], CompletionItemKind.Field, None, x[1], "1", "column")
                     for x in projection
                 ]
-                comp_map["root_namespace"].append(
-                    CmpItem(k, CompletionItemKind.File, None, "cte", "1", "cte")
-                )
 
         for k, v in q.cte_sibblings.items():
             projection = v.projection
+            comp_map["root_namespace"].append(
+                CmpItem(k, CompletionItemKind.File, None, "cte", "1", "cte")
+            )
             if not projection:
                 continue
             comp_map[k] = [
                 CmpItem(x[0], CompletionItemKind.Field, None, x[1], "1", "column")
                 for x in projection
             ]
-            comp_map["root_namespace"].append(
-                CmpItem(k, CompletionItemKind.File, None, "cte", "1", "cte")
-            )
 
         # self.show_message_log(f'cte_sibblings {q.cte_sibblings}')
 

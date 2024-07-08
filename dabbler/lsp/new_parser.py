@@ -12,14 +12,14 @@ import duckdb
 import time
 
 lark_cache = Path(__file__).parent.joinpath('lark_cache')
-lark_file = Path(__file__).parent.joinpath('duckdb.lark')
+lark_file = Path(__file__).parent.joinpath('duckdb_2.lark')
 
 def get_parser():
     sql_grammer = lark_file.read_text()
     sql_parser = Lark(
         sql_grammer,
         parser="lalr",
-        cache=str(lark_cache),
+        # cache=str(lark_cache),
         propagate_positions=True,
         maybe_placeholders=True,
         debug=False,

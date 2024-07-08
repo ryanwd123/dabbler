@@ -160,7 +160,7 @@ class EditorWindow(QtWidgets.QWidget):
     def __init__(self, parent:'SqlEditor'):
         super().__init__()
         self.setWindowTitle('SQL Editor')
-        self.setGeometry(100, 100, 1600, 900)
+        self.setGeometry(-1650, 100, 1600, 900)
         self.app2 = parent
 
         self.text_edit = SqlTextBox(self)
@@ -221,7 +221,7 @@ class EditorWindow(QtWidgets.QWidget):
             Shortcut("Ctrl+t", self, self.test_index, 'test'),
 
         ]
-        self.text_edit.setPlainText('select\n   *\nfrom potato p')
+        self.text_edit.setPlainText('select\n   abc\nfrom potato p')
         self.comp = QtWidgets.QCompleter(['apple', 'banana', 'cherry','lime'] + [f'word_{x}' for x in range(50)], self.text_edit)
         self.comp.setCompletionMode(QtWidgets.QCompleter.PopupCompletion)
         self.comp.setWidget(self.text_edit)

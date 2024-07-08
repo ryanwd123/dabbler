@@ -5,7 +5,6 @@ import json
 import threading
 import sqlparse
 import sqlfluff
-from sqloxide import parse_sql
 #%%
 
 
@@ -70,8 +69,10 @@ order by apple
 )
 sql = (
 """SELECT 
-t.
-from trees t
+    t.a,
+    sum(t.b) as s,
+    t.apple.lpad('0',2) as s2
+from tt.trees t
 
 """
 )

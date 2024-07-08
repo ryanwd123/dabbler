@@ -23,7 +23,7 @@ if len(sys.argv) == 3:
 else:
     path = Path(".")
     
-
+types_to_watch = set(['.py', '.lark'])
 
 class ChangeHandler(FileSystemEventHandler):
     def __init__(self):
@@ -48,7 +48,7 @@ class ChangeHandler(FileSystemEventHandler):
 
         current_time = time.time()
         file_path = event.src_path
-        if '__pycache__' in file_path or '.py' not in file_path:
+        if '__pycache__' in file_path or not any(file_path.endswith(t) for t in types_to_watch):
             return
 
         # Check if the file was modified recently

@@ -6,6 +6,8 @@ import pandas as pd
 sys.path.append(str(Path(__file__).parent.parent))
 import duckdb
 db = duckdb.connect()
+db.install_extension('autocomplete')
+db.load_extension('autocomplete')
 import tempfile
 print(tempfile.gettempdir())
 # import paths_z as pp
@@ -42,6 +44,8 @@ db.sql("""--sql
 #%%
 df1 = pl.DataFrame({'a':[1,2,3,0],'b':[4,5,6,0]})
 
+
+
 #%%
 aa = db.sql(
 """--sql,
@@ -50,7 +54,7 @@ select
     i.APPENDIX_F_REMOVED
 
 
-from Issued_Tree_Permits i
+from duckdb_columns()
 """
 ).execute()
 
@@ -105,11 +109,18 @@ CREATE OR REPLACE VIEW test_view as select * from Issued_Tree_Permits;
 db.sql(
 """--sql,
 select
-    t
-from v.tbl_macro()
+    *
+from sql_auto_complete
 """
 )
 
+
+#%%
+
+#%%
+from dabbler.lsp.db_data import get_records_sql
+
+[(x[0], x[1]) for x in db.execute(get_records_sql).fetchall() if 'duckdb' in x[1].lower()]
 
 #%%
 

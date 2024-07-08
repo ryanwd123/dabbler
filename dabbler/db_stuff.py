@@ -8,6 +8,20 @@ from pathlib import Path
 import logging
 log = logging.getLogger(__name__)
 
+
+def get_loaded_extensions(db:duckdb.DuckDBPyConnection):
+    return [x[0] for x in db.sql(
+        """--sql,
+        select e.extension_name
+        from duckdb_extensions() e
+        where e.loaded
+
+        """
+        ).fetchall()]
+
+
+
+
 def get_dataframe_data(db:duckdb.DuckDBPyConnection, taken_table_names):
     paths = []
     dataframes = []
@@ -144,6 +158,7 @@ def get_db_data_new(db:duckdb.DuckDBPyConnection, file_search_path:Union[str,Non
             'current_schema':current_schema,
             'cwd':os.getcwd(),
             'file_search_path':file_search_path,
+            'loaded_extensions':get_loaded_extensions(db),
             }
 
     return db_data

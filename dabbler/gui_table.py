@@ -1,8 +1,8 @@
 import re
 from qtpy import QtWidgets, QtCore, QtGui
-from qtpy.QtCore import Qt, Signal, Slot
+from qtpy.QtCore import Qt, Signal, Slot     # type: ignore
 from qtpy.QtGui import QFont, QFontMetrics, QKeySequence
-from qtpy.QtWidgets import QShortcut
+from qtpy.QtWidgets import QShortcut    # type: ignore
 from typing import Union
 
 # from dabbler.gui_compenents import Shortcut
@@ -16,19 +16,21 @@ def create_shortcut(key, function, parent):
     return shortcut
 
 def get_col_fmts(c: str, df: pl.DataFrame, dtype: pl.DataType, fm: QFontMetrics):
+    try:
+        if dtype.is_numeric():
+            q = df[c].quantile(0.9)
+            b = df[c].quantile(0.1)
+            if q and q < 0.5:
+                return ",.6f"
+            if b and b > 10:
+                return ",.0f"
+            return ",.2f"
 
-    if dtype.is_numeric():
-        q = df[c].quantile(0.9)
-        b = df[c].quantile(0.1)
-        if q and q < 0.5:
-            return ",.6f"
-        if b and b > 10:
-            return ",.0f"
-        return ",.2f"
-
-    if dtype.is_temporal():
-        return "%Y-%m-%d"
-    return ""
+        if dtype.is_temporal():
+            return "%Y-%m-%d"
+        return ""
+    except Exception:
+        return ""
 
 def get_str(val, fmt: str):
     if val is None:
@@ -43,55 +45,57 @@ def get_str(val, fmt: str):
 def get_col_width(
     fm: QFontMetrics, col: str, df: pl.DataFrame, dtype: pl.DataType, format: str
 ):
-    if dtype.is_numeric():
-        vals = df[col].unique().top_k(10).to_list()
-        return max(
-            [fm.horizontalAdvance(str(dtype))]
-            + [fm.horizontalAdvance(col)]
-            + [fm.horizontalAdvance(get_str(val, format)) for val in vals]
-        ) + 20
-    if dtype.is_temporal():
-        return max(
-            [fm.horizontalAdvance(str(dtype))]
-            + [fm.horizontalAdvance(col)]
-            + [fm.horizontalAdvance(get_str(val, format))
-                for val in df[col].unique().top_k(10).to_list()
-            ]
-        ) + 20
-    else:
-        if dtype == pl.List:
-            try:
-                c = df[col].list.join(", ").cast(pl.String).unique()
-            except:
-                return 200
-        elif dtype == pl.Struct:
-            return 200
-        elif not dtype == pl.String:
-            c = df[col].unique().cast(pl.String)
-        elif dtype == pl.String:
-            c = df[col].unique()
+    try:
+        if dtype.is_numeric():
+            vals = df[col].unique().top_k(10).to_list()
+            return max(
+                [fm.horizontalAdvance(str(dtype))]
+                + [fm.horizontalAdvance(col)]
+                + [fm.horizontalAdvance(get_str(val, format)) for val in vals]
+            ) + 20
+        if dtype.is_temporal():
+            return max(
+                [fm.horizontalAdvance(str(dtype))]
+                + [fm.horizontalAdvance(col)]
+                + [fm.horizontalAdvance(get_str(val, format))
+                    for val in df[col].unique().top_k(10).to_list()
+                ]
+            ) + 20
         else:
-            c = df[col].cast(pl.String).unique()
-        if df.shape[0] > 100:
-            q = c.str.len_chars().quantile(0.99)
-            s = c.str.len_chars().std()
-            
-            if not s is None and int(s) == 0:
-                q = None
-            if q:
-                c = c.filter(c.str.len_chars() < q)
-        top = c.str.len_chars().arg_sort(descending=True)[:10].to_list()
-        w = max(
-            [fm.horizontalAdvance(str(dtype.base_type()))]
-            + [fm.horizontalAdvance(col)]
-            + [fm.horizontalAdvance(c[val]) for val in top]
-        )
-        w = min(w, 600)
-        return w * 1.15 + 5
+            if dtype == pl.List:
+                try:
+                    c = df[col].list.join(", ").cast(pl.String).unique()
+                except Exception:
+                    return 200
+            elif dtype == pl.Struct:
+                return 200
+            elif not dtype == pl.String:
+                c = df[col].unique().cast(pl.String)
+            elif dtype == pl.String:
+                c = df[col].unique()
+            else:
+                c = df[col].cast(pl.String).unique()
+            if df.shape[0] > 100:
+                q = c.str.len_chars().quantile(0.99)
+                s = c.str.len_chars().std()
+                
+                if not s is None and int(s) == 0:    # type: ignore
+                    q = None
+                if q:
+                    c = c.filter(c.str.len_chars() < q)
+            top = c.str.len_chars().arg_sort(descending=True)[:10].to_list()
+            w = max(
+                [fm.horizontalAdvance(str(dtype.base_type()))]
+                + [fm.horizontalAdvance(col)]
+                + [fm.horizontalAdvance(c[val]) for val in top]
+            )
+            w = min(w, 600)
+            return w * 1.15 + 5
+    except Exception:
+        return 200
 
 
 def get_col_fmts_and_widths(font: QFontMetrics, df: pl.DataFrame):
-    start = time.time()
     fm = font
     schema = df.schema
     fmts = [get_col_fmts(c, df, dt, fm) for c, dt in schema.items()]
@@ -115,39 +119,42 @@ def remove_regex_special_chars(term:str):
 
 
 def build_filter(filters:list, term:str, columns):
-    if term[0] in ['>','<']:
-        op = term[0]
-        term = term[1:]
-        try:
-            term = float(term)
-            if op == ">":
-                filters.append(pl.any_horizontal(pl.col(pl.NUMERIC_DTYPES | pl.TEMPORAL_DTYPES) > term))
-            if op == "<":
-                filters.append(pl.any_horizontal(pl.col(pl.NUMERIC_DTYPES | pl.TEMPORAL_DTYPES) < term))
-            return filters
-        except:
+    try:
+        if term[0] in ['>','<']:
+            op = term[0]
+            term = term[1:]
+            try:
+                term = float(term)  # type: ignore
+                if op == ">":
+                    filters.append(pl.any_horizontal(pl.col(pl.NUMERIC_DTYPES | pl.TEMPORAL_DTYPES) > term))
+                if op == "<":
+                    filters.append(pl.any_horizontal(pl.col(pl.NUMERIC_DTYPES | pl.TEMPORAL_DTYPES) < term))
+                return filters
+            except Exception:
+                return filters
+
+        if term[0] == "-":
+            term = term[1:]
+            term = remove_regex_special_chars(term)
+            if columns:
+                non_cat_predicate = ~pl.col(columns).fill_null('').str.contains(rf"(?i){term}")
+                filters.append(pl.all_horizontal(non_cat_predicate))
             return filters
 
-    if term[0] == "-":
-        term = term[1:]
         term = remove_regex_special_chars(term)
-        if columns:
-            non_cat_predicate = ~pl.col(columns).fill_null('').str.contains(rf"(?i){term}")
-            filters.append(pl.all_horizontal(non_cat_predicate))
+        non_cat_predicate = pl.col(columns).cast(pl.String).str.contains(rf"(?i){term}")
+        f1 = pl.any_horizontal(non_cat_predicate)
+
+        filters.append(f1)
+
         return filters
-
-    term = remove_regex_special_chars(term)
-    non_cat_predicate = pl.col(columns).cast(pl.String).str.contains(rf"(?i){term}")
-    f1 = pl.any_horizontal(non_cat_predicate)
-
-    filters.append(f1)
-
-    return filters
+    except Exception:
+        return filters
 
 
 def get_columns_for_filter(df: pl.DataFrame):
-    list_cols = [c for c, dt in df.schema.items() if dt == pl.List]
-    struct_cols = [c for c, dt in df.schema.items() if dt == pl.Struct]
+    # list_cols = [c for c, dt in df.schema.items() if dt == pl.List]
+    # struct_cols = [c for c, dt in df.schema.items() if dt == pl.Struct]
     columns_str = [c for c,dt in df.schema.items() if dt not in [pl.List, pl.Struct]]
 
     return columns_str
@@ -156,15 +163,15 @@ def get_columns_for_filter(df: pl.DataFrame):
 # MARK: TableModel
 class TableModel(QtCore.QAbstractTableModel):
 
-    def __init__(self, df: pl.DataFrame, p: "DfView" = None, dtypes:list[str] = None):
+    def __init__(self, df: pl.DataFrame, p: "DfView", dtypes:Union[list[str],None] = None):
         super(TableModel, self).__init__()
         # self.reset_selection()
-        self.active_cell: tuple[int, int] = None
-        self.anchor_cell: tuple[int, int] = None
-        self.start_row: int = None
-        self.start_col: int = None
-        self.end_row: int = None
-        self.end_col: int = None
+        self.active_cell: Union[tuple[int, int],None] = None
+        self.anchor_cell: Union[tuple[int, int],None] = None
+        self.start_row: Union[int,None] = None
+        self.start_col: Union[int,None] = None
+        self.end_row: Union[int,None] = None
+        self.end_col: Union[int,None] = None
         self.p = p
         self.set_df(df, dtypes)
 
@@ -189,14 +196,14 @@ class TableModel(QtCore.QAbstractTableModel):
         self.layoutChanged.emit()
     
     def reset_selection(self):
-        self.active_cell: tuple[int, int] = None
-        self.anchor_cell: tuple[int, int] = None
-        self.start_row: int = None
-        self.start_col: int = None
-        self.end_row: int = None
-        self.end_col: int = None
+        self.active_cell = None
+        self.anchor_cell = None
+        self.start_row = None
+        self.start_col = None
+        self.end_row = None
+        self.end_col = None
 
-    def set_df(self, df: pl.DataFrame, dtypes:list[str] = None):
+    def set_df(self, df: pl.DataFrame, dtypes:Union[list[str],None] = None):
         self.beginResetModel()
         self.df = df
         self.reset_selection()
@@ -218,7 +225,7 @@ class TableModel(QtCore.QAbstractTableModel):
     def columnCount(self, parent=None):
         return self.df.shape[1]
 
-    def data(self, index, role):
+    def data(self, index, role=QtCore.Qt.ItemDataRole.DisplayRole):
         if role == QtCore.Qt.ItemDataRole.DisplayRole:
             row = index.row()
             if 0 <= row < self.rowCount():
@@ -254,14 +261,14 @@ class TableModel(QtCore.QAbstractTableModel):
             ):
                 return QtGui.QColor("gold")
 
-            if self.start_row is None or self.end_row is None:
+            if self.start_row is None or self.end_row is None or self.start_col is None or self.end_col is None:
                 return
 
             if row >= self.start_row and row <= self.end_row:
                 if col >= self.start_col and col <= self.end_col:
                     return QtGui.QColor("lightblue")
 
-    def headerData(self, section, orientation, role):
+    def headerData(self, section, orientation, role=QtCore.Qt.ItemDataRole.DisplayRole):
         if role == QtCore.Qt.ItemDataRole.DisplayRole:
 
             if orientation == QtCore.Qt.Orientation.Horizontal:
@@ -274,22 +281,22 @@ class TableModel(QtCore.QAbstractTableModel):
         
 
 class Table(QtWidgets.QTableView):
-    def __init__(self, parent: "DfView" = None):
+    def __init__(self, parent: "DfView"):
         self.p = parent
         self.start_mouse_cell = None
         super(Table, self).__init__(parent)
 
 
-    def mousePressEvent(self, a0: QtGui.QMouseEvent) -> None:
-        self.start_mouse_cell = self.indexAt(a0.pos())
-        return super().mousePressEvent(a0)
+    def mousePressEvent(self, event: QtGui.QMouseEvent) -> None:
+        self.start_mouse_cell = self.indexAt(event.pos())
+        return super().mousePressEvent(event)
 
-    def mouseReleaseEvent(self, a0: QtGui.QMouseEvent) -> None:
+    def mouseReleaseEvent(self, event: QtGui.QMouseEvent) -> None:
         self.start_mouse_cell = None
-        return super().mouseReleaseEvent(a0)
+        return super().mouseReleaseEvent(event)
 
     # MARK: TableKeys
-    def keyPressEvent(self, a0: QtGui.QKeyEvent | None) -> None:
+    def keyPressEvent(self, event: QtGui.QKeyEvent) -> None:
 
 
         shift = (
@@ -305,13 +312,14 @@ class Table(QtWidgets.QTableView):
             == QtCore.Qt.KeyboardModifier.ControlModifier
             | QtCore.Qt.KeyboardModifier.ShiftModifier
         )
-        model:TableModel = self.model()
+        model:TableModel = self.model() # type: ignore
         selModel = self.selectionModel()
         curIdx = selModel.currentIndex()
         clrs = QtCore.QItemSelectionModel.SelectionFlag.ClearAndSelect
 
+        key = event.key()
 
-        if a0.key() == QtCore.Qt.Key.Key_Comma:
+        if key == QtCore.Qt.Key.Key_Comma:
             if model.active_cell:
                 col = model.active_cell[1]
                 if model.df.dtypes[col].is_numeric():
@@ -325,38 +333,38 @@ class Table(QtWidgets.QTableView):
                     model.formats[col] = fmt
                     model.layoutChanged.emit()
 
-        if a0.key() == QtCore.Qt.Key.Key_K:
+        if key == QtCore.Qt.Key.Key_K:
             pass
 
-        if a0.key() == QtCore.Qt.Key.Key_Slash:
+        if key == QtCore.Qt.Key.Key_Slash:
             self.p.search.setFocus()
             return
 
-        if (ctrlShift or ctrl) and a0.key() == QtCore.Qt.Key.Key_Right:
+        if (ctrlShift or ctrl) and key == QtCore.Qt.Key.Key_Right:
             selModel.setCurrentIndex(
                 curIdx.siblingAtColumn(self.model().columnCount() - 1), clrs
             )
             selModel.clearSelection()
             return
 
-        if (ctrlShift or ctrl) and a0.key() == QtCore.Qt.Key.Key_Left:
+        if (ctrlShift or ctrl) and key == QtCore.Qt.Key.Key_Left:
             selModel.setCurrentIndex(curIdx.siblingAtColumn(0), clrs)
             selModel.clearSelection()
             return
 
-        if (ctrlShift or ctrl) and a0.key() == QtCore.Qt.Key.Key_Up:
+        if (ctrlShift or ctrl) and key == QtCore.Qt.Key.Key_Up:
             selModel.setCurrentIndex(curIdx.siblingAtRow(0), clrs)
             selModel.clearSelection()
             return
 
-        if (ctrlShift or ctrl) and a0.key() == QtCore.Qt.Key.Key_Down:
+        if (ctrlShift or ctrl) and key == QtCore.Qt.Key.Key_Down:
             selModel.setCurrentIndex(
                 curIdx.siblingAtRow(self.model().rowCount() - 1), clrs
             )
             selModel.clearSelection()
             return
 
-        return super().keyPressEvent(a0)
+        return super().keyPressEvent(event)
 
 #MARK: TableWorker
 class TableWorker(QtCore.QObject):
@@ -364,7 +372,7 @@ class TableWorker(QtCore.QObject):
     provideDf = Signal(pl.DataFrame)
     provideWidths = Signal(list, list)
 
-    def __init__(self, df: pl.DataFrame = None):
+    def __init__(self, df: pl.DataFrame):
         super(TableWorker, self).__init__()
         self.widthsTimer = None
         self.org_df = df
@@ -435,10 +443,12 @@ class TableWorker(QtCore.QObject):
             self.calc_widths_2(df[:3000], self.fm, clear=False)
         if not self.widthsTimer:
             self.set_up_timers()
-        self.widthsTimer.start()
+        self.widthsTimer.start() # type: ignore
 
     def calc_widths_2(self, df=None, fm=None, clear=True):
         if df is None:
+            if self.df is None:
+                return
             df = self.df
         if fm is None:
             fm = self.fm

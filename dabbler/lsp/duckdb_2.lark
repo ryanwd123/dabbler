@@ -264,7 +264,6 @@ sample_method: SYSTEM
 
 
 table_func: [[IDENT "."] IDENT "."] IDENT "(" [expression ("," expression)*] ")"
-        |[[IDENT "."] IDENT "."] GLOB "(" [expression ("," expression)*] ")"
         |STRING          //e.g. select * from 'my_file.csv'
 
 subquery.5: "(" query ")" 
