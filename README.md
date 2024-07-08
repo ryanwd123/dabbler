@@ -83,7 +83,7 @@ Intellisnse / autocomplete:
 ### Next steps
 - known bugs
     - autocompletion will not work with for database / schema names with spaces
-    - update completions to use 'search_path' setting for multiple databases
+    - need to update completions to use 'search_path' setting for multiple databases
 - Updates to vs_code extension
     - better handling of server failing to start when dabbler not installed in python env
 - SQL grammer features missing:
