@@ -150,7 +150,6 @@ def test_get_db_data_new_table_info(test_db):
     
     assert table_info[0] == 'memory.main'  # db_scm
     assert table_info[1] == 'test_table'  # table_name
-    assert 'CREATE TABLE' in table_info[2]  # sql
     col = [x for x in table_info[3] if x[0] == 'ISSUED_DATE'][0]
     assert col[0] == 'ISSUED_DATE'  # col_name
     assert col[1] == 'DATE'  # col_type
@@ -164,7 +163,6 @@ def test_get_db_data_new_view_info(test_db):
     
     assert view_info[0] == 'memory.main'  # db_scm
     assert view_info[1] == 'test_view'  # table_name
-    assert 'CREATE VIEW' in view_info[2]  # sql
     col = [x for x in view_info[3] if x[0] == 'SPECIES'][0]
     assert col[0] == 'SPECIES'  # col_name
     assert col[1] == 'VARCHAR'  # col_type

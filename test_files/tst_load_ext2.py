@@ -109,8 +109,8 @@ CREATE OR REPLACE VIEW test_view as select * from Issued_Tree_Permits;
 db.sql(
 """--sql,
 select
-    *
-from sql_auto_complete
+    t.genres, t.premiered
+from imdb.main.titles t
 """
 )
 
@@ -249,7 +249,20 @@ set search_path to 'mem2.information_schema,memory';
 #%%
 db.sql(
 """--sql,
-SELECT current_setting('search_path');
-
+select 
+    i
+from Issued_Tree_Permits i
 """
 )
+
+#%%
+df = pl.DataFrame(
+    {
+        "int": [1, 2],
+        "str": ["a", "b"],
+        "bool": [True, None],
+        "list": [[1, 2], [3]],
+    }
+)
+df2 = df.select(pl.struct(pl.all()).alias("my_struct"))
+# %%

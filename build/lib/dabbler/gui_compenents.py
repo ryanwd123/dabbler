@@ -235,7 +235,7 @@ class ZmqServer(QtCore.QObject):
             handshake_msg: ToLangServer = {
                 "cmd": "connection_id",
                 "data": self.connection["client_id"],
-                "con_id": self.connection["client_id"]
+                "con_id": 0
             }
 
 

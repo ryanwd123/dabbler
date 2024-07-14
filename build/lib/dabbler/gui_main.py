@@ -429,7 +429,6 @@ class MyApp(QtWidgets.QApplication):
         if file:
             self.zmq = ZmqServer(self, self.db)
         self.win_id = 0
-        self.setStyle("Fusion")
         self.new_window()
 
     # def update_tables(self):

@@ -1,0 +1,819 @@
+start: statement (";" statement)* [";"] -> statements
+
+statement: query -> select_statement
+        |PRAGMA expression -> pragma_statement
+        |[FORCE] CHECKPOINT [IDENT] -> checkpoint_statement
+        |INSTALL STRING -> install_ext_statement
+        |LOAD STRING -> load_ext_statement
+        |SET [(LOCAL|GLOBAL|SESSION)] IDENT (EQUAL|TO) (IDENT|STRING|NUMBER) -> set_statement
+        |RESET [(LOCAL|GLOBAL|SESSION)] IDENT -> reset_statement
+        |ATTACH [DATABASE] [IF NOT EXISTS] databse_name [_AS alias] ["(" attach_options ("," attach_options)* ")"] -> attach_statement
+        |DETACH [DATABASE [IF EXISTS]] databse_name -> detach_statement
+        |create_view -> create_view
+        |alter_view -> alter_view
+        |create_table_statement -> create_table
+        |create_sequence -> create_sequence
+        |drop_statement -> drop_statement
+        |insert_statement -> insert_statement
+        |alter_table -> alter_table
+        |update_statment -> update_statment
+        |CALL IDENT "(" [expression ("," expression)*] ")" -> call_statement
+        |USE IDENT ["." IDENT] -> use_statement
+        |create_schema -> create_schema
+        |copy_statement -> copy_statement
+        |create_type -> create_type
+        |create_macro -> create_macro
+
+databse_name:STRING
+        |IDENT
+
+
+update_statment: UPDATE table_name [_AS table_name] SET column_update ("," column_update)*  [from_clause] [where]
+
+column_update: _col_ref "=" (expression|query)
+
+
+create_type: CREATE TYPE IDENT _AS existing_types
+        | CREATE TYPE IDENT _AS ENUM "(" (STRING ("," STRING)* | query) ")"
+        | CREATE TYPE IDENT _AS STRUCT "(" IDENT existing_types ("," IDENT existing_types)* ")"
+        | CREATE TYPE IDENT _AS UNION  "(" IDENT existing_types ("," IDENT existing_types)* ")"
+
+
+create_macro: CREATE [OR REPLACE] [TEMP|TEMPORARY] (MACRO|FUNCTION) [IDENT "."] IDENT macro_params _AS (TABLE query|expression) 
+
+macro_params: "("  IDENT ("," IDENT)* ")"
+        | "("  IDENT ":=" (STRING|NUMBER) ("," IDENT ":=" (STRING|NUMBER))* ")"
+        | "(" ")"
+
+
+
+attach_options: (READ_ONLY|READONLY) (TRUE|FALSE) -> read_only
+        | TYPE SQLITE -> sqlite
+
+copy_statement: COPY (table_name| "(" query ")" ) [col_names] TO filename [[WITH] "(" copy_to_options ("," copy_to_options)* ")"]
+       | COPY (table_name| "(" query ")" ) [col_names] FROM filename [[WITH] "(" copy_from_options ("," copy_from_options)* ")"]
+
+filename: STRING
+
+
+copy_from_options: FORMAT format_type
+        | DELIMITER STRING
+        | DELIM STRING
+        | SEP STRING
+        | NULL STRING
+        | HEADER [(TRUE|FALSE)]
+        | QUOTE STRING
+        | ESCAPE STRING
+        | DATEFORMAT STRING
+        | TIMESTAMPFORMAT STRING
+        | FORCE_NOT_NULL col_names
+        | ENCODING STRING
+        | AUTO_DETECT [(TRUE|FALSE)]
+        | SAMPLE_SIZE NUMBER
+        | ALL_VARCHAR [(TRUE|FALSE)]
+        | COMPRESSION compression_type
+        | CODEC compression_type
+        | IDENT (IDENT|STRING|NUMBER)
+
+
+copy_to_options: FORMAT format_type
+        | ALLOW_OVERWRITE [(TRUE|FALSE)]
+        | PARTITION_BY col_names
+        | PER_THREAD_OUTPUT [(TRUE|FALSE)]
+        | USE_TMP_FILE [(TRUE|FALSE)]
+        | COMPRESSION compression_type
+        | FORCE_QUOTE col_names
+        | DELIMITER STRING
+        | DATEFORMAT STRING
+        | DELIM STRING
+        | SEP STRING
+        | TIMESTAMPFORMAT STRING
+        | ESCAPE STRING
+        | HEADER [(TRUE|FALSE)]
+        | NULLSTR STRING
+        | QUOTE STRING
+        | ROW_GROUP_SIAE NUMBER
+        | ROW_GROUP_BYTES NUMBER
+        | FIELD_IDS struct
+        | ARRAY [(TRUE|FALSE)]
+        | IDENT (IDENT|STRING|NUMBER)
+
+
+struct: "{" IDENT ":"  "{" struct_item ("," struct_item)* "}"
+struct_item: (IDENT|NUMBER|STRING) ":" (IDENT|NUMBER|STRING)
+
+
+compression_type: UNCOMPRESSED
+        | SNAPPY
+        | GZIP
+        | ZSTD
+
+
+format_type: CSV
+        |PARQUET
+        |JSON
+
+
+
+
+// select_statement: query
+
+create_or_replace: CREATE [OR REPLACE] [(TEMP|TEMPORARY)]
+
+drop_statement: DROP drop_item [IF EXISTS] [IDENT "."] IDENT [(CASCADE|RESTRICT)]
+
+drop_item: FUNCTION
+        |INDEX
+        |MACRO [TABLE]
+        |SCHEMA
+        |SEQUENCE
+        |TABLE
+        |VIEW
+        |TYPE
+
+create_schema: CREATE SCHEMA [IF NOT EXISTS] IDENT ["." IDENT]
+
+begin_insert: INSERT [(OR REPLACE|OR IGNORE)] INTO table_name [_AS table_name] [col_names] [(BY POSITION|BY NAME)]
+on_conflict_clause: ON CONFLICT [col_names] [WHERE expression] (DO NOTHING|DO UPDATE SET (IDENT "=" expression) ("," IDENT "=" expression)* [WHERE expression])
+returning_clause: RETURNING ["*"] [col_exps]
+insert_statement: begin_insert (values|query|DEFAULT VALUES) [on_conflict_clause] [returning_clause]
+
+
+create_table_statement: create_or_replace TABLE [IF NOT EXISTS] table_name (_AS query|col_defintions)
+
+col_defintions: "(" col_defintion ("," col_defintion)* [","] [table_constraints]  ")" 
+
+col_defintion: IDENT type ["(" NUMBER ")"] [col_constraint]
+        | IDENT generated_col
+
+generated_col: [type] [GENERATED ALWAYS] _AS "(" expression ")" [(VIRTUAL|STORED)]
+
+col_constraint: PRIMARY KEY
+        |[NOT] NULL
+        |UNIQUE
+        |CHECK "(" expression ")"
+        |DEFAULT ("(" expression ")"|expression)
+        |REFERENCES table_name col_names
+        |COLLATE IDENT
+
+table_constraints: table_constraint ("," table_constraint)* [","]
+
+table_constraint: (PRIMARY KEY|UNIQUE) col_names
+        |CHECK "(" expression ")"
+        |FOREIGN KEY col_names REFERENCES table_name col_names
+
+alter_table: ALTER TABLE table_name alter_table_cmd
+
+alter_table_cmd: ADD [COLUMN] [IF NOT EXISTS] IDENT type [col_constraint]
+        | DROP [COLUMN] [IF EXISTS] alter_col_name
+        | ALTER [COLUMN] alter_col_name alter_col_options
+        | RENAME [COLUMN] alter_col_name TO IDENT
+        | RENAME TO IDENT
+
+alter_col_options: [SET [DATA]] TYPE (type|IDENT) [COLLATE IDENT] [USING expression]
+                |SET DEFAULT expression
+                |DROP DEFAULT
+
+
+
+alter_col_name: IDENT
+
+
+create_view: create_or_replace VIEW table_name [col_names] _AS query
+
+alter_view: ALTER VIEW table_name RENAME TO table_name
+
+col_names: "(" IDENT ("," IDENT)* ")"
+
+create_sequence: create_or_replace SEQUENCE sequence_name [INCREMENT [BY] NUMBER] [(NO MINVALUE|MINVALUE NUMBER)] [(NO MAXVALUE|MAXVALUE NUMBER)] [START [WITH] NUMBER] [[NO] CYCLE] -> create_sequence
+
+sequence_name: IDENT
+
+query.5: _select_node
+        | "(" query ")" -> query
+        | query UNION [ALL] query -> set_operation
+        | query INTERSECT query -> set_operation
+        | query EXCEPT query -> set_operation
+
+// ?query_in_parens: "(" query ")"
+
+_select_node: ["DESCRIBE"i] [cte] _select_from _optional_clauses
+        | [cte] pivot_clause  [group_by] [order_by]
+        | [cte] unpivot_clause [group_by] [order_by]
+        | [cte] select_clause
+        | [cte] from_clause 
+        | cte
+
+pivot_clause: (PIVOT|PIVOT_WIDER) (table_name|subquery|table_func) ON expression ("," expression)* USING col_exp ("," col_exp)*
+
+unpivot_clause: (UNPIVOT|PIVOT_LONGER) (table_name|subquery|table_func) ON (star_options|expression ("," expression)*) INTO NAME alias VALUE col_exp ("," col_exp)*
+
+
+
+
+cte: WITH [RECURSIVE] cte_exp ("," cte_exp)* -> cte
+cte_exp: IDENT [cte_col_alias] _AS [MATERIALIZED] "(" query ")" -> cte_expression
+cte_name: IDENT
+cte_col_alias: "(" IDENT ("," IDENT)* ")" -> cte_col_alias
+
+values: VALUES value ("," value)*[","] -> values
+value: "(" expression ("," expression)* ")"
+
+_select_from: select_clause from_clause
+        | from_clause select_clause
+
+
+select_clause: SELECT [(DISTINCT [ON (distinct_on_list)] |ALL)] col_exps
+        // |_z9_empty_select_clause
+
+// _z9_empty_select_clause.-3: SELECT
+
+_optional_clauses: [where] [group_by] [having] [order_by] [limit]
+
+where.4: WHERE expression
+group_by.6: GROUP BY [(expression ",")*] expression
+        | GROUP BY ALL
+having: HAVING expression
+
+limit: LIMIT expression [OFFSET expression]
+        
+
+distinct_on_list: col_exp [("," col_exp)*]
+
+from_clause: FROM from_ref [("," from_ref)*]
+        // |_z9_emtpy_from_clause
+
+// _z9_emtpy_from_clause.-5: FROM
+
+from_ref.3: table_ref [join*]
+
+table_ref.2: table_name [[_AS] alias [col_alias]] [sample_clause] -> db_table
+        | "(" query ")" [[_AS] alias [col_alias]] [sample_clause]-> subquery
+        |table_func [[_AS] alias [col_alias]] [sample_clause]-> table_function
+        // |STRING [[_AS] alias [col_alias]] [sample_clause]-> table_function
+        |"(" values ")" [[_AS] alias [col_alias]] -> values
+
+sample_clause: (TABLESAMPLE|USING SAMPLE) [sample_method] "(" NUMBER [("%"|PERCENT|ROWS)] ")" [REPEATABLE "(" NUMBER ")"]
+        | (TABLESAMPLE|USING SAMPLE) NUMBER [("%"|PERCENT|ROWS)]   ["(" sample_method [ "," NUMBER] ")"] 
+
+
+sample_method: SYSTEM
+        | BERNOULLI
+        | RESERVOIR
+
+
+
+table_func: [[IDENT "."] IDENT "."] IDENT "(" [expression ("," expression)*] ")"
+        |STRING          //e.g. select * from 'my_file.csv'
+
+subquery.5: "(" query ")" 
+
+table_name:  [IDENT "." [IDENT "."]] IDENT  -> table_name
+
+// table_name:  [IDENT "." [IDENT "."]] IDENT  -> table_name
+
+
+col_alias: "(" [(IDENT ",")*] IDENT ")"
+
+join.2: join_type JOIN table_ref [ON expression]
+        | join_type JOIN table_ref USING "(" IDENT [("," IDENT)*] ")"
+
+join_type.2: CROSS
+        | POSITIONAL
+        | [(NATURAL|ASOF)] [(INNER|(LEFT|RIGHT|FULL)[OUTER])]
+
+alias: IDENT
+
+col_exps: col_exp [("," col_exp)*] [","]
+col_exp: expression [[_AS] alias]
+        | star_options
+
+star_options.9: [IDENT "."] STAR [exclude] [replace] 
+        |columns_exp
+
+columns_exp: COLUMNS "(" star_options ")"
+        |COLUMNS "(" STRING ")"
+        |COLUMNS "(" (lambda_exp|IDENT "->" expression) ")"
+
+lambda_exp: "(" IDENT ("," IDENT)* ")" "->" expression
+
+col_replace: expression _AS IDENT
+col_exclude: IDENT
+exclude: EXCLUDE "(" [[(col_exclude ",")*] col_exclude] [","] ")"
+replace: REPLACE "(" [[(col_replace ",")*] col_replace] [","]")"
+
+
+
+// col_ref:[IDENT "." [IDENT "." [IDENT "."]]] IDENT  -> col_ref
+
+// expression.3: [IDENT "."] IDENT  -> col_ref
+expression.3: _col_ref  -> col_ref
+        // |[IDENT "."] IDENT "." -> z9_incomplete_col_ref
+        |_z9_incomplete_col_ref -> z9_incomplete_col_ref
+        |STRING -> string
+        |NUMBER -> number
+        |SIGNED_NUMBER -> number
+        |TRUE -> true
+        |FALSE -> false
+        // |negative_number -> number
+        // |DATE STRING -> date
+        |_date -> date
+        | [IDENT "."] IDENT "("[DISTINCT] [(expression ",")*] expression [order_by] ")" [filter] [window_form]  -> function
+        | [IDENT "."] IDENT "(" ["*"] [order_by] ")" [filter] [window_form]  -> function
+        | expression math expression -> operation
+        | expression comp expression -> comparison
+        | between
+        | combine
+        | expression [NOT] IN "(" (expression [("," expression)*]) ")" -> in
+        | expression [NOT] IN subquery -> in
+        | CASE [expression] (WHEN expression THEN expression)+ [ELSE expression] END -> case
+        | expression [NOT] (LIKE|ILIKE|SIMILAR TO|GLOB|LIKE_SIGN|NOT_LIKE_SIGN|GLOB_SIGN|SIMILAR_TO_SIGN|NOT_SIMILAR_TO_SIGN|NOT_ILIKE_SIGN|ILIKE_SIGN) expression -> like
+        | expression IS [NOT] DISTINCT FROM expression -> is_distinct_from
+        | "(" expression ")" -> parenthesized_expression
+        | expression CAST_OP type -> cast
+        | CAST"(" expression _AS type ")" -> cast
+        | "(" query ")" -> subquery
+        | NULL -> null   
+        | expression [IS | NOT | IS NOT] NULL -> is_null
+        | [NOT] EXISTS "(" query ")" -> exists
+        | COALESCE "(" expression ("," expression)* ")" -> coalesce
+        | EXTRACT "("IDENT FROM expression")" -> extract
+        | INTERVAL expression IDENT -> interval
+        | expression "[" slice_args "]" -> slice
+        | expression "." IDENT "("[DISTINCT] [[(expression ",")*] expression] ")" [window_form]  -> dot_function
+        | parameter
+        |"[" [expression] ("," expression)* [","] "]" -> list
+        | "{" STRING ":" expression ("," STRING ":" expression)* [","] "}" -> struct
+        | MAP "{" expression ":" expression ("," expression ":" expression)* [","] "}" -> map
+        // | SUBSTRING "(" expression FROM expression [FOR expression] ")" -> substring
+        // | "EXTRACT"i "(" IDENT FROM expression ")" -> extract
+        // | expression (IS [NOT] NULL|"ISNULL"i|"NOTNULL"i) -> is_null
+
+slice_args: expression ":" expression
+        | expression ":"
+        | ":"
+        | ":" expression
+        | expression
+
+parameter: "?"
+        | "$" NUMBER
+        | "$" IDENT
+
+
+
+_col_ref: [IDENT "."] IDENT
+
+
+
+
+_z9_incomplete_col_ref: [IDENT "."] IDENT "."
+_date: DATE STRING
+
+filter: FILTER "(" WHERE expression ")" -> filter
+
+between.6: expression [NOT] BETWEEN expression AND expression
+combine.5: expression (AND|OR) expression -> combine
+
+window_form: OVER "(" [PARTITION BY (partition_by ",")* partition_by] [order_by [ row_range_clause ] ] ")"
+
+order_by.3: ORDER BY ALL [(ASC|DESC)] [NULLS(FIRST|LAST)]
+        // |ORDER BY [(order ",")*] order
+        | ORDER BY expression [(ASC|DESC)] [NULLS(FIRST|LAST)] ("," expression [(ASC|DESC)] [NULLS(FIRST|LAST)])* 
+
+// order: expression [(ASC|DESC)] [NULLS (FIRST|LAST)]
+partition_by: expression
+//row_number() OVER (PARTITION BY ci.pl_placeid ORDER BY s.score DESC NULLS LAST, s.person1id, s.person2id) _AS rn
+
+// negative_number.1: MINUS NUMBER -> negative_number
+
+row_range_clause: ( ROWS | RANGE ) frame_extent
+frame_extent: frame_between | frame_preceding
+frame_between: BETWEEN frame_bound AND frame_bound
+frame_bound: frame_preceding | frame_following | CURRENT ROW
+frame_preceding: UNBOUNDED PRECEDING | expression PRECEDING
+frame_following: UNBOUNDED FOLLOWING | expression FOLLOWING
+
+
+
+
+math: STAR
+        | DIVIDE
+        | PLUS
+        | MINUS
+        | CONCAT
+
+
+comp: GREATER_THAN
+        | LESS_THAN
+        | LESS_THAN_OR_EQUAL
+        | GREATER_THAN_OR_EQUAL
+        | EQUAL
+        | NOT_EQUALS
+
+existing_types: DOUBLE
+       | TIME
+       | DATE
+       | BIT
+       | BOOLEAN
+       | UUID
+       | NULL
+       | FLOAT
+       | TIMESTAMP
+       | TIMESTAMP_MS
+       | TIMESTAMP_NS
+       | TIMESTAMP_S
+       | TIMESTAMP WITH TIME ZONE
+       | TIME WITH TIME ZONE
+       | INTERVAL
+       | VARCHAR
+       | BLOB
+       | HUGEINT
+       | BIGINT
+       | UBIGINT
+       | INTEGER
+       | UINTEGER
+       | SMALLINT
+       | USMALLINT
+       | TINYINT
+       | UTINYINT
+       | DECIMAL "(" NUMBER "," NUMBER ")" 
+
+
+
+
+type:  DOUBLE
+       | TIME
+       | DATE
+       | BIT
+       | BOOLEAN
+       | UUID
+       | ENUM
+       | NULL
+       | FLOAT
+       | STRUCT
+       | TIMESTAMP
+       | TIMESTAMP_MS
+       | TIMESTAMP_NS
+       | TIMESTAMP_S
+       | TIMESTAMP WITH TIME ZONE
+       | TIME WITH TIME ZONE
+       | INTERVAL
+       | VARCHAR
+       | BLOB
+       | HUGEINT
+       | BIGINT
+       | UBIGINT
+       | INTEGER
+       | UINTEGER
+       | SMALLINT
+       | USMALLINT
+       | TINYINT
+       | UTINYINT
+       | UNION
+       | DECIMAL "(" NUMBER "," NUMBER ")" 
+
+
+
+
+FILTER: "FILTER"i
+LPAREN: "("
+RPAREN: ")"
+// COMMA: ","
+// DOT: "."
+PLUS: "+"
+MINUS: "-"
+STAR: "*"
+DIVIDE: "/"
+MODULO: "%"
+LESS_THAN: "<"
+GREATER_THAN: ">"
+LESS_THAN_OR_EQUAL: "<="
+GREATER_THAN_OR_EQUAL: ">="
+NOT_EQUALS: "<>" | "!="
+CONCAT: "||"
+AND_OP: "&&"
+EQUAL: "="
+CAST_OP: "::"
+FACTORIAL:   "!"
+BITWISE_NOT:   "~"
+BITWISE_OR:   "|"
+BITWISE_SHIFT_LEFT:   "<<"
+BITWISE_SHIFT_RIGHT:   ">>"
+BITWISE_AND:   "&"
+EXPONENT:   "^"
+EXPONENT2:   "**"
+INTEGER_DIVIDE:   "//"
+LIKE_SIGN:   "~~"
+NOT_LIKE_SIGN:   "!~~"
+ILIKE_SIGN:   "~~*"
+NOT_ILIKE_SIGN:   "!~~*"
+SIMILAR_TO_SIGN:   "~"
+NOT_SIMILAR_TO_SIGN:   "!~"
+GLOB_SIGN: "~~~"
+
+
+
+// %declare IDENT COMMENT STRING NUMBER 
+
+
+
+//reserved kewords
+QUALIFY: "QUALIFY"i
+AUTHORIZATION: "AUTHORIZATION"i
+DO: "DO"i
+CAST: "CAST"i
+ISNULL: "ISNULL"i
+LIKE: "LIKE"i
+REFERENCES: "REFERENCES"i
+ASC: "ASC"i
+ILIKE: "ILIKE"i
+ALL: "ALL"i
+WINDOW: "WINDOW"i
+FOR: "FOR"i
+INNER: "INNER"i
+GRANT: "GRANT"i
+INITIALLY: "INITIALLY"i
+OR: "OR"i
+LEFT: "LEFT"i
+ANALYZE: "ANALYZE"i
+COLLATE: "COLLATE"i
+CASE: "CASE"i
+FETCH: "FETCH"i
+IN: "IN"i
+CONCURRENTLY: "CONCURRENTLY"i
+SEMI: "SEMI"i
+UNPIVOT: "UNPIVOT"i
+BINARY: "BINARY"i
+FROM: "FROM"i
+VARIADIC: "VARIADIC"i
+ARRAY: "ARRAY"i
+IS: "IS"i
+ANALYSE: "ANALYSE"i
+AND: "AND"i
+HAVING: "HAVING"i
+UNION: "UNION"i
+COLUMN: "COLUMN"i
+ON: "ON"i
+GLOB: "GLOB"i
+SOME: "SOME"i
+_AS: "AS"i
+VERBOSE: "VERBOSE"i
+TRAILING: "TRAILING"i
+END: "END"i
+ANY: "ANY"i
+TABLESAMPLE: "TABLESAMPLE"i
+INTERSECT: "INTERSECT"i
+NATURAL: "NATURAL"i
+CREATE: "CREATE"i
+OFFSET: "OFFSET"i
+CROSS: "CROSS"i
+ELSE: "ELSE"i
+FULL: "FULL"i
+SELECT: "SELECT"i
+USING: "USING"i
+CONSTRAINT: "CONSTRAINT"i
+FOREIGN: "FOREIGN"i
+OVERLAPS: "OVERLAPS"i
+ORDER: "ORDER"i
+INTO: "INTO"i
+NOT: "NOT"i
+TABLE: "TABLE"i
+ANTI: "ANTI"i
+CHECK: "CHECK"i
+ASYMMETRIC: "ASYMMETRIC"i
+LATERAL: "LATERAL"i
+DEFERRABLE: "DEFERRABLE"i
+BOTH: "BOTH"i
+RIGHT: "RIGHT"i
+COLLATION: "COLLATION"i
+UNIQUE: "UNIQUE"i
+SYMMETRIC: "SYMMETRIC"i
+TO: "TO"i
+RETURNING: "RETURNING"i
+SIMILAR: "SIMILAR"i
+NOTNULL: "NOTNULL"i
+LIMIT: "LIMIT"i
+ASOF: "ASOF"i
+JOIN: "JOIN"i
+THEN: "THEN"i
+ONLY: "ONLY"i
+FREEZE: "FREEZE"i
+WITH: "WITH"i
+DESC: "DESC"i
+WHERE: "WHERE"i
+OUTER: "OUTER"i
+WHEN: "WHEN"i
+DISTINCT: "DISTINCT"i
+LEADING: "LEADING"i
+EXCEPT: "EXCEPT"i
+MATERIALIZED: "MATERIALIZED"i
+
+//unreserved keywords
+INCREMENT: "INCREMENT"i
+MINVALUE: "MINVALUE"i
+MAXVALUE: "MAXVALUE"i
+CYCLE: "CYCLE"i
+START: "START"i
+NO: "NO"i
+BETWEEN: "BETWEEN"i
+BIGINT: "BIGINT"i
+BIT: "BIT"i
+BITWISE: "BITWISE"i
+BLOB: "BLOB"i
+BOOLEAN: "BOOLEAN"i
+BY: "BY"i
+CHAR: "CHAR"i
+CHARACTER: "CHARACTER"i
+CHECKPOINT: "CHECKPOINT"i
+COALESCE: "COALESCE"i
+COLUMNS: "COLUMNS"i
+CURRENT: "CURRENT"i
+DATE: "DATE"i
+DEC: "DEC"i
+DECIMAL: "DECIMAL"i
+DEFAULT: "DEFAULT"i
+DOUBLE: "DOUBLE"i
+ENUM: "ENUM"i
+EQUALS: "EQUALS"i
+EXCLUDE: "EXCLUDE"i
+EXISTS: "EXISTS"i
+EXTRACT: "EXTRACT"i
+FALSE: "FALSE"i
+FIRST: "FIRST"i
+FLOAT: "FLOAT"i
+FOLLOWING: "FOLLOWING"i
+FORCE: "FORCE"i
+GENERATED: "GENERATED"i
+GLOBAL: "GLOBAL"i
+GREATER: "GREATER"i
+GROUP: "GROUP"i
+GROUPING: "GROUPING"i
+GROUPING_ID: "GROUPING_ID"i
+HUGEINT: "HUGEINT"i
+IF: "IF"i
+INOUT: "INOUT"i
+INSTALL: "INSTALL"i
+INT: "INT"i
+INTEGER: "INTEGER"i
+INTERVAL: "INTERVAL"i
+LAST: "LAST"i
+LESS: "LESS"i
+LIST: "LIST"i
+LOAD: "LOAD"i
+LOCAL: "LOCAL"i
+MAP: "MAP"i
+NATIONAL: "NATIONAL"i
+NCHAR: "NCHAR"i
+NONE: "NONE"i
+NULL: "NULL"i
+NULLIF: "NULLIF"i
+NULLS: "NULLS"i
+NUMERIC: "NUMERIC"i
+OUT: "OUT"i
+OVER: "OVER"i
+OVERLAY: "OVERLAY"i
+PARTITION: "PARTITION"i
+PIVOT: "PIVOT"i
+PIVOT_LONGER: "PIVOT_LONGER"i
+PIVOT_WIDER: "PIVOT_WIDER"i
+PLACING: "PLACING"i
+POSITION: "POSITION"i
+POSITIONAL: "POSITIONAL"i
+PRAGMA: "PRAGMA"i
+PRECEDING: "PRECEDING"i
+PRECISION: "PRECISION"i
+PRIMARY: "PRIMARY"i
+RANGE: "RANGE"i
+REAL: "REAL"i
+RECURSIVE: "RECURSIVE"i
+REPLACE: "REPLACE"i
+RESET: "RESET"i
+ROW: "ROW"i
+ROWS: "ROWS"i
+SESSION: "SESSION"i
+SET: "SET"i
+SETOF: "SETOF"i
+SMALLINT: "SMALLINT"i
+STRUCT: "STRUCT"i
+SUBSTRING: "SUBSTRING"i
+TEMP: "TEMP"i
+TEMPORARY: "TEMPORARY"i
+THAN: "THAN"i
+TIME: "TIME"i
+TIMESTAMP: "TIMESTAMP"i
+TIMESTAMP_MS: "TIMESTAMP_MS"i
+TIMESTAMP_NS: "TIMESTAMP_NS"i
+TIMESTAMP_S: "TIMESTAMP_S"i
+TINYINT: "TINYINT"i
+TREAT: "TREAT"i
+TRIM: "TRIM"i
+TRUE: "TRUE"i
+TRY_CAST: "TRY_CAST"i
+UBIGINT: "UBIGINT"i
+UINTEGER: "UINTEGER"i
+UNBOUNDED: "UNBOUNDED"i
+USMALLINT: "USMALLINT"i
+UTINYINT: "UTINYINT"i
+UUID: "UUID"i
+VALUES: "VALUES"i
+VARCHAR: "VARCHAR"i
+VIEW: "VIEW"i
+XMLATTRIBUTES: "XMLATTRIBUTES"i
+XMLCONCAT: "XMLCONCAT"i
+XMLELEMENT: "XMLELEMENT"i
+XMLEXISTS: "XMLEXISTS"i
+XMLFOREST: "XMLFOREST"i
+XMLNAMESPACES: "XMLNAMESPACES"i
+XMLPARSE: "XMLPARSE"i
+XMLPI: "XMLPI"i
+XMLROOT: "XMLROOT"i
+XMLSERIALIZE: "XMLSERIALIZE"i
+XMLTABLE: "XMLTABLE"i
+ZONE: "ZONE"i
+ATTACH: "ATTACH"i
+DATABASE: "DATABASE"i
+READ_ONLY: "READ_ONLY"i
+READONLY: "READONLY"i
+TYPE: "TYPE"i
+SQLITE: "SQLITE"i
+DETACH: "DETACH"i
+SEQUENCE: "SEQUENCE"i
+DROP: "DROP"i
+CASCADE: "CASCADE"i
+INDEX: "INDEX"i
+RESTRICT: "RESTRICT"i
+MACRO: "MACRO"i
+SCHEMA: "SCHEMA"i    
+FUNCTION: "FUNCTION"i
+NAME: "NAME"i
+INSERT: "INSERT"i
+IGNORE: "IGNORE"i
+UPDATE: "UPDATE"i
+NOTHING: "NOTHING"i
+CONFLICT: "CONFLICT"i
+ALTER: "ALTER"i
+RENAME: "RENAME"i
+ALWAYS: "ALWAYS"i
+STORED: "STORED"i
+VIRTUAL: "VIRTUAL"i
+KEY: "KEY"i
+ADD: "ADD"i
+USE: "USE"i
+CALL: "CALL"i
+DATA: "DATA"i
+CSV: "CSV"i
+PARTITION_BY: "PARTITION_BY"i
+ALLOW_OVERWRITE: "ALLOW_OVERWRITE"i
+FORMAT: "FORMAT"i
+TIMESTAMPFORMAT: "TIMESTAMPFORMAT"i
+COPY: "COPY"i
+COMPRESSION: "COMPRESSION"i
+DELIM: "DELIM"i
+ROW_GROUP_BYTES: "ROW_GROUP_BYTES"i
+PER_THREAD_OUTPUT: "PER_THREAD_OUTPUT"i
+SNAPPY: "SNAPPY"i
+HEADER: "HEADER"i
+FIELD_IDS: "FIELD_IDS"i
+DATEFORMAT: "DATEFORMAT"i
+JSON: "JSON"i
+NULLSTR: "NULLSTR"i
+USE_TMP_FILE: "USE_TMP_FILE"i
+GZIP: "GZIP"i
+PARQUET: "PARQUET"i
+SEP: "SEP"i
+FORCE_QUOTE: "FORCE_QUOTE"i
+UNCOMPRESSED: "UNCOMPRESSED"i
+ZSTD: "ZSTD"i
+QUOTE: "QUOTE"i
+ROW_GROUP_SIAE: "ROW_GROUP_SIAE"i
+ESCAPE: "ESCAPE"i
+CODEC: "CODEC"i
+ENCODING: "ENCODING"i
+ALL_VARCHAR: "ALL_VARCHAR"i
+SAMPLE_SIZE: "SAMPLE_SIZE"i
+AUTO_DETECT: "AUTO_DETECT"i
+FORCE_NOT_NULL: "FORCE_NOT_NULL"i
+DELIMITER: "DELIMITER"i
+SYSTEM: "SYSTEM"i
+PERCENT: "PERCENT"i
+SAMPLE: "SAMPLE"i
+RESERVOIR: "RESERVOIR"i
+REPEATABLE: "REPEATABLE"i
+BERNOULLI: "BERNOULLI"i
+VALUE: "VALUE"i
+
+COMMENT: /--.*/ |  /\/\*[\s\S]*?\*\//
+IDENT: CNAME | ESCAPED_STRING
+CNAME: /\b(?!QUALIFY\b|AUTHORIZATION\b|DO\b|CAST\b|ISNULL\b|LIKE\b|REFERENCES\b|ASC\b|ILIKE\b|ALL\b|WINDOW\b|FOR\b|INNER\b|GRANT\b|INITIALLY\b|OR\b|LEFT\b|ANALYZE\b|COLLATE\b|CASE\b|FETCH\b|IN\b|CONCURRENTLY\b|SEMI\b|UNPIVOT\b|BINARY\b|FROM\b|VARIADIC\b|ARRAY\b|IS\b|ANALYSE\b|AND\b|HAVING\b|UNION\b|COLUMN\b|ON\b|GLOB\b|SOME\b|AS\b|VERBOSE\b|TRAILING\b|END\b|ANY\b|TABLESAMPLE\b|INTERSECT\b|NATURAL\b|CREATE\b|OFFSET\b|CROSS\b|ELSE\b|FULL\b|SELECT\b|USING\b|CONSTRAINT\b|FOREIGN\b|OVERLAPS\b|ORDER\b|INTO\b|NOT\b|TABLE\b|ANTI\b|CHECK\b|ASYMMETRIC\b|LATERAL\b|DEFERRABLE\b|BOTH\b|RIGHT\b|COLLATION\b|UNIQUE\b|SYMMETRIC\b|TO\b|RETURNING\b|SIMILAR\b|NOTNULL\b|LIMIT\b|ASOF\b|JOIN\b|THEN\b|ONLY\b|FREEZE\b|WITH\b|DESC\b|WHERE\b|OUTER\b|WHEN\b|DISTINCT\b|LEADING\b|EXCEPT\b)([a-zA-Z_]\w*|\d+[a-zA-Z_]+\w*)\b/i
+STRING: /'([^']|\s)+'|''/
+SIGNED_NUMBER.-1: ["+"|"-"] NUMBER
+
+%import common.ESCAPED_STRING
+%import common.NUMBER
+// %import common.CNAME
+
+// %import common.SIGNED_NUMBER
+%import common.WS
+%ignore COMMENT
+%ignore WS
+

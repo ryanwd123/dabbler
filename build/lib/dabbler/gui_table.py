@@ -50,13 +50,6 @@ def get_col_fmts(c: str, df: pl.DataFrame, dtype: pl.DataType, fm: QFontMetrics)
 def get_str(val, fmt: str, limit = 200):
     if val is None:
         return ""
-    
-    if isinstance(val, pl.Series):
-        val = val.to_list()
-
-    if fmt is None:
-        fmt = ""
-
     try:
         result = format(val, fmt)
     except Exception:
@@ -67,7 +60,7 @@ def get_str(val, fmt: str, limit = 200):
 
 
 def get_col_width(
-    fm: QFontMetrics, col: str, df: pl.DataFrame, dtype: pl.DataType, format: str, dtype2:str
+    fm: QFontMetrics, col: str, df: pl.DataFrame, dtype: pl.DataType, format: str
 ):
     try:
         if dtype.is_numeric():
@@ -75,13 +68,11 @@ def get_col_width(
             return max(
                 [fm.horizontalAdvance(str(dtype))]
                 + [fm.horizontalAdvance(col)]
-                + [fm.horizontalAdvance(dtype2)]
                 + [fm.horizontalAdvance(get_str(val, format)) for val in vals]
             ) + 20
         if dtype.is_temporal():
             return max(
                 [fm.horizontalAdvance(str(dtype))]
-                + [fm.horizontalAdvance(dtype2)]
                 + [fm.horizontalAdvance(col)]
                 + [fm.horizontalAdvance(get_str(val, format))
                     for val in df[col].unique().top_k(10).to_list()
@@ -120,7 +111,6 @@ def get_col_width(
                 return 600
             w = max(
                 [fm.horizontalAdvance(str(dtype.base_type()))]
-                + [fm.horizontalAdvance(dtype2)]
                 + [fm.horizontalAdvance(col)]
                 + [fm.horizontalAdvance(c[val]) for val in top]
             )
@@ -130,13 +120,13 @@ def get_col_width(
         return 200
 
 
-def get_col_fmts_and_widths(font: QFontMetrics, df: pl.DataFrame, dtypes: list[str]):
+def get_col_fmts_and_widths(font: QFontMetrics, df: pl.DataFrame):
     fm = font
     schema = df.schema
     fmts = [get_col_fmts(c, df, dt, fm) for c, dt in schema.items()]
     widths = [
-        get_col_width(fm, c, df, dt, f, dt2)
-        for c, dt, f, dt2 in zip(schema.keys(), schema.values(), fmts, dtypes)
+        get_col_width(fm, c, df, dt, f)
+        for c, dt, f in zip(schema.keys(), schema.values(), fmts)
     ]
     return widths, fmts
 
@@ -268,19 +258,19 @@ class TableModel(QtCore.QAbstractTableModel):
                 if 0 <= column < self.columnCount():
                     value = self.df.item(row, column)
                     fmt = self.formats.get(column, "")
-                    # if ((self.df.dtypes[column].base_type() == pl.Struct
-                    #     or self.df.dtypes[column].base_type() == pl.List) 
-                    #     and type(value) == pl.Series):        
-                    #         value = str(value.to_list())
-                    #         if len(value) > 200:
-                    #             value = value[:200] + "..."
-                    #         return value
+                    if ((self.df.dtypes[column].base_type() == pl.Struct
+                        or self.df.dtypes[column].base_type() == pl.List) 
+                        and type(value) == pl.Series):        
+                            value = str(value.to_list())
+                            if len(value) > 200:
+                                value = value[:200] + "..."
+                            return value
 
-                    # if not fmt:
-                    #     value = str(value)
-                    #     if len(value) > 200:
-                    #         value = value[:200] + "..."
-                    #     return value
+                    if not fmt:
+                        value = str(value)
+                        if len(value) > 200:
+                            value = value[:200] + "..."
+                        return value
                     return get_str(value, fmt)
 
         if role == QtCore.Qt.ItemDataRole.TextAlignmentRole:
@@ -513,18 +503,17 @@ class TableWorker(QtCore.QObject):
             df = self.org_df
         self.provideDf.emit(df)
 
-    @Slot(pl.DataFrame, QFont, list)
-    def calc_widths(self, df: pl.DataFrame, font: QFont, dtypes: list[str]):
+    @Slot(pl.DataFrame, QFont)
+    def calc_widths(self, df: pl.DataFrame, font: QFont):
         self.fm = QFontMetrics(font)
         self.df = df
-        self.dtypes = dtypes
         if df.shape[0] > 100_000:
-            self.calc_widths_2(df[:3000], self.fm, clear=False, dtypes=dtypes)
+            self.calc_widths_2(df[:3000], self.fm, clear=False)
         if not self.widthsTimer:
             self.set_up_timers()
         self.widthsTimer.start() # type: ignore
 
-    def calc_widths_2(self, df=None, fm=None, clear=True, dtypes=None):
+    def calc_widths_2(self, df=None, fm=None, clear=True):
         if df is None:
             if self.df is None:
                 return
@@ -533,14 +522,9 @@ class TableWorker(QtCore.QObject):
             if self.fm is None:
                 return
             fm = self.fm
-        if dtypes is None:
-            if self.dtypes is None:
-                return
-            dtypes = self.dtypes
-
         if df.shape[0] == 0:
             return
-        widths, fmts = get_col_fmts_and_widths(fm, df, dtypes)
+        widths, fmts = get_col_fmts_and_widths(fm, df)
         self.provideWidths.emit(widths, fmts)
         if clear:
             self.fm = None
@@ -550,7 +534,7 @@ class TableWorker(QtCore.QObject):
 class DfView(QtWidgets.QWidget):
 
     setWorkerDf = Signal(pl.DataFrame)
-    calcWidths = Signal(pl.DataFrame, QFont,list)
+    calcWidths = Signal(pl.DataFrame, QFont)
     searchDf = Signal(str)
 
     def __init__(self, parent=None, app:Union[QtWidgets.QApplication,None] = None):
@@ -675,7 +659,7 @@ class DfView(QtWidgets.QWidget):
         self.bottom_status_timer.start()
 
     def update_col_widths(self):
-        self.calcWidths.emit(self._model.df, self.table.font(),self._model.dtypes)
+        self.calcWidths.emit(self._model.df, self.table.font())
 
 
     def update_bottom_status(self):

@@ -1,31 +1,31 @@
 #%%
 import polars as pl
-from qtpy import QtWidgets
+from dabbler.gui_qt import QtWidgets, QtGui
 from dabbler.gui_table import DfView
 from pathlib import Path
 # from dabbler.gui_stuff import gui_style
-# import duckdb
+import duckdb
 # from functools import reduce
 
 
 
-# def get_imdb_df():
-#     db = duckdb.connect()   
-#     f = Path(__file__).parent
-#     imdb = f/'../../sample_data/imdb.db'
-#     db.execute(f"attach '{imdb}' as imdb (read_only true)")
+def get_imdb_df():
+    db = duckdb.connect()   
+    f = Path(__file__).parent
+    imdb = f/'../../sample_data/imdb.db'
+    db.execute(f"attach '{imdb}' as imdb (read_only true)")
 
-#     df = db.sql(
-#     """--sql,
-#     select
-#         *
-#     from imdb.main.titles
-#     limit 8000
-#     --limit 200
-#     """
-#     ).pl()
-#     db.close()
-#     return df
+    df = db.sql(
+    """--sql,
+    select
+        *
+    from imdb.main.titles
+    limit 50000
+    --limit 200
+    """
+    ).pl()
+    db.close()
+    return df
 #%%
 # q = df['primary_title'].str.len_chars().quantile(0.9)
 # c = df['primary_title'].filter(df['primary_title'].str.len_chars() < q)
@@ -77,7 +77,7 @@ from pathlib import Path
 #%%
 
 
-# df = get_imdb_df()
+df = get_imdb_df()
 #%%
 # with pl.StringCache():
 #     df = df.with_columns(
@@ -120,21 +120,21 @@ from pathlib import Path
 # )
 # df = get_imdb_df()
 # df.write_parquet('tst.parquet')
-df = pl.read_parquet(Path(__file__).parent/'tst.parquet')
-df = pl.DataFrame({
-    "a": [1, 2, 3, 4, 5, 0],
-})
+# df = pl.read_parquet(Path(__file__).parent/'tst.parquet')
+# df = pl.DataFrame({
+#     "a": [1, 2, 3, 4, 5, 0],
+# })
 
 # print(filtered_df)
 # df['parameters'].list.join(', ').cast(pl.String)
 # %%
 
 app = QtWidgets.QApplication([])
-
+app.setStyle('Fusion')
 # print(QtGui.QFontDatabase().families())
 w = DfView(parent=None,app=app)
 w.set_df(df)
-
+w.show_dtypes=False
 # fonts = QtGui.QFontDatabase().families()
 # print(fonts)
 
