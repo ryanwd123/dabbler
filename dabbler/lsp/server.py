@@ -67,7 +67,10 @@ def completions(
 
     pos_in_range = sql_rng.cur_idx - sql_rng.start
 
-    comps = completer.route_completion2(pos_in_range, sql_rng.txt, trigger, snippets=ls.snippet_support())
+    comps = completer.route_completion2(
+        pos_in_range, sql_rng.txt, trigger, snippets=ls.snippet_support(),
+        document_tables=ls.document_tables.get(params.text_document.uri),
+    )
     if comps:
         span = completer.replace_span(pos_in_range, sql_rng.txt)
         if span is not None:
@@ -134,7 +137,9 @@ def hover(ls: InlineSqlLangServer, params: lsp.HoverParams) -> Optional[lsp.Hove
     if not sql_rng:
         return None
     try:
-        found = ls.get_completer(params.text_document.uri).hover(sql_rng.cur_idx - sql_rng.start, sql_rng.txt)
+        found = ls.get_completer(params.text_document.uri).hover(
+            sql_rng.cur_idx - sql_rng.start, sql_rng.txt, ls.document_tables.get(params.text_document.uri)
+        )
     except Exception:
         ls.log.exception("hover failed")
         return None
@@ -150,7 +155,14 @@ def hover(ls: InlineSqlLangServer, params: lsp.HoverParams) -> Optional[lsp.Hove
 
 
 def publish_sql_errors(ls: InlineSqlLangServer, uri: str):
-    """Checks every SQL string in the document with DuckDB's parser and publishes the errors."""
+    """Checks every SQL string in the document with DuckDB's parser and publishes the errors.
+
+    Also updates the tables the document creates, for completions in its other SQL.
+    """
+    try:
+        ls.update_document_tables(uri)
+    except Exception:
+        ls.log.exception(f"failed to find the tables {uri} creates")
     try:
         document = ls.workspace.get_text_document(uri)
         version = document.version
@@ -230,6 +242,7 @@ async def did_close(ls: InlineSqlLangServer, params: lsp.DidCloseTextDocumentPar
     pending = ls.pending_diagnostics.pop(params.text_document.uri, None)
     if pending:
         pending.cancel()
+    ls.document_tables.pop(params.text_document.uri, None)
     ls.publish_diagnostics(params.text_document.uri, [])
 
 

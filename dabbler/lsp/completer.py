@@ -284,9 +284,9 @@ class SqlCompleter:
             active_parameter=min(call.arg_index, max(param_count - 1, 0)),
         )
 
-    def hover(self, cursor_pos: int, txt: str):
+    def hover(self, cursor_pos: int, txt: str, document_tables=None):
         """Hover text for the name under the cursor (see hover.py)."""
-        with self.catalog.request():
+        with self.catalog.request(document_tables):
             return hover_text(self, txt, cursor_pos)
 
     def route_completion2(
@@ -295,11 +295,13 @@ class SqlCompleter:
         txt: str,
         trigger: Union[str,None],
         snippets: bool = False,
+        document_tables=None,
     ):
         """Completions at cursor_pos. With snippets, functions insert `name($0)`
-        unless a "(" already follows the cursor."""
+        unless a "(" already follows the cursor. document_tables: the tables the
+        file creates in its own SQL (document_tables.py)."""
         # one consistent read of the schema cache per request, even if IPython saves meanwhile
-        with self.catalog.request():
+        with self.catalog.request(document_tables):
             result = self._route_completion(cursor_pos, txt, trigger)
         if snippets and result and not txt[cursor_pos:].lstrip(" \t").startswith("(") and word_span(txt, cursor_pos)[1] == cursor_pos:
             for item in result.items:

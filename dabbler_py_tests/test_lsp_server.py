@@ -206,6 +206,24 @@ async def test_use_directive_applies_only_to_its_document(client: LanguageClient
 
 
 @pytest.mark.asyncio
+async def test_tables_created_in_the_file_complete(client: LanguageClient):
+    source = (
+        'db.sql("create table invoices (invoice_id int, total double)")\n'
+        'db.sql("create table big as select invoice_id from invoices where total > 1")\n'
+        'q = """--sql\nselect i. from invoices i\n"""\n'
+    )
+    uri = open_doc(client, source)
+    await diagnostics_for(client, uri)  # the file has been scanned
+    assert await complete(client, uri, position_of(source, "select i."), trigger=".") == ["invoice_id", "total"]
+    labels = await complete(client, uri, position_of(source, "from "), trigger=" ")
+    assert {"invoices", "big"} <= set(labels)
+
+    other = 'q = """--sql\nselect * from \n"""\n'
+    uri2 = open_doc(client, other, name="other.py")
+    assert "invoices" not in await complete(client, uri2, position_of(other, "from "), trigger=" ")
+
+
+@pytest.mark.asyncio
 async def test_use_directive_comment_completes_files(client: LanguageClient):
     (client.workspace_path / "data").mkdir()
     (client.workspace_path / "data" / "sales.duckdb").write_bytes(b"")

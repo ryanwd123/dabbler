@@ -12,6 +12,7 @@ from dabbler.db_stuff import get_default_db_data
 from dabbler.lsp.completer import SqlCompleter
 from dabbler.lsp.database_files import DatabaseFiles, DatabaseSource
 from dabbler.lsp.directives import UseDirective, find_use_directive, resolve_database_path
+from dabbler.lsp.document_tables import DocumentTables, document_tables, resolve_with
 from dabbler.schema_cache import SchemaCache
 
 
@@ -39,6 +40,8 @@ class InlineSqlLangServer(LanguageServer):
         self.completers: dict[str, tuple[str, SqlCompleter]] = {}
         self.default_completer: Union[SqlCompleter, None] = None
         self.completer_lock = threading.Lock()
+        # uri -> tables the document creates in its own SQL, updated when typing pauses
+        self.document_tables: dict[str, DocumentTables] = {}
         # uri -> scheduled syntax check, so a burst of edits is checked once
         self.pending_diagnostics: dict[str, asyncio.TimerHandle] = {}
 
@@ -152,6 +155,11 @@ class InlineSqlLangServer(LanguageServer):
             self.completers[source] = (version, completer)
         self.log.debug(f"schema of {source} is at version {version}")
         return completer
+
+    def update_document_tables(self, uri: str) -> None:
+        """Finds the tables the document's SQL creates (see document_tables.py)."""
+        source = self.workspace.get_text_document(uri).source
+        self.document_tables[uri] = document_tables(source, resolve_with(self.get_completer(uri)))
 
     def warm_up(self, uri: str):
         """Builds the document's completer in the background so the first completion is quick."""

@@ -8,7 +8,7 @@ between requests, so it's built once per set of extensions and kept in memory.
 import functools
 import threading
 from contextlib import contextmanager
-from typing import Union
+from typing import TYPE_CHECKING, Union
 
 import duckdb
 
@@ -18,6 +18,9 @@ from dabbler.lsp.functions import FunctionInfo, builtin_functions, user_function
 from dabbler.lsp.parser import Columns, norm_name
 from dabbler.lsp.sql_utils import CmpItem
 from dabbler.schema_cache import ObjectRow, SchemaCache
+
+if TYPE_CHECKING:
+    from dabbler.lsp.document_tables import DocumentTables
 
 TABLE_KINDS = ("table", "view")
 SCHEMA_MEMBER_KINDS = ("table", "view", "function", "table_macro")
@@ -101,15 +104,27 @@ class Catalog:
         self._local = threading.local()  # completions run on several threads
 
     @contextmanager
-    def request(self):
-        """One completion request: a consistent read of the cache, and lookups memoized for its duration."""
+    def request(self, document_tables: Union["DocumentTables", None] = None):
+        """One completion request: a consistent read of the cache, and lookups memoized for its duration.
+
+        document_tables: tables the document creates in its own SQL (document_tables.py),
+        offered after the ones the schema already has.
+        """
         with self.cache.read_transaction():
             outer = getattr(self._local, "memo", None)
-            self._local.memo = outer if outer is not None else {}
+            outer_tables = getattr(self._local, "document_tables", None)
+            tables = document_tables if document_tables is not None else outer_tables
+            self._local.memo = outer if outer is not None and tables is outer_tables else {}
+            self._local.document_tables = tables
             try:
                 yield
             finally:
                 self._local.memo = outer
+                self._local.document_tables = outer_tables
+
+    @property
+    def document_tables(self) -> Union["DocumentTables", None]:
+        return getattr(self._local, "document_tables", None)
 
     def _memoized(self, key, compute):
         memo = getattr(self._local, "memo", None)
@@ -129,13 +144,16 @@ class Catalog:
             user = [object_item(r) for r in self.cache.objects(src, kinds=["database"])]
             user += [object_item(r) for r in self.cache.objects(src, catalog=cc, kinds=["schema"])]
             user += [object_item(r) for r in self.cache.objects(src, catalog=cc, schema=cs, kinds=SCHEMA_MEMBER_KINDS)]
-            return merge(user, self.builtins["root_namespace"])
+            created = self.document_tables.root_items() if self.document_tables else []
+            return merge(user, created, self.builtins["root_namespace"])
         return self._memoized("root", compute)
 
     def members(self, qualifier: str) -> Union[list[CmpItem], None]:
         """What can follow "qualifier.": a table's columns, a schema's objects, or a database's schemas."""
         def compute():
             user = self._user_members(norm_name(qualifier).split(".")) or []
+            if not user and self.document_tables:
+                user = self.document_tables.members(qualifier) or []
             key = self.builtin_keys.get(norm_name(qualifier))
             builtin = self.builtins[key] if key else []
             return merge(user, builtin) or None
@@ -147,6 +165,10 @@ class Catalog:
             columns = self._user_columns(norm_name(name).split("."))
             if columns:
                 return columns
+            if self.document_tables:
+                created = self.document_tables.columns(name)
+                if created is not None:
+                    return created
             key = self.builtin_keys.get(norm_name(name))
             builtin = [(x.label, x.typ) for x in self.builtins.get(key, []) if x.obj_type == "column"] if key else []
             return builtin or None

@@ -13,6 +13,7 @@ Intellisnse / autocomplete:
 - A window to view tables and queries
 - Auto completion for:
     - ✔️tables 
+        - including tables and views the file's own SQL creates (`CREATE TABLE t (...)`, `CREATE OR REPLACE TABLE t AS SELECT ...`), before they've been run
     - ✔️columns 
         - should work for tables, views, CTEs, table functions, and subqueries
     - ✔️functions names
