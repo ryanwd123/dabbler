@@ -62,6 +62,12 @@ session, and a more reliable IPython extension and window.
   `file_search_path` carry over to dabbler's queries, and long-running cells no
   longer end the session.
 - Fixes to the result table's search, sorting and column widths.
+- Canceling a query (Ctrl+. or the cancel button) right after starting it, or
+  starting another one, now stops it; before, it could keep running in the
+  background.
+- Closing a window cancels its query and frees the window right away.
+- No more crash ("Aborted", "terminate called") when the IPython kernel exits on
+  Linux after the window was used.
 
 ### VS Code extension 0.0.9
 - Starts reliably when VS Code opens, and offers to install dabbler when it's
