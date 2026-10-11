@@ -4,6 +4,7 @@ from typing import Optional
 from lsprotocol import types as lsp
 from lsprotocol.types import CompletionList
 
+from dabbler import __version__
 from dabbler.lsp.completion_utils import pathlib_completetions
 from dabbler.lsp.diagnostics import sql_errors
 from dabbler.lsp.formatting import FormatError, format_region
@@ -13,7 +14,7 @@ from dabbler.lsp.sql_regions import region_at
 from dabbler.lsp.sql_utils import sql_range_at
 
 
-sql_server = InlineSqlLangServer("dabbler", "v0.2")
+sql_server = InlineSqlLangServer("dabbler", __version__)
 
 # seconds of no typing before a document's SQL is checked for syntax errors
 DIAGNOSTICS_DELAY = 0.3
