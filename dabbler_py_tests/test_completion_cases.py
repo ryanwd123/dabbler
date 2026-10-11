@@ -127,6 +127,11 @@ TABLE_CASES = [
     case("select * from orders o left join |", ["customers"], id="left_join"),
     case("insert into |", ["orders"], id="insert_into"),
     case("delete from |", ["orders"], id="delete_from"),
+    case("describe |", ["orders"], id="describe"),
+    case("summarize |", ["orders"], id="summarize"),
+    case("truncate |", ["orders"], id="truncate"),
+    case("create index i on |", ["orders"], id="create_index_on"),
+    case("exp|", ["EXPLAIN"], id="explain_keyword"),
     case("select * from test_schema.|", ["schema_table", "test_view2"], ["orders"], id="schema_dot"),
     case("select * from main.|", ["orders", "customers"], ["schema_table"], id="main_schema_dot"),
     case("select * from attached_db.|", ["attached_schema"], id="database_dot"),
@@ -310,6 +315,11 @@ def test_invoked_completion_with_nothing_typed(completer, sql, includes):
         pytest.param("update orders o set amount = o.| where true", ORDERS_COLS, id="update_alias"),
         pytest.param("update orders set amount = 1 where cu|", ["customer_id"], id="update_where"),
         pytest.param("update orders set amount = c.| from customers c", CUSTOMERS_COLS, id="update_from"),
+        pytest.param("delete from orders o where o.|", ORDERS_COLS, id="delete_alias"),
+        pytest.param("delete from orders where cu|", ["customer_id"], id="delete_where"),
+        pytest.param("delete from orders o using customers c where c.|", CUSTOMERS_COLS, id="delete_using"),
+        pytest.param("explain select o.| from orders o", ORDERS_COLS, id="explain"),
+        pytest.param("describe select o.| from orders o", ORDERS_COLS, id="describe_query"),
     ],
 )
 def test_update_statement_scope(completer, sql, includes):

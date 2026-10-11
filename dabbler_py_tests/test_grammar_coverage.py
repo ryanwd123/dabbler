@@ -130,9 +130,6 @@ CASES = {
 }
 
 KNOWN_GAPS = {
-    'delete',
-    'delete_using',
-    'delete_returning',
     'intersect_all',
     'union_by_name',
     'union_all_by_name',
@@ -147,31 +144,11 @@ KNOWN_GAPS = {
     'trim_both',
     'substring_from',
     'position_in',
-    'explain',
-    'explain_analyze',
-    'describe_table',
-    'show_tables',
-    'show_all_tables',
-    'summarize',
-    'summarize_select',
-    'begin',
-    'begin_bare',
-    'commit',
-    'rollback',
-    'create_index',
-    'create_unique_index',
-    'create_secret',
-    'create_persistent_secret',
-    'export_db',
-    'vacuum',
-    'analyze',
     'array_type',
     'array_type2',
     'e_string',
     'dollar_string',
     'alter_add_column',
-    'macro_default',
-    'attach_options',
     'limit_percent',
     'case_between',
     'list_comprehension',
@@ -181,9 +158,7 @@ KNOWN_GAPS = {
     'timestamp_literal',
     'negation',
     'any_subquery',
-    'set_variable',
     'distinct_on',
-    'comment_on',
     'try_cast',
     'unary_minus_func',
     'select_star_like',
@@ -200,7 +175,7 @@ def params():
         yield pytest.param(sql, id=name, marks=marks)
 
 
-@pytest.mark.parametrize("sql", params())
+@pytest.mark.parametrize("sql", list(params()))
 def test_grammar_accepts(sql):
     sql_parser.parse(sql)
 

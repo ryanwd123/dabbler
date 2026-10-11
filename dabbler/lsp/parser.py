@@ -478,6 +478,24 @@ class GetQueries(Visitor):
       for x in tree.children:
          if isinstance(x, Tree) and x.data == "from_clause":
             from_refs.update(self.get_from_tables(x))
+      self.add_statement_scope(tree, from_refs)
+
+   def delete_statement(self, tree: Tree):
+      """DELETE FROM target [AS alias] [USING ...] [WHERE ...]: the target and USING items are in scope."""
+      names = [c for c in tree.children if isinstance(c, Tree) and c.data == "table_name"]
+      if not names:
+         return
+      name = ".".join(t.value for t in names[0].children if isinstance(t, Token))
+      aliases = [c for c in tree.children if isinstance(c, Tree) and c.data == "alias"]
+      alias = aliases[0].children[0].value if aliases else name
+      from_refs = {alias: FromRef(kind=FromRefKind.table, alias=alias, name=name)}
+      for x in tree.children:
+         if isinstance(x, Tree) and x.data == "from_ref":
+            from_refs.update(self.get_from_tables(x))
+      self.add_statement_scope(tree, from_refs)
+
+   def add_statement_scope(self, tree: Tree, from_refs: dict):
+      """Registers an UPDATE or DELETE as a query whose FROM items are from_refs."""
       q = Query(
          ctes=None,
          sql=self.sql[tree.meta.start_pos : tree.meta.end_pos],

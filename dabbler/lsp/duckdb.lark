@@ -5,8 +5,9 @@ statement: query -> select_statement
         |[FORCE] CHECKPOINT [IDENT] -> checkpoint_statement
         |INSTALL STRING -> install_ext_statement
         |LOAD STRING -> load_ext_statement
-        |SET [(LOCAL|GLOBAL|SESSION)] IDENT (EQUAL|TO) (IDENT|STRING|NUMBER) -> set_statement
-        |RESET [(LOCAL|GLOBAL|SESSION)] IDENT -> reset_statement
+        |SET [(LOCAL|GLOBAL|SESSION)] IDENT (EQUAL|TO) expression -> set_statement
+        |SET VARIABLE IDENT (EQUAL|TO) expression -> set_variable_statement
+        |RESET [(LOCAL|GLOBAL|SESSION|VARIABLE)] IDENT -> reset_statement
         |ATTACH [DATABASE] [IF NOT EXISTS] databse_name [_AS alias] ["(" attach_options ("," attach_options)* ")"] -> attach_statement
         |DETACH [DATABASE [IF EXISTS]] databse_name -> detach_statement
         |create_view -> create_view
@@ -23,6 +24,32 @@ statement: query -> select_statement
         |copy_statement -> copy_statement
         |create_type -> create_type
         |create_macro -> create_macro
+        |delete_statement -> delete_statement
+        |TRUNCATE [TABLE] table_name -> truncate_statement
+        |EXPLAIN [ANALYZE] statement -> explain_statement
+        |(DESCRIBE|SHOW|SUMMARIZE) (query|table_name) -> describe_statement
+        |SHOW ALL TABLES -> show_all_tables
+        |(BEGIN|START) [TRANSACTION] -> begin_transaction
+        |(COMMIT|ROLLBACK|ABORT) [TRANSACTION] -> end_transaction
+        |create_index -> create_index
+        |create_secret -> create_secret
+        |DROP [(PERSISTENT|TEMPORARY)] SECRET [IF EXISTS] IDENT -> drop_secret
+        |EXPORT DATABASE [IDENT TO] STRING ["(" option ("," option)* ")"] -> export_database
+        |IMPORT DATABASE STRING -> import_database
+        |VACUUM [ANALYZE] [table_name [col_names]] -> vacuum_statement
+        |ANALYZE [table_name] -> analyze_statement
+        |COMMENT ON comment_target table_name IS (STRING|NULL) -> comment_statement
+
+delete_statement: DELETE FROM table_name [[_AS] alias] [USING from_ref ("," from_ref)*] [where] [returning_clause]
+
+create_index: CREATE [UNIQUE] INDEX [IF NOT EXISTS] IDENT ON table_name "(" expression ("," expression)* ")"
+
+create_secret: CREATE [OR REPLACE] [(PERSISTENT|TEMPORARY|TEMP)] SECRET [IF NOT EXISTS] [IDENT] [IN IDENT] "(" option ("," option)* ")"
+
+// a key and its value, as in CREATE SECRET (TYPE s3, KEY_ID '...') or EXPORT DATABASE (FORMAT parquet)
+option: (IDENT|TYPE|FORMAT) [expression]
+
+comment_target: TABLE | VIEW | COLUMN | SCHEMA | DATABASE | INDEX | SEQUENCE | TYPE | MACRO [TABLE] | FUNCTION
 
 databse_name:STRING
         |IDENT
@@ -41,14 +68,15 @@ create_type: CREATE TYPE IDENT _AS existing_types
 
 create_macro: CREATE [OR REPLACE] [TEMP|TEMPORARY] (MACRO|FUNCTION) [IDENT "."] IDENT macro_params _AS (TABLE query|expression) 
 
-macro_params: "("  IDENT ("," IDENT)* ")"
-        | "("  IDENT ":=" (STRING|NUMBER) ("," IDENT ":=" (STRING|NUMBER))* ")"
-        | "(" ")"
+macro_params: "(" [macro_param ("," macro_param)*] ")"
+
+macro_param: IDENT [":=" expression]
 
 
 
-attach_options: (READ_ONLY|READONLY) (TRUE|FALSE) -> read_only
-        | TYPE SQLITE -> sqlite
+attach_options: (READ_ONLY|READONLY) [(TRUE|FALSE)] -> read_only
+        | TYPE (SQLITE|IDENT) -> attach_type
+        | IDENT [expression] -> attach_option
 
 copy_statement: COPY (table_name| "(" query ")" ) [col_names] TO filename [[WITH] "(" copy_to_options ("," copy_to_options)* ")"]
        | COPY (table_name| "(" query ")" ) [col_names] FROM filename [[WITH] "(" copy_from_options ("," copy_from_options)* ")"]
@@ -197,7 +225,7 @@ query.5: _select_node
 
 // ?query_in_parens: "(" query ")"
 
-_select_node: ["DESCRIBE"i] [cte] _select_from _optional_clauses
+_select_node: [cte] _select_from _optional_clauses
         | [cte] pivot_clause  [group_by] [order_by]
         | [cte] unpivot_clause [group_by] [order_by]
         | [cte] select_clause
@@ -820,8 +848,27 @@ RESERVOIR: "RESERVOIR"i
 REPEATABLE: "REPEATABLE"i
 BERNOULLI: "BERNOULLI"i
 VALUE: "VALUE"i
+VARIABLE: "VARIABLE"i
+DELETE: "DELETE"i
+TRUNCATE: "TRUNCATE"i
+EXPLAIN: "EXPLAIN"i
+DESCRIBE: "DESCRIBE"i
+SHOW: "SHOW"i
+SUMMARIZE: "SUMMARIZE"i
+BEGIN: "BEGIN"i
+TRANSACTION: "TRANSACTION"i
+COMMIT: "COMMIT"i
+ROLLBACK: "ROLLBACK"i
+ABORT: "ABORT"i
+SECRET: "SECRET"i
+PERSISTENT: "PERSISTENT"i
+EXPORT: "EXPORT"i
+IMPORT: "IMPORT"i
+VACUUM: "VACUUM"i
+COMMENT: "COMMENT"i
+TABLES: "TABLES"i
 
-COMMENT: /--.*/ |  /\/\*[\s\S]*?\*\//
+SQL_COMMENT: /--.*/ |  /\/\*[\s\S]*?\*\//
 IDENT: CNAME | ESCAPED_STRING
 CNAME: /\b(?!QUALIFY\b|AUTHORIZATION\b|DO\b|CAST\b|ISNULL\b|LIKE\b|REFERENCES\b|ASC\b|ILIKE\b|ALL\b|WINDOW\b|FOR\b|INNER\b|GRANT\b|INITIALLY\b|OR\b|LEFT\b|ANALYZE\b|COLLATE\b|CASE\b|FETCH\b|IN\b|CONCURRENTLY\b|SEMI\b|UNPIVOT\b|BINARY\b|FROM\b|VARIADIC\b|ARRAY\b|IS\b|ANALYSE\b|AND\b|HAVING\b|UNION\b|COLUMN\b|ON\b|GLOB\b|SOME\b|AS\b|VERBOSE\b|TRAILING\b|END\b|ANY\b|TABLESAMPLE\b|INTERSECT\b|NATURAL\b|CREATE\b|OFFSET\b|CROSS\b|ELSE\b|FULL\b|SELECT\b|USING\b|CONSTRAINT\b|FOREIGN\b|OVERLAPS\b|ORDER\b|INTO\b|NOT\b|TABLE\b|ANTI\b|CHECK\b|ASYMMETRIC\b|LATERAL\b|DEFERRABLE\b|BOTH\b|RIGHT\b|COLLATION\b|UNIQUE\b|SYMMETRIC\b|TO\b|RETURNING\b|SIMILAR\b|NOTNULL\b|LIMIT\b|ASOF\b|JOIN\b|THEN\b|ONLY\b|FREEZE\b|WITH\b|DESC\b|WHERE\b|OUTER\b|WHEN\b|DISTINCT\b|LEADING\b|EXCEPT\b)([a-zA-Z_]\w*|\d+[a-zA-Z_]+\w*)\b/i
 STRING: /'([^']|\s)+'|''/
@@ -833,6 +880,6 @@ SIGNED_NUMBER.-1: ["+"|"-"] NUMBER
 
 // %import common.SIGNED_NUMBER
 %import common.WS
-%ignore COMMENT
+%ignore SQL_COMMENT
 %ignore WS
 
