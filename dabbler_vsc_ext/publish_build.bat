@@ -1,2 +1,1 @@
-py version.py && npm run esbuild && vsce package && vsce publish
-```
+python version.py && npm run package && npx vsce publish
