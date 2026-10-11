@@ -44,10 +44,11 @@ def context_of(sql_with_cursor):
         ("select * from t where note = 'shipped from |'", "string"),
         ("select * from t -- join |", "comment"),
         ("select * from t /* join | */", "comment"),
-        # the parser can't tell (alias or keyword next): the regex router decides
-        ("select * from orders o |", "unknown"),
+        # only keywords (WHERE, JOIN, ...) can follow a table's alias
+        ("select * from orders o |", "keyword"),
         ("select * from t qualify |", "expression"),
-        ("select * from t window w as (|", "unknown"),  # WINDOW isn't in the grammar yet
+        # a window's base name or PARTITION BY / ORDER BY; columns and keywords are offered
+        ("select * from t window w as (|", "expression"),
     ],
 )
 def test_context_kind(sql, kind):

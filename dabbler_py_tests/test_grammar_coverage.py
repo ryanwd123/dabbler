@@ -129,19 +129,7 @@ CASES = {
     'and_or_arithmetic': 'select * from t where a = 1 + 2 and b = 3 * 4 or c',
 }
 
-KNOWN_GAPS = {
-    'intersect_all',
-    'union_by_name',
-    'union_all_by_name',
-    'window_clause',
-    'semi_join',
-    'anti_join',
-    'grouping_sets',
-    'limit_percent',
-    'values_stmt',
-    'distinct_on',
-    'select_star_like',
-}
+KNOWN_GAPS: set[str] = set()
 
 
 def params():

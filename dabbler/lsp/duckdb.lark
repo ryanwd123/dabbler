@@ -25,6 +25,7 @@ statement: query -> select_statement
         |create_type -> create_type
         |create_macro -> create_macro
         |delete_statement -> delete_statement
+        |values -> values_statement
         |TRUNCATE [TABLE] table_name -> truncate_statement
         |EXPLAIN [ANALYZE] statement -> explain_statement
         |(DESCRIBE|SHOW|SUMMARIZE) (query|table_name) -> describe_statement
@@ -217,9 +218,9 @@ sequence_name: IDENT
 
 query.5: _select_node
         | "(" query ")" -> query
-        | query UNION [ALL] query -> set_operation
-        | query INTERSECT query -> set_operation
-        | query EXCEPT query -> set_operation
+        | query UNION [(ALL|DISTINCT)] [BY NAME] query -> set_operation
+        | query INTERSECT [ALL] query -> set_operation
+        | query EXCEPT [ALL] query -> set_operation
 
 // ?query_in_parens: "(" query ")"
 
@@ -249,20 +250,29 @@ _select_from: select_clause from_clause
         | from_clause select_clause
 
 
-select_clause: SELECT [(DISTINCT [ON (distinct_on_list)] |ALL)] col_exps
+select_clause: SELECT [(DISTINCT [ON "(" distinct_on_list ")"] |ALL)] col_exps
         // |_z9_empty_select_clause
 
 // _z9_empty_select_clause.-3: SELECT
 
-_optional_clauses: [where] [group_by] [having] [qualify] [order_by] [limit]
+_optional_clauses: [where] [group_by] [having] [window_clause] [qualify] [order_by] [limit]
+
+window_clause: WINDOW window_def ("," window_def)*
+window_def: IDENT _AS "(" window_spec ")"
 
 where.4: WHERE expression
-group_by.6: GROUP BY [(expression ",")*] expression
+group_by.6: GROUP BY grouping_item ("," grouping_item)*
         | GROUP BY ALL
+
+// CUBE (...) and ROLLUP (...) parse as function calls, (a, b) as a row
+grouping_item: expression
+        | GROUPING SETS "(" grouping_item ("," grouping_item)* ")"
+        | "(" ")"
 having: HAVING expression
 qualify: QUALIFY expression
 
-limit: LIMIT expression [OFFSET expression]
+limit: LIMIT expression [PERCENT] [OFFSET expression]
+        | LIMIT NUMBER MODULO [OFFSET expression]
         
 
 distinct_on_list: col_exp [("," col_exp)*]
@@ -311,6 +321,8 @@ join.2: join_type JOIN table_ref [ON expression]
 
 join_type.2: CROSS
         | POSITIONAL
+        | SEMI
+        | ANTI
         | [(NATURAL|ASOF)] [(INNER|(LEFT|RIGHT|FULL)[OUTER])]
 
 alias: IDENT
@@ -319,7 +331,7 @@ col_exps: col_exp [("," col_exp)*] [","]
 col_exp: expression [[_AS] alias]
         | star_options
 
-star_options.9: [IDENT "."] STAR [exclude] [replace] 
+star_options.9: [IDENT "."] STAR [exclude] [replace] [(LIKE|ILIKE|GLOB|SIMILAR TO) STRING]
         |columns_exp
 
 columns_exp: COLUMNS "(" star_options ")"
@@ -844,6 +856,7 @@ IMPORT: "IMPORT"i
 VACUUM: "VACUUM"i
 COMMENT: "COMMENT"i
 TABLES: "TABLES"i
+SETS: "SETS"i
 LAMBDA: "LAMBDA"i
 WITHIN: "WITHIN"i
 GROUPS: "GROUPS"i
