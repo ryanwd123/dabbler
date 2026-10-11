@@ -18,7 +18,7 @@ def test_numeric_column(font_metrics):
     assert width > font_metrics.horizontalAdvance("55555")
 
 def test_temporal_column(font_metrics):
-    df = pl.DataFrame({"dates": ["2023-01-01", "2023-12-31"]}).with_columns([pl.col("dates").cast(pl.Date)])
+    df = pl.DataFrame({"dates": ["2023-01-01", "2023-12-31"]}).with_columns([pl.col("dates").str.to_date()])
     width = get_col_width(font_metrics, "dates", df, pl.Date, "%Y-%m-%d", 'DATE')
     assert width > font_metrics.horizontalAdvance("dates")
     assert width > font_metrics.horizontalAdvance("2023-12-31")

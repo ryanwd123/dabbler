@@ -20,7 +20,7 @@ class InlineSqlLangServer(LanguageServer):
 
         self.log = logging.getLogger("dabbler_lsp")
         self.schema_cache = SchemaCache()
-        # snapshot source file -> (snapshot fingerprint, completer built from that snapshot)
+        # source file -> (its version in the schema cache, completer for it)
         self.completers: dict[str, tuple[str, SqlCompleter]] = {}
         self.default_completer: Union[SqlCompleter, None] = None
         self.completer_lock = threading.Lock()
@@ -66,29 +66,31 @@ class InlineSqlLangServer(LanguageServer):
         return self.default_completer
 
     def get_completer(self, uri: str) -> SqlCompleter:
-        """Completer for a document, rebuilt when IPython has saved a newer schema.
+        """Completer for a document.
 
-        Checking for a newer schema is one primary-key lookup, so this runs on
-        every completion request instead of the IPython side pushing updates.
+        Completers read the schema cache on every request, so tables and columns
+        are always current. They are recreated when the source's version changes,
+        which refreshes per-source settings (working directory, file search path,
+        extensions) and the cached columns of table functions and table macros.
+        Checking the version is one primary-key lookup.
         """
         source = self.snapshot_source(uri)
         with self.completer_lock:
             if source is None:
                 return self.get_default_completer()
-            cached = self.completers.get(source)
-            fingerprint = self.schema_cache.get_fingerprint(source)
-            if cached and cached[0] == fingerprint:
-                return cached[1]
-            snapshot = self.schema_cache.get_snapshot(source)
-            if snapshot is None:
+            version = self.schema_cache.get_version(source)
+            if version is None:
                 return self.get_default_completer()
+            cached = self.completers.get(source)
+            if cached and cached[0] == version:
+                return cached[1]
             try:
-                completer = SqlCompleter(snapshot.db_data)
+                completer = SqlCompleter(cache=self.schema_cache, source_file=source)
             except Exception:
-                self.log.exception(f"failed to build completer from schema of {source}")
+                self.log.exception(f"failed to set up completions for {source}")
                 return cached[1] if cached else self.get_default_completer()
-            self.completers[source] = (snapshot.fingerprint, completer)
-        self.log_to_client(f"loaded schema from {source}")
+            self.completers[source] = (version, completer)
+        self.log.debug(f"schema of {source} is at version {version}")
         return completer
 
     def warm_up(self, uri: str):

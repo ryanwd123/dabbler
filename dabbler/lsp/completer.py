@@ -13,7 +13,9 @@ from dabbler.lsp.parser import (
     norm_name,
     rename_columns,
 )
-from dabbler.lsp.db_data import make_engine, make_completion_map, search_path_for
+from dabbler.lsp.catalog import Catalog
+from dabbler.lsp.db_data import make_engine, search_path_for
+from dabbler.schema_cache import IN_MEMORY, SchemaCache
 from dabbler.lsp.sql_utils import strip_sql_whitespace, SelectNode, CmpItem
 from typing import Union
 from dabbler.lsp.completion_utils import (
@@ -64,40 +66,47 @@ def unique_by_label(items: list[CmpItem]) -> list[CmpItem]:
 
 
 class SqlCompleter:
-    def __init__(self, db_data) -> None:
-        self.completion_map = make_completion_map(db_data)
-        self.completion_map_norm_keys: dict[str, str] = {}
-        for k in self.completion_map:
-            self.completion_map_norm_keys.setdefault(norm_name(k), k)
-        self.db_data = db_data
-        self.path_completer = PathCompleter(db_data["cwd"], db_data["file_search_path"])
-        self.file_search_path = search_path_for(db_data)
-        # pathlib.Path variables in the IPython session, for completions in python code
-        self.pathlib_paths: dict[str, str] = {x[0]: x[1] for x in db_data.get("paths", [])}
+    """Completions for one source (an IPython session's file) in the schema cache.
+
+    SqlCompleter(db_data) is a shortcut that saves db_data to a private
+    in-memory cache first, for tests and for the blank default schema.
+    """
+
+    def __init__(
+        self,
+        db_data: Union[dict, None] = None,
+        *,
+        cache: Union[SchemaCache, None] = None,
+        source_file: Union[str, None] = None,
+    ) -> None:
+        if db_data is not None:
+            cache, source_file = SchemaCache(IN_MEMORY), "dabbler-db-data"
+            cache.save_snapshot(source_file, db_data)
+        if cache is None or source_file is None:
+            raise ValueError("SqlCompleter needs db_data, or a cache and a source_file")
+        self.catalog = Catalog(cache, source_file)
+        info = self.catalog.info
+        settings = {"cwd": info.cwd, "file_search_path": info.file_search_path, "loaded_extensions": info.extensions}
+        self.path_completer = PathCompleter(info.cwd, info.file_search_path)  # type: ignore
+        self.file_search_path = search_path_for(settings)
         self.log = logging.getLogger("completer")
-        self.log_comp_map = self.log.getChild("comp_map")
-        # DuckDB is only used to describe table functions (reading files); the schema comes from the snapshot
-        self.engine = make_engine(db_data)
-        self.table_macros: dict[str, str] = {}
-        for db_scm, name, fn_type, *rest in db_data.get("functions", []):
-            if fn_type == "table_macro" and rest and rest[0]:
-                self.table_macros.setdefault(norm_name(name), rest[0])
-                self.table_macros.setdefault(norm_name(f"{db_scm}.{name}"), rest[0])
+        # DuckDB is only used to describe table functions (reading files); the schema comes from the cache
+        self.engine = make_engine(settings)
         self.parser2 = SqlParserNew(
-            self.engine, self.table_columns, self.file_search_path, lambda name: self.table_macros.get(norm_name(name))
+            self.engine, self.catalog.table_columns, self.file_search_path, self.catalog.table_macro_sql
         )
 
+    @property
+    def pathlib_paths(self) -> dict[str, str]:
+        """pathlib.Path variables in the IPython session, for completions in python code."""
+        return self.catalog.pathlib_paths()
+
     def lookup_completion_map(self, name: str) -> Union[list[CmpItem], None]:
-        if name in self.completion_map:
-            return self.completion_map[name]
-        key = self.completion_map_norm_keys.get(norm_name(name))
-        return self.completion_map[key] if key else None
+        return self.catalog.members(name)
 
     def table_columns(self, name: str):
-        """Columns of a table or view in the snapshot, as (name, type) pairs."""
-        items = self.lookup_completion_map(name) or []
-        columns = [(x.label, x.typ) for x in items if x.obj_type == "column"]
-        return columns or None
+        """Columns of a table or view, as (name, type) pairs."""
+        return self.catalog.table_columns(name)
 
     def get_queries(self, pos, sql, repair=False):
         """The innermost query around pos, all queries, and the parse result."""
@@ -199,6 +208,10 @@ class SqlCompleter:
                 root.append(CmpItem(name, CompletionItemKind.File, None, "cte", "1", "cte"))
 
         root.extend(unique_by_label(in_scope_columns))
+        # DuckDB lets select-list aliases be used later in the same query
+        for scope in scopes:
+            for name in scope.aliases_visible_at(pos):
+                root.append(CmpItem(name, CompletionItemKind.Variable, None, "alias", "1", "column"))
         comp_map["root_namespace"] = unique_by_label(root)
         return comp_map, parsed
 
@@ -208,6 +221,11 @@ class SqlCompleter:
         txt: str,
         trigger: Union[str,None],
     ):
+        # one consistent read of the schema cache per request, even if IPython saves meanwhile
+        with self.catalog.request():
+            return self._route_completion(cursor_pos, txt, trigger)
+
+    def _route_completion(self, cursor_pos: int, txt: str, trigger: Union[str, None]):
         sql_left_of_cur = strip_sql_whitespace(txt[:cursor_pos])
 
         # contexts the grammar doesn't model
@@ -262,7 +280,7 @@ class SqlCompleter:
 
         typed = re_word_at_end.search(left)
         prefix = typed.group(0).lower() if typed else ""
-        catalog = self.completion_map["root_namespace"]
+        catalog = self.catalog.root_items()
         local = parsed_items["root_namespace"]
 
         def complete(items: list[CmpItem]):
@@ -300,7 +318,7 @@ class SqlCompleter:
 
     def route_by_regex(self, sql_left_of_cur: str, trigger: Union[str, None], parsed_items):
         """The text-pattern router, for when the SQL before the cursor doesn't parse."""
-        comp_map = self.completion_map
+        root_items = self.catalog.root_items()
 
         if re.match(
             r".*(^| )(join |from |pivot |unpivot |alter table |insert into )(\w+( \w+)?, )*\w?$",
@@ -308,7 +326,7 @@ class SqlCompleter:
             flags=re.IGNORECASE,
         ):
             tbls = [
-                x.comp for x in comp_map["root_namespace"] if x.obj_type in table_types
+                x.comp for x in root_items if x.obj_type in table_types
             ]
             tbls += [
                 x.comp
@@ -347,7 +365,7 @@ class SqlCompleter:
         )
         if m:
             chars = m.group("char").lower()
-            comp_items = [x for x in comp_map["root_namespace"]]
+            comp_items = [x for x in root_items]
             comp_items += parsed_items["root_namespace"]
             return CompletionList(
                 is_incomplete=True,
@@ -356,7 +374,7 @@ class SqlCompleter:
 
         if trigger is None and re.search(r"(^|[\s,(])$", sql_left_of_cur):
             # completion invoked (ctrl+space) with nothing typed: offer everything in scope
-            comp_items = parsed_items["root_namespace"] + comp_map["root_namespace"]
+            comp_items = parsed_items["root_namespace"] + root_items
             return CompletionList(is_incomplete=True, items=[x.comp for x in comp_items])
 
         return None

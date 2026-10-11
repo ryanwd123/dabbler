@@ -159,7 +159,7 @@ async def test_syntax_error_diagnostic_and_clear(client: LanguageClient):
     # fix it: "wher" -> "where"
     change(3, 1, 20, 20, "e")
     await client.wait_for_notification(types.TEXT_DOCUMENT_PUBLISH_DIAGNOSTICS)
-    assert client.diagnostics[uri] == []
+    assert len(client.diagnostics[uri]) == 0
 
 
 @pytest.mark.asyncio

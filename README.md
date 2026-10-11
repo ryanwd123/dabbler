@@ -64,8 +64,9 @@ Intellisnse / autocomplete:
     - The vscode extension starts the language server by running: `py -m dabbler.lsp`
 - The language server gets table and column names from a SQLite schema cache that the IPython extension writes to
     - the cache is `schema_cache.sqlite3` in the dabbler data folder (`%APPDATA%\dabbler` on Windows, `~/.local/share/dabbler` on Linux, `~/Library/Application Support/dabbler` on macOS), or the path in the `DABBLER_SCHEMA_CACHE` environment variable
-    - the IPython extension checks for updates to the database/dataframes each time cells are executed (the ipython pre_run_cell and post_run_cell events) and saves a snapshot for the file it is running when something changed
-    - snapshots persist, so completions keep working after the IPython session ends; files without their own snapshot (e.g. helper modules) use the most recently updated snapshot in the same workspace
+    - the IPython extension checks for updates to the database each time cells are executed (the ipython pre_run_cell and post_run_cell events) and saves the schema for the file it is running as rows (`sources`, `objects`, `columns`, `paths` tables); only tables, views and functions that changed are rewritten
+    - the language server queries those rows on each completion request instead of keeping a copy; DuckDB's built-in functions and system views are the only catalog it keeps in memory
+    - the rows persist, so completions keep working after the IPython session ends; files without their own schema (e.g. helper modules) use the most recently updated one in the same workspace
     - "send SQL to GUI" goes the other way through the same cache: the language server queues the query and the IPython extension picks it up
     - set `DABBLER_LSP_LOG` to a file path to get a debug log from the language server
 - The language server includes an SQL parser created from using lark package

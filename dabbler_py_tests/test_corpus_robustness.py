@@ -68,3 +68,22 @@ def test_completer_survives_partially_typed_sql(completer, sql_file):
     sql = sql_file.read_text()
     for pos in cursor_positions(sql, step=3):
         assert_completes(completer, sql[:pos], pos, sql_file.name)
+
+
+# Statements the grammar must accept. Add a line here when a construct is added
+# to duckdb.lark (plan.md, section 2).
+GRAMMAR_CASES = [
+    "select a % 2, a // 2, a ** 2, a ^ 2, a & 1, a | 1, a << 1, a >> 1, a || b from t",
+    "select * from t where a % 2 = 0",
+    "select * from t qualify row_number() over (partition by a order by b) = 1",
+    "select * from orders o join customers c using (customer_id)",
+    "select * from orders o using sample 10%",
+    "select * from customers c, lateral (select * from orders where customer_id = c.customer_id) o",
+    "update orders o set amount = 1 where o.order_id = 2",
+    "select 1 + 1 as column_1, 1 + 1 as column_2, column_1 + column_2",
+]
+
+
+@pytest.mark.parametrize("sql", GRAMMAR_CASES)
+def test_grammar_accepts(sql):
+    sql_parser.parse(sql)

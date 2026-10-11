@@ -3,8 +3,6 @@ import duckdb
 import os
 from typing import Union
 from IPython.core.getipython import get_ipython
-from dabbler.gui_stuff import check_dataframe_type
-from dabbler.common import make_table_sql
 from pathlib import Path
 import logging
 log = logging.getLogger(__name__)
@@ -22,17 +20,17 @@ def get_loaded_extensions(db:duckdb.DuckDBPyConnection):
 
 
 
-def get_dataframe_data(db:duckdb.DuckDBPyConnection, taken_table_names):
+def get_pathlib_paths():
+    """pathlib.Path variables in the IPython namespace (and in the user's own modules),
+    for path completions in python code."""
     paths = []
-    dataframes = []
 
     ipython = get_ipython()
     if not ipython:
-        return paths, dataframes
+        return paths
 
     for item in (ipython.ev('dir()')):
         i_type = str(type(ipython.ev(item)))
-        df_type = check_dataframe_type(i_type)
 
         if 'WindowsPath' in i_type or 'PosixPath' in i_type:
             paths.append(
@@ -48,7 +46,7 @@ def get_dataframe_data(db:duckdb.DuckDBPyConnection, taken_table_names):
                 continue
             if Path(ipython.ev(item).__file__).parent.parent.name == 'Lib':
                 continue
-            
+
             for item2 in ipython.ev(f'dir({item})'):
                 item_item2 = f'{item}.{item2}'
                 i_type2 = str(type(ipython.ev(item_item2)))
@@ -57,25 +55,8 @@ def get_dataframe_data(db:duckdb.DuckDBPyConnection, taken_table_names):
                     paths.append(
                         (item_item2, str(ipython.ev(item_item2)))
                     )
-        
-        if df_type and item[0] != '_' and item not in taken_table_names:
-            unique_name = f'my_item_zz_{item}'
-            locals().__setitem__(unique_name,ipython.ev(item))
-            try:
-                cols = [[x[0],x[1]] for x in  db.sql(f"describe select * from {unique_name} limit 1").fetchall()]
-            except Exception:
-                log.exception(f'Error in describe select * from {unique_name}')
-                continue
-            
-            sql = make_table_sql(item, cols) # type: ignore
-            
-            dataframes.append([
-                item,
-                sql,
-                cols])
-            
-    return paths, dataframes
 
+    return paths
 
 
 def get_db_data_new(db:duckdb.DuckDBPyConnection, file_search_path:Union[str,None]=None, skip_ipython = False):
@@ -116,33 +97,13 @@ def get_db_data_new(db:duckdb.DuckDBPyConnection, file_search_path:Union[str,Non
             """
             ).fetchall()
 
-    taken_table_names = [x[0] for x in db.sql(
-        """--sql
-        select distinct 
-            table_name 
-        from duckdb_columns() 
-        where 
-            database_name = current_database()
-            and schema_name = current_schema()
-            
-            union all 
-        
-        select distinct 
-            function_name 
-        from duckdb_functions() 
-        where 
-            function_type = 'table'
-            and database_name = current_database()
-            and schema_name = current_schema()
-        """).fetchall()]
 
     paths = []
-    dataframes = []
     if not skip_ipython:
         try:
-            paths, dataframes = get_dataframe_data(db,taken_table_names)
+            paths = get_pathlib_paths()
         except Exception:
-            log.exception('Error in get_dataframe_data')
+            log.exception('Error collecting pathlib.Path variables')
 
     paths.sort(key=lambda x: f'{x[0]}-{x[1]}')
     current_schema:str = db.execute("select current_database()||'.'||current_schema()").fetchone()[0]  # type: ignore
@@ -152,7 +113,6 @@ def get_db_data_new(db:duckdb.DuckDBPyConnection, file_search_path:Union[str,Non
     
 
     db_data = {'data':db_items,
-            'dataframes':dataframes,
             'databases':databases,
             'functions':db_functions,
             'paths':paths,

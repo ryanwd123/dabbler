@@ -47,13 +47,13 @@ def setup(qapp, tmp_path, monkeypatch):
     sync.stop()
 
 
-def table_names(snapshot):
-    return {row[1] for row in snapshot.db_data["data"]}
+def table_names(cache, source):
+    return {row.name for row in cache.objects(str(source), kinds=["table", "view"])}
 
 
 def test_schema_is_published_on_start(setup):
     app, sync, db, cache = setup
-    assert "first_table" in table_names(cache.get_snapshot(app.py_file))
+    assert "first_table" in table_names(cache, app.py_file)
     assert cache.session_active(app.py_file)
 
 
@@ -64,7 +64,7 @@ def test_changes_are_published_after_a_cell(setup):
 
     db.execute("create table second_table(b int)")
     sync.check_for_update()
-    assert "second_table" in table_names(cache.get_snapshot(app.py_file))
+    assert "second_table" in table_names(cache, app.py_file)
     assert app.table_updates == 1
 
 

@@ -119,7 +119,7 @@ CREATE OR REPLACE VIEW test_view as select * from Issued_Tree_Permits;
 db.sql(
 """--sql,
 select
-    v.add(1,2),
+    v.add(1,2)
 from v.test_view
 """
 )
@@ -148,9 +148,7 @@ SELECT k.PROPERTY_ID
 #%%
 db.sql(
 """--sql,
-select
-    i
-from Issued_Tree_Permits i
+
 """
 )
 
@@ -230,12 +228,22 @@ db.sql(
     ), g0a9s8d as (pivot t1234 on j7 using max(TRUNK_DIAMETER))
     SELECT 
         g.APPENDIX_F_REMOVED,
-        g.JURISDICTION,
-        g.APPENDIX_F_REMOVED
+        g.PERMIT_CLASS,
+        g.PERMIT_CLASS
+
+
     from t1234 g 
     """
 )
-
+#%%
+db.sql(
+"""--sql,
+select
+    1+ 1 as column_1,
+    1+ 1 as column_2,
+    column_1 + column_2
+"""
+)
 
 
 #%%

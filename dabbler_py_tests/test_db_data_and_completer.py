@@ -132,7 +132,7 @@ def test_get_db_data_new_basic_structure(test_db):
     
     assert isinstance(result, dict)
     assert 'data' in result
-    assert 'dataframes' in result
+    assert 'dataframes' not in result  # DataFrame completions were removed
     assert 'databases' in result
     assert 'functions' in result
     assert 'paths' in result
@@ -262,3 +262,18 @@ def test_completion_map_keeps_enum_types_and_macros():
 #     completions = completions.items
 #     assert any(item.label == 'test_table' for item in completions)
 #     assert any(item.label == 'test_view' for item in completions)
+
+
+def test_pathlib_paths_are_collected_from_the_ipython_namespace(monkeypatch, tmp_path):
+    import dabbler.db_stuff as db_stuff
+
+    namespace = {"data_dir": tmp_path, "name": "not a path"}
+
+    class FakeShell:
+        def ev(self, expr):
+            return eval(expr, namespace)
+
+    monkeypatch.setattr(db_stuff, "get_ipython", lambda: FakeShell())
+    assert db_stuff.get_pathlib_paths() == [("data_dir", str(tmp_path))]
+    db_data = db_stuff.get_db_data_new(duckdb.connect())
+    assert db_data["paths"] == [("data_dir", str(tmp_path))]

@@ -322,3 +322,37 @@ def test_types_kept_for_plain_column_references(completer):
     sql, pos = split_cursor("with x as (select o.amount, o.amount * 2 as doubled from orders o) select x.| from x")
     items = {i.label: i.label_details.description for i in completer.route_completion2(pos, sql, ".").items}
     assert items == {"amount": "DOUBLE", "doubled": None}
+
+
+# DuckDB lets select-list aliases be used later in the query: earlier aliases
+# within the select list, all aliases in WHERE / GROUP BY / HAVING / QUALIFY /
+# ORDER BY, none in FROM / JOIN ... ON.
+ALIAS_CASES = [
+    pytest.param("select\n    1 + 1 as column_1,\n    1 + 1 as column_2,\n    col|", ["column_1", "column_2"], [], id="example_from_request"),
+    pytest.param("select amount * 2 as doubled, dou| from orders", ["doubled"], [], id="earlier_alias_in_select_list"),
+    pytest.param("select dou|, amount * 2 as doubled from orders", [], ["doubled"], id="later_alias_not_offered"),
+    pytest.param("select amount * 2 as doubled from orders where dou|", ["doubled"], [], id="where"),
+    pytest.param("select order_id % 2 as parity, count(*) as n from orders group by par|", ["parity"], [], id="group_by"),
+    pytest.param("select order_id % 2 as parity, count(*) as n from orders group by parity having |", ["n", "parity"], [], id="having"),
+    pytest.param("select order_id, row_number() over (order by amount) as rn from orders qualify |", ["rn"], [], id="qualify"),
+    pytest.param("select amount + 1 as total from orders order by tot|", ["total"], [], id="order_by"),
+    pytest.param("select o.amount + 1 as total from orders o join customers c on to|", [], ["total"], id="not_in_join_on"),
+    pytest.param("select amount as x, (select |) from orders", ["x"], [], id="outer_alias_in_select_subquery"),
+    pytest.param("select 1 as abc, ab| from orders", ["abc"], [], id="alias_and_prefix"),
+]
+
+
+@pytest.mark.parametrize("sql, includes, excludes", ALIAS_CASES)
+def test_select_list_aliases(completer, sql, includes, excludes):
+    # ctrl+space at an empty position, otherwise the typed prefix
+    labels = complete(completer, sql, trigger=None)
+    missing = [x for x in includes if x not in labels]
+    unexpected = [x for x in excludes if x in labels]
+    assert not missing and not unexpected, f"missing={missing} unexpected={unexpected} got={labels[:40]}"
+
+
+def test_alias_items_are_marked_as_aliases(completer):
+    from conftest import split_cursor
+    sql, pos = split_cursor("select amount * 2 as doubled from orders where dou|")
+    items = {i.label: i.label_details.description for i in completer.route_completion2(pos, sql, None).items}
+    assert items["doubled"] == "alias"

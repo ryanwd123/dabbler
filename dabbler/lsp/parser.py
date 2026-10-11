@@ -125,6 +125,9 @@ class SelectItem:
     replace: list[str] = field(default_factory=list)
     regex: Union[str, None] = None
     """COLUMNS('regex')"""
+    aliased: bool = False
+    """name comes from an explicit alias (`expr AS name`)"""
+    end_pos: Union[int, None] = None
 
 
 def _star_item(star: Tree, regex: Union[str, None] = None) -> SelectItem:
@@ -167,7 +170,9 @@ def select_items(col_exps: Tree) -> list[SelectItem]:
             if isinstance(column, Token):
                 source = (qualifier.value if isinstance(qualifier, Token) else None, column.value)
         name = alias.children[0].value if isinstance(alias, Tree) else (source[1] if source else None)
-        items.append(SelectItem(name=name, source=source))
+        items.append(SelectItem(
+            name=name, source=source, aliased=isinstance(alias, Tree), end_pos=getattr(col.meta, "end_pos", None)
+        ))
     return items
 
 
@@ -193,6 +198,31 @@ class Query:
     select_items: list[SelectItem] = field(default_factory=list)
     set_first: Union["Query", None] = None
     """For UNION etc.: the first branch, which names the output columns."""
+    clauses: list[tuple[str, int, int]] = field(default_factory=list)
+    """(clause, start, end) for select_clause, from_clause, where, group_by, ..., in text order."""
+
+    def clause_at(self, pos: int) -> Union[str, None]:
+        """The clause the position is in: the last one that starts at or before it."""
+        current = None
+        for name, start, _ in self.clauses:
+            if start <= pos:
+                current = name
+        return current
+
+    def aliases_visible_at(self, pos: int) -> list[str]:
+        """Select-list aliases DuckDB lets you use at pos: earlier ones within the
+        select list, all of them in WHERE, GROUP BY, HAVING, QUALIFY and ORDER BY."""
+        clause = self.clause_at(pos)
+        aliased = [i for i in self.select_items if i.aliased and i.name]
+        if clause == "select_clause":
+            return [i.name for i in aliased if i.end_pos is not None and i.end_pos < pos]  # type: ignore
+        if clause in ALIAS_CLAUSES:
+            return [i.name for i in aliased]  # type: ignore
+        return []
+
+
+QUERY_CLAUSES = ("select_clause", "from_clause", "where", "group_by", "having", "qualify", "order_by", "limit")
+ALIAS_CLAUSES = ("where", "group_by", "having", "qualify", "order_by")
 
 
 class FromRefKind(Enum):
@@ -385,6 +415,7 @@ class GetQueries(Visitor):
       set_op = False
       set_first = None
       items: list[SelectItem] = []
+      clauses: list[tuple[str, int, int]] = []
       if tree.children[0]:
          if tree.children[0].data == "query" and tree.data == 'query':
             q = self.get_query(tree.children[0])
@@ -411,6 +442,8 @@ class GetQueries(Visitor):
                # print(2,from_refs)
          if x.data == "select_clause":
             items = select_items(x.children[4])
+         if x.data in QUERY_CLAUSES and not x.meta.empty:
+            clauses.append((x.data, x.meta.start_pos, x.meta.end_pos))
       start = tree.meta.start_pos
       end = tree.meta.end_pos
       q = Query(
@@ -424,6 +457,7 @@ class GetQueries(Visitor):
          set_operation=set_op,
          select_items=items,
          set_first=set_first,
+         clauses=clauses,
       )
       
       return q

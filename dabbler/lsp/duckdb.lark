@@ -406,6 +406,13 @@ math: STAR
         | PLUS
         | MINUS
         | CONCAT
+        | MODULO
+        | INT_DIVIDE
+        | POWER
+        | BIT_AND
+        | BIT_OR
+        | SHIFT_LEFT
+        | SHIFT_RIGHT
 
 
 comp: GREATER_THAN
@@ -490,6 +497,12 @@ MINUS: "-"
 STAR: "*"
 DIVIDE: "/"
 MODULO: "%"
+INT_DIVIDE: "//"
+POWER: "**" | "^"
+BIT_AND: "&"
+BIT_OR: "|"
+SHIFT_LEFT: "<<"
+SHIFT_RIGHT: ">>"
 LESS_THAN: "<"
 GREATER_THAN: ">"
 LESS_THAN_OR_EQUAL: "<="

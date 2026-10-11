@@ -29,24 +29,41 @@ schema change at 1,500 tables. Now:
 Result: building a completer for 1,500 tables went from ~0.56s to 0.04s; a
 completion averages ~2.6ms (was ~6.9ms).
 
+## Done: the language server queries the schema cache directly
+
+The IPython extension used to save one JSON snapshot per file, which the
+language server loaded and turned into an in-memory completion map on every
+change. Now the schema is stored as rows in `schema_cache.sqlite3`:
+
+| Table | Rows |
+|---|---|
+| `sources` | one per source file: version (bumped on any change), current schema, cwd, file search path, extensions |
+| `objects` | databases, schemas, tables, views, functions, table macros (with their body), with lower-cased names for matching and a hash per object |
+| `columns` | name, type and position per table or view |
+| `paths` | the session's `pathlib.Path` variables |
+
+- Saving rewrites only objects whose hash changed, in one transaction: at 1,500
+  tables, 14ms when nothing changed and 17ms when a table is added (164ms for the
+  first save).
+- The language server's `Catalog` (`lsp/catalog.py`) queries these rows per
+  request, inside one read transaction, with lookups memoized for the request.
+  DuckDB's built-in catalog stays in memory (built once per set of extensions).
+- Completers are recreated when a source's version changes (~5ms), which only
+  refreshes settings and cached table-function columns; tables and columns are
+  read live.
+- Old version-1 cache files (JSON snapshots) are upgraded in place on first open.
+
 ## 1. Remove DataFrame completions
 
-Completions for pandas/polars DataFrames and DuckDB relations in the IPython
-namespace stopped working after a DuckDB upgrade, and tables/views/temp tables
-cover the same need. Remove the feature rather than fix it.
+Done: the IPython side no longer looks for DataFrames (`get_pathlib_paths` in
+`db_stuff.py` keeps only the `pathlib.Path` scan), and the language server ignores
+them. On Python 3.13 the old detection logged a traceback after every cell, because
+its `locals().__setitem__` trick no longer works (PEP 667).
 
-- `db_stuff.get_dataframe_data`: drop the DataFrame part (the `locals().__setitem__`
-  trick and `describe` per DataFrame). Keep the `pathlib.Path` variable scan, which
-  feeds path completions in python code.
-- `db_data["dataframes"]`: stop producing it. (`make_db`, which turned DataFrames
-  into tables, is gone, so the language server already ignores them; what's left
-  is the IPython side.)
-- Tests: remove the `dataframes` assertions; add one that a DataFrame in the
-  namespace doesn't show up in completions.
-- Decide separately: the GUI's table list also shows DataFrames, and
-  `gui_main.query_db` makes them queryable with the same `locals()` trick, which
-  breaks on Python 3.13+. Either remove that too, or switch it to
-  `cursor.register(name, df)`.
+Still open: the GUI's table list shows DataFrames, and `gui_main.query_db` makes
+them queryable by name with the same `locals()` trick. On Python 3.13 querying a
+DataFrame from the GUI fails ("Exception executing query"). Either remove the
+DataFrame entries from the GUI, or switch `query_db` to `cursor.register(name, df)`.
 
 ## 2. Make the grammar cover DuckDB's statements
 
@@ -106,7 +123,9 @@ Approach:
   single token. Run the full suite after each grammar change; the corpus tests
   catch regressions.
 
-Done in this round: `QUALIFY`, and columns for correlated `LATERAL` subqueries.
+Done so far: `QUALIFY`; columns for correlated `LATERAL` subqueries; the arithmetic
+operators `%`, `//`, `**`/`^`, `&`, `|`, `<<`, `>>` (any query using `%` used to fail
+to parse). Grammar cases go in `GRAMMAR_CASES` in `test_corpus_robustness.py`.
 
 ## 3. `# dabbler use '<database file>'`
 
@@ -123,17 +142,18 @@ Editing:
 - A diagnostic on the comment when the file doesn't exist.
 
 Resolution, for each document: its `# dabbler use` directive, else the IPython
-snapshot for that file, else the newest snapshot in the workspace (today's rule).
+session's schema for that file, else the newest one in the workspace (today's rule).
 
 Reading the schema:
 - The language server opens the file `read_only`, extracts the schema with
-  `get_db_data_new(..., skip_ipython=True)`, and stores it in the schema cache
-  under the database path. Re-read it when the file's modification time changes.
+  `get_db_data_new(..., skip_ipython=True)`, and saves it to the schema cache as a
+  source of its own (`sources.kind = 'database'`, keyed by the database path),
+  using the same `save_snapshot` as IPython sessions. Re-read it when the file's modification time changes.
 - On Windows a DuckDB file can't be opened by a second process at all while
   another process has it open read-write (checked: "File is already open in ...
-  python.exe"). So when IPython has the file open, use the cached snapshot for
+  python.exe"). So when IPython has the file open, use the rows already saved for
   that database path instead. To keep it current, the IPython extension also
-  saves its snapshot under the database file's path when its connection is a
+  saves its schema under the database file's path when its connection is a
   file database (`duckdb_databases().path`).
 - `~` is expanded with `os.path.expanduser` for reading; the comment keeps what
   the user wrote. DuckDB itself also accepts `~` on Windows (checked).
@@ -166,8 +186,9 @@ Approach:
 
 ## 5. Remember database files
 
-- A `databases` table in the schema cache: path, last used, and the documents
-  that referenced it (from `# dabbler use` directives and from IPython sessions
+- Database files are already sources in the schema cache (`kind = 'database'`, see
+  section 3); add a table of which documents referenced which database file and
+  when (from `# dabbler use` directives and from IPython sessions
   with a file database).
 - `# dabbler use '` completions list these first, most recent first, with the
   table count as detail.

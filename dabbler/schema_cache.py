@@ -1,9 +1,13 @@
-"""Schema snapshots shared between the IPython extension and the language server.
+"""Schema information shared between the IPython extension and the language server.
 
-The IPython extension writes a snapshot of its DuckDB catalog (the `db_data`
-dict from `get_db_data_new`) for the file it is running, and the language
-server reads it to build completions. Snapshots persist, so completions keep
-working after the IPython session ends or before it starts.
+The IPython extension saves its DuckDB catalog (the `db_data` dict from
+`get_db_data_new`) for the file it is running, as rows in a SQLite file: one
+row per database, schema, table, view, function and column. The language server
+queries those rows on every completion request instead of keeping its own copy,
+and the rows persist, so completions keep working after the IPython session
+ends or before it starts.
+
+Saving compares a hash per object and only rewrites the objects that changed.
 
 The same SQLite file carries the few messages that go the other way (the
 language server asking the GUI to run a query) and a heartbeat so the server
@@ -16,27 +20,70 @@ import hashlib
 import json
 import os
 import sqlite3
+import threading
 import time
-from contextlib import closing
+import uuid
+from contextlib import closing, contextmanager
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Union
+from typing import Iterable, Union
 
 CACHE_FILE_NAME = "schema_cache.sqlite3"
 # Tests and side-by-side installs can point both processes at another file.
 CACHE_PATH_ENV = "DABBLER_SCHEMA_CACHE"
+# A private cache that lives only in this process (tests, completers built from a db_data dict).
+IN_MEMORY = ":memory:"
 
 # A session that hasn't written a heartbeat for this long is treated as gone.
 SESSION_TIMEOUT_SECONDS = 15
 # Commands nobody picked up in time are dropped instead of running much later.
 COMMAND_TIMEOUT_SECONDS = 30
 
+SCHEMA_VERSION = 2
+
 _SCHEMA = """
-create table if not exists snapshots(
+create table if not exists meta(key text primary key, value text);
+create table if not exists sources(
     source_file text primary key,
-    fingerprint text not null,
+    kind text not null,               -- 'session': an IPython session running this file
+    version integer not null,         -- increases whenever anything below changes
     updated_at real not null,
-    db_data text not null
+    current_schema text,              -- 'catalog.schema'
+    cwd text,
+    file_search_path text,
+    extensions text not null          -- JSON list of loaded extensions
+);
+create table if not exists objects(
+    source_file text not null,
+    catalog text not null,
+    schema text not null,             -- '' for databases
+    name text not null,
+    catalog_lower text not null,
+    schema_lower text not null,
+    name_lower text not null,
+    kind text not null,               -- database, schema, table, view, function, table_macro
+    detail text,                      -- function type, e.g. 'scalar', 'macro'
+    definition text,                  -- a table macro's body
+    fingerprint text not null,
+    primary key (source_file, catalog, schema, name, kind)
+);
+create index if not exists objects_by_name on objects(source_file, name_lower);
+create index if not exists objects_by_schema on objects(source_file, catalog_lower, schema_lower);
+create table if not exists columns(
+    source_file text not null,
+    catalog_lower text not null,
+    schema_lower text not null,
+    table_lower text not null,
+    position integer not null,
+    name text not null,
+    type text,
+    primary key (source_file, catalog_lower, schema_lower, table_lower, position)
+);
+create table if not exists paths(
+    source_file text not null,
+    variable text not null,
+    path text not null,
+    primary key (source_file, variable)
 );
 create table if not exists sessions(
     source_file text primary key,
@@ -66,16 +113,24 @@ def normalize_path(path: Union[str, Path]) -> str:
     return os.path.normcase(os.path.abspath(str(path)))
 
 
-def fingerprint(db_data: dict) -> str:
-    return hashlib.sha1(json.dumps(db_data, sort_keys=True, default=str).encode()).hexdigest()
+def _hash(value) -> str:
+    return hashlib.sha1(json.dumps(value, sort_keys=True, default=str).encode()).hexdigest()
+
+
+def _split_scm(db_scm: str) -> tuple[str, str]:
+    catalog, _, schema = db_scm.partition(".")
+    return catalog, schema
 
 
 @dataclass
-class Snapshot:
+class SourceInfo:
     source_file: str
-    fingerprint: str
+    version: int
     updated_at: float
-    db_data: dict
+    current_schema: str
+    cwd: Union[str, None]
+    file_search_path: Union[str, None]
+    extensions: list[str]
 
 
 @dataclass
@@ -84,65 +139,239 @@ class Command:
     data: str
 
 
+@dataclass
+class ObjectRow:
+    catalog: str
+    schema: str
+    name: str
+    kind: str
+    detail: Union[str, None]
+    definition: Union[str, None]
+
+
+def object_rows(db_data: dict) -> dict[tuple, tuple[ObjectRow, list[tuple[str, Union[str, None]]]]]:
+    """The objects in a db_data dict, keyed by (catalog, schema, name, kind), with their columns."""
+    rows: dict[tuple, tuple[ObjectRow, list]] = {}
+
+    def add(row: ObjectRow, columns=()):
+        rows.setdefault((row.catalog, row.schema, row.name, row.kind), (row, list(columns)))
+
+    for catalog in db_data.get("databases") or []:
+        add(ObjectRow(catalog, "", catalog, "database", None, None))
+    for db_scm in db_data.get("schemas") or []:
+        catalog, schema = _split_scm(db_scm)
+        add(ObjectRow(catalog, schema, schema, "schema", None, None))
+    for db_scm, name, kind, cols in db_data.get("data") or []:
+        if not cols:
+            continue  # sequences
+        catalog, schema = _split_scm(db_scm)
+        add(ObjectRow(catalog, schema, name, "view" if kind == "view" else "table", None, None),
+            [(c[0], c[1]) for c in cols])
+    for db_scm, name, fn_type, *rest in db_data.get("functions") or []:
+        catalog, schema = _split_scm(db_scm)
+        kind = "table_macro" if fn_type == "table_macro" else "function"
+        add(ObjectRow(catalog, schema, name, kind, fn_type, rest[0] if rest else None))
+    return rows
+
+
 class SchemaCache:
     def __init__(self, path: Union[str, Path, None] = None) -> None:
-        self.path = Path(path) if path else default_cache_path()
-        self.path.parent.mkdir(parents=True, exist_ok=True)
+        self._local = threading.local()
+        self._anchor = None
+        if str(path) == IN_MEMORY:
+            # a shared-cache memory database lives as long as one connection to it is open
+            self.path = f"file:dabbler_{uuid.uuid4().hex}?mode=memory&cache=shared"
+            self._uri = True
+            self._anchor = self._connect()
+        else:
+            self.path = Path(path) if path else default_cache_path()
+            self._uri = False
+            self.path.parent.mkdir(parents=True, exist_ok=True)
         with closing(self._connect()) as con:
-            con.execute("pragma journal_mode=wal")
+            if not self._uri:
+                con.execute("pragma journal_mode=wal")
+            con.execute("create table if not exists meta(key text primary key, value text)")
+            row = con.execute("select value from meta where key = 'schema_version'").fetchone()
+            if row is None or int(row[0]) < SCHEMA_VERSION:
+                # version 1 kept one JSON blob per file; nothing in it needs to be kept
+                con.execute("drop table if exists snapshots")
             con.executescript(_SCHEMA)
+            con.execute("insert or replace into meta values ('schema_version', ?)", (str(SCHEMA_VERSION),))
 
     def _connect(self):
-        # A connection per call keeps this safe to use from any thread; opening one is cheap.
-        return sqlite3.connect(self.path, timeout=5, isolation_level=None)
+        # Writers open a connection per call, which keeps this safe from any thread.
+        return sqlite3.connect(self.path, timeout=5, isolation_level=None, uri=self._uri, check_same_thread=False)
 
-    # -- snapshots (IPython writes, language server reads) --
+    def _reader(self) -> sqlite3.Connection:
+        """A connection per thread for reads; completions run many small queries."""
+        con = getattr(self._local, "con", None)
+        if con is None:
+            con = self._connect()
+            self._local.con = con
+        return con
+
+    @contextmanager
+    def read_transaction(self):
+        """Reads inside see one consistent state, even if IPython saves in the meantime."""
+        con = self._reader()
+        if con.in_transaction:
+            yield con
+            return
+        con.execute("begin")
+        try:
+            yield con
+        finally:
+            con.execute("commit")
+
+    # -- saving (IPython) --
 
     def save_snapshot(self, source_file: Union[str, Path], db_data: dict) -> bool:
-        """Stores db_data for source_file. Returns False when it was already stored."""
+        """Stores the schema in db_data for source_file. Returns False when nothing changed.
+
+        Only objects whose name, kind, columns or definition changed are rewritten.
+        """
         source = normalize_path(source_file)
-        fp = fingerprint(db_data)
-        if self.get_fingerprint(source) == fp:
-            return False
+        new = {key: (row, cols, _hash([row.detail, row.definition, cols])) for key, (row, cols) in object_rows(db_data).items()}
+        meta = (
+            db_data.get("current_schema"),
+            db_data.get("cwd"),
+            db_data.get("file_search_path"),
+            json.dumps(sorted(db_data.get("loaded_extensions") or [])),
+        )
+        paths = sorted((str(p[0]), str(p[1])) for p in db_data.get("paths") or [])
+
         with closing(self._connect()) as con:
-            con.execute(
-                "insert or replace into snapshots values (?, ?, ?, ?)",
-                (source, fp, time.time(), json.dumps(db_data, default=str)),
+            con.execute("begin immediate")
+            try:
+                changed = self._write_objects(con, source, new)
+                changed |= self._write_paths(con, source, paths)
+                current = con.execute(
+                    "select version, current_schema, cwd, file_search_path, extensions from sources where source_file = ?",
+                    (source,),
+                ).fetchone()
+                if current is None or changed or tuple(current[1:]) != meta:
+                    version = (current[0] + 1) if current else 1
+                    con.execute(
+                        "insert or replace into sources values (?, 'session', ?, ?, ?, ?, ?, ?)",
+                        (source, version, time.time(), *meta),
+                    )
+                    changed = True
+                con.execute("commit")
+            except BaseException:
+                con.execute("rollback")
+                raise
+        return changed
+
+    def _write_objects(self, con, source: str, new: dict) -> bool:
+        existing = {
+            (c, s, n, k): fp
+            for c, s, n, k, fp in con.execute(
+                "select catalog, schema, name, kind, fingerprint from objects where source_file = ?", (source,)
             )
+        }
+        stale = [key for key, fp in existing.items() if key not in new or new[key][2] != fp]
+        fresh = [key for key, value in new.items() if existing.get(key) != value[2]]
+        for catalog, schema, name, kind in stale:
+            con.execute(
+                "delete from objects where source_file = ? and catalog = ? and schema = ? and name = ? and kind = ?",
+                (source, catalog, schema, name, kind),
+            )
+            if kind in ("table", "view"):
+                con.execute(
+                    "delete from columns where source_file = ? and catalog_lower = ? and schema_lower = ? and table_lower = ?",
+                    (source, catalog.lower(), schema.lower(), name.lower()),
+                )
+        for key in fresh:
+            row, cols, fp = new[key]
+            con.execute(
+                "insert into objects values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (source, row.catalog, row.schema, row.name, row.catalog.lower(), row.schema.lower(),
+                 row.name.lower(), row.kind, row.detail, row.definition, fp),
+            )
+            con.executemany(
+                "insert or replace into columns values (?, ?, ?, ?, ?, ?, ?)",
+                [(source, row.catalog.lower(), row.schema.lower(), row.name.lower(), i, name, typ)
+                 for i, (name, typ) in enumerate(cols)],
+            )
+        return bool(stale or fresh)
+
+    def _write_paths(self, con, source: str, paths: list[tuple[str, str]]) -> bool:
+        current = sorted(con.execute("select variable, path from paths where source_file = ?", (source,)).fetchall())
+        if current == paths:
+            return False
+        con.execute("delete from paths where source_file = ?", (source,))
+        con.executemany("insert into paths values (?, ?, ?)", [(source, v, p) for v, p in paths])
         return True
 
-    def get_fingerprint(self, source_file: Union[str, Path]) -> Union[str, None]:
-        with closing(self._connect()) as con:
-            row = con.execute(
-                "select fingerprint from snapshots where source_file = ?", (normalize_path(source_file),)
-            ).fetchone()
+    # -- reading (language server) --
+
+    def get_version(self, source_file: Union[str, Path]) -> Union[int, None]:
+        row = self._reader().execute(
+            "select version from sources where source_file = ?", (normalize_path(source_file),)
+        ).fetchone()
         return row[0] if row else None
 
-    def get_snapshot(self, source_file: Union[str, Path]) -> Union[Snapshot, None]:
-        with closing(self._connect()) as con:
-            row = con.execute(
-                "select source_file, fingerprint, updated_at, db_data from snapshots where source_file = ?",
-                (normalize_path(source_file),),
-            ).fetchone()
+    def source_info(self, source_file: Union[str, Path]) -> Union[SourceInfo, None]:
+        row = self._reader().execute(
+            "select source_file, version, updated_at, current_schema, cwd, file_search_path, extensions "
+            "from sources where source_file = ?",
+            (normalize_path(source_file),),
+        ).fetchone()
         if not row:
             return None
-        return Snapshot(row[0], row[1], row[2], json.loads(row[3]))
+        return SourceInfo(row[0], row[1], row[2], row[3] or "memory.main", row[4], row[5], json.loads(row[6]))
+
+    def objects(
+        self,
+        source_file: str,
+        catalog: Union[str, None] = None,
+        schema: Union[str, None] = None,
+        name: Union[str, None] = None,
+        kinds: Iterable[str] = (),
+    ) -> list[ObjectRow]:
+        """Objects of a source; catalog, schema and name match case-insensitively."""
+        where, args = ["source_file = ?"], [normalize_path(source_file)]
+        for column, value in (("catalog_lower", catalog), ("schema_lower", schema), ("name_lower", name)):
+            if value is not None:
+                where.append(f"{column} = ?")
+                args.append(value.lower())
+        kinds = list(kinds)
+        if kinds:
+            where.append(f"kind in ({', '.join('?' for _ in kinds)})")
+            args.extend(kinds)
+        rows = self._reader().execute(
+            f"select catalog, schema, name, kind, detail, definition from objects where {' and '.join(where)} "
+            "order by catalog, schema, name",
+            args,
+        ).fetchall()
+        return [ObjectRow(*r) for r in rows]
+
+    def columns(self, source_file: str, catalog: str, schema: str, table: str) -> list[tuple[str, Union[str, None]]]:
+        return self._reader().execute(
+            "select name, type from columns where source_file = ? and catalog_lower = ? and schema_lower = ? "
+            "and table_lower = ? order by position",
+            (normalize_path(source_file), catalog.lower(), schema.lower(), table.lower()),
+        ).fetchall()
+
+    def paths(self, source_file: str) -> dict[str, str]:
+        return dict(
+            self._reader().execute("select variable, path from paths where source_file = ?", (normalize_path(source_file),))
+        )
 
     def resolve_source(
         self, document: Union[str, Path], workspace_root: Union[str, Path, None] = None
     ) -> Union[str, None]:
-        """The snapshot to use for a document.
+        """The source whose schema applies to a document.
 
-        The document's own snapshot if it has one, otherwise the most recently
-        updated one in the same workspace (or folder, without a workspace), so
-        SQL in helper modules gets the schema of the notebook that uses them.
+        The document's own if it has one, otherwise the most recently updated one
+        in the same workspace (or folder, without a workspace), so SQL in helper
+        modules gets the schema of the notebook that uses them.
         """
         document = normalize_path(document)
         folder = normalize_path(workspace_root) if workspace_root else os.path.dirname(document)
-        with closing(self._connect()) as con:
-            rows = con.execute(
-                "select source_file from snapshots order by (source_file = ?) desc, updated_at desc", (document,)
-            ).fetchall()
+        rows = self._reader().execute(
+            "select source_file from sources order by (source_file = ?) desc, updated_at desc", (document,)
+        ).fetchall()
         for (source,) in rows:
             if source == document or source.startswith(folder.rstrip(os.sep) + os.sep):
                 return source
