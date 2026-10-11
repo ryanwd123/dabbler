@@ -290,10 +290,12 @@ class TransformFromClause(Transformer):
         return value[0].value
 
     def table_function(self, value):
-        sql:str = self.sql[value[0].meta.start_pos : value[0].meta.end_pos]
+        # [LATERAL] table_func [WITH ORDINALITY] [alias [col_alias]] [sample]
+        func, alias, col_alias = value[1], value[3], value[4]
+        sql:str = self.sql[func.meta.start_pos : func.meta.end_pos]
         # without an alias the function's name is the alias, as in DuckDB
-        names = [c.value for c in value[0].children[:3] if isinstance(c, Token)]
-        alias = value[1] or (names[-1] if names else None)
+        names = [c.value for c in func.children[:3] if isinstance(c, Token)]
+        alias = alias or (names[-1] if names else None)
         if not alias:
             return
         self.map[alias] = FromRef(
@@ -302,7 +304,7 @@ class TransformFromClause(Transformer):
             name=names[-1] if names else alias,
             sql=sql,
             projection=self.parser.table_function_columns(names[-1] if names else alias, sql),
-            col_aliases=col_alias_names(value[2]),
+            col_aliases=col_alias_names(col_alias),
         )
 
     def values(self, value):
@@ -397,16 +399,20 @@ class GetQueries(Visitor):
                continue
          name = x.children[0].value # type: ignore
 
-         q = self.get_query(x.children[3])
+         # the body is the last child; a VALUES body has no select list to resolve
+         body = x.children[-1]
+         if not isinstance(body, Tree) or body.data == "values":
+            continue
+         q = self.get_query(body)
          if not q:
-            continue    
+            continue
 
          c = Cte(
                name=name,
-               sql=self.sql[x.children[3].meta.start_pos : x.children[3].meta.end_pos],
+               sql=self.sql[body.meta.start_pos : body.meta.end_pos],
                projection=q.projection,
                cte_start=cte.meta.start_pos,
-               self_start=x.children[3].meta.start_pos,
+               self_start=body.meta.start_pos,
                col_aliases=col_alias_names(x.children[1]),
          )
 
@@ -489,7 +495,7 @@ class GetQueries(Visitor):
       for x in tree.children:
          if isinstance(x, Tree) and x.data == "from_clause":
             from_refs.update(self.get_from_tables(x))
-      self.add_statement_scope(tree, from_refs)
+      self.add_statement_scope(tree, from_refs, self.statement_ctes(tree))
 
    def delete_statement(self, tree: Tree):
       """DELETE FROM target [AS alias] [USING ...] [WHERE ...]: the target and USING items are in scope."""
@@ -503,7 +509,7 @@ class GetQueries(Visitor):
       for x in tree.children:
          if isinstance(x, Tree) and x.data == "from_ref":
             from_refs.update(self.get_from_tables(x))
-      self.add_statement_scope(tree, from_refs)
+      self.add_statement_scope(tree, from_refs, self.statement_ctes(tree))
 
    def merge_statement(self, tree: Tree):
       """MERGE INTO target [AS alias] USING source ...: both are in scope in ON and WHEN."""
@@ -517,8 +523,18 @@ class GetQueries(Visitor):
       for x in tree.children:
          if isinstance(x, Tree) and x.data in TABLE_REF_KINDS:
             from_refs.update(self.get_from_tables(Tree("from_ref", [x])))
-      cte = tree.children[0] if isinstance(tree.children[0], Tree) and tree.children[0].data == "cte" else None
-      self.add_statement_scope(tree, from_refs, self.get_ctes(cte) if cte else None)
+      self.add_statement_scope(tree, from_refs, self.statement_ctes(tree))
+
+   def insert_statement(self, tree: Tree):
+      """WITH ... INSERT INTO ... SELECT: the CTEs are in scope in the query."""
+      ctes = self.statement_ctes(tree)
+      if ctes:
+         self.add_statement_scope(tree, {}, ctes)
+
+   def statement_ctes(self, tree: Tree) -> Union[Ctes, None]:
+      """The CTEs of a WITH clause in front of an INSERT, UPDATE, DELETE or MERGE."""
+      first = tree.children[0] if tree.children else None
+      return self.get_ctes(first) if isinstance(first, Tree) and first.data == "cte" else None
 
    def add_statement_scope(self, tree: Tree, from_refs: dict, ctes: Union[Ctes, None] = None):
       """Registers an UPDATE, DELETE or MERGE as a query whose FROM items are from_refs."""
