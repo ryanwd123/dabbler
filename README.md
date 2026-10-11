@@ -34,8 +34,8 @@ Intellisnse / autocomplete:
 - Install Python VScode Extension
 - Install Jupyter VScode Extension
 #### Install dabbler
-- `pip install dabbler`
-- install PySide or PyQt e.g. `pip install PySide6`  (note: pyqt5 seems to work better on Linux)
+- `pip install "dabbler[gui]"` in the environment your notebooks use (Python 3.12+). This includes PySide6; `pip install dabbler` alone is enough for the language server (completions) without the window.
+- optional: `pip install xlsxwriter` to export results to Excel from the window
 - install "dabbler" vscode extension
 
 #### Setup

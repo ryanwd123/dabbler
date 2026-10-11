@@ -10,7 +10,6 @@ from pathlib import PurePath
 from typing import Union
 
 import duckdb
-from IPython.core.getipython import get_ipython
 
 log = logging.getLogger(__name__)
 
@@ -52,6 +51,8 @@ def get_pathlib_paths(user_ns: Union[dict, None] = None):
     attributes aren't triggered.
     """
     if user_ns is None:
+        from IPython.core.getipython import get_ipython
+
         ipython = get_ipython()
         if not ipython:
             return []

@@ -58,7 +58,12 @@ class DbDabbler(Magics):
         self.start(name, connections[name])
 
     def start(self, name: str, db: duckdb.DuckDBPyConnection) -> None:
-        from dabbler.gui_main import MyApp
+        try:
+            from dabbler.gui_main import MyApp
+        except ImportError as e:
+            print(f"dabbler: the window needs packages that aren't installed ({e.name}); "
+                  'run: pip install "dabbler[gui]"')
+            return
 
         self.close()
         # reading the connection's setting here is safe: %load_ext / %dabbler is the cell being run

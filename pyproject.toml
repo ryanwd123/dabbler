@@ -16,27 +16,34 @@ classifiers = [
     "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
     "Topic :: Database",
     "Topic :: Software Development",
 ]
-requires-python = ">=3.9"
+requires-python = ">=3.12"
 license = {file = "LICENSE.txt"}
 
+# what the language server needs; the IPython extension and its window need [gui]
 dependencies = [
-  "duckdb",
-  "qtpy",
-  "sqlparse",
-  "sqlglot",
-  "lark",
+  "duckdb>=1.1",
+  "lark>=1.2",
   "pygls>=2.0,<3",
-  "ipython",
-  "ipykernel",
-  "polars",
-  "pyarrow"
+  "sqlglot",
 ]
 
 [project.optional-dependencies]
-test = ["pytest", "pytest-lsp>=1.0"]
+gui = [
+  "ipython",
+  "ipykernel",
+  "qtpy",
+  "PySide6-Essentials",
+  "polars",
+  "pyarrow",  # DuckDB's .pl() goes through arrow
+  "pygments",
+]
+excel = ["xlsxwriter"]  # export to .xlsx from the window
+test = ["pytest", "pytest-lsp>=1.0", "pytest-asyncio", "pandas"]
 
 
 

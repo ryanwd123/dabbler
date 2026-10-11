@@ -272,7 +272,7 @@ def test_pathlib_paths_are_collected_from_the_ipython_namespace(monkeypatch, tmp
     class FakeShell:
         user_ns = namespace
 
-    monkeypatch.setattr(db_stuff, "get_ipython", lambda: FakeShell())
+    monkeypatch.setattr("IPython.core.getipython.get_ipython", lambda: FakeShell())
     assert db_stuff.get_pathlib_paths() == [("data_dir", str(tmp_path))]
     db_data = db_stuff.get_db_data_new(duckdb.connect())
     assert db_data["paths"] == [("data_dir", str(tmp_path))]
