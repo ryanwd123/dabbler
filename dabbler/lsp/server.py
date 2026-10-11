@@ -1,9 +1,12 @@
 import asyncio
+import os
+import sys
 from typing import Optional
 
 from lsprotocol import types as lsp
 from lsprotocol.types import CompletionList
 
+import dabbler
 from dabbler import __version__
 from dabbler.common import uri_to_path
 from dabbler.lsp.completion_utils import pathlib_completetions
@@ -200,6 +203,16 @@ def schedule_sql_errors(ls: InlineSqlLangServer, uri: str, delay: float):
     )
 
 
+@sql_server.feature(lsp.INITIALIZED)
+def initialized(ls: InlineSqlLangServer, params: lsp.InitializedParams):
+    """Says in the editor's output channel which dabbler and schema cache this server uses."""
+    ls.log_to_client(
+        f"dabbler {__version__} from {os.path.dirname(dabbler.__file__)}, python {sys.executable}\n"
+        f"schema cache: {ls.schema_cache.path}\n"
+        f"workspace: {ls.workspace_root()}"
+    )
+
+
 @sql_server.feature(lsp.TEXT_DOCUMENT_DID_CHANGE)
 async def did_change(ls: InlineSqlLangServer, params: lsp.DidChangeTextDocumentParams):
     schedule_sql_errors(ls, params.text_document.uri, DIAGNOSTICS_DELAY)
@@ -309,7 +322,6 @@ def format_range(ls: InlineSqlLangServer, *args):
 
 def main():
     import logging
-    import os
 
     # set DABBLER_LSP_LOG to a file path to get a debug log of the language server
     if os.environ.get("DABBLER_LSP_LOG"):

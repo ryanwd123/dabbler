@@ -192,6 +192,20 @@ async def test_use_directive_completes_from_the_database_file(client: LanguageCl
 
 
 @pytest.mark.asyncio
+async def test_use_directive_applies_only_to_its_document(client: LanguageClient):
+    con = duckdb.connect(str(client.workspace_path / "only_here.duckdb"))
+    con.execute("create table only_here_table(a int)")
+    con.close()
+    source = "# dabbler use 'only_here.duckdb'\nq = '''--sql\nselect * from \n'''\n"
+    uri = open_doc(client, source)
+    assert "only_here_table" in await complete(client, uri, position_of(source, "from "), trigger=" ")
+
+    other = "q = '''--sql\nselect * from \n'''\n"
+    uri2 = open_doc(client, other, name="other.py")
+    assert "only_here_table" not in await complete(client, uri2, position_of(other, "from "), trigger=" ")
+
+
+@pytest.mark.asyncio
 async def test_use_directive_comment_completes_files(client: LanguageClient):
     (client.workspace_path / "data").mkdir()
     (client.workspace_path / "data" / "sales.duckdb").write_bytes(b"")
