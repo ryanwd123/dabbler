@@ -51,11 +51,13 @@ test = ["pytest", "pytest-lsp>=1.0", "pytest-asyncio", "pandas"]
 
 [project.readme]
 text = """
-A IPython extension for interactive programming with python and DuckDB.  This project is a work in progress and there could be many bugs.
+An IPython extension and SQL language server for DuckDB SQL written inside python files. This project is a work in progress and there could be bugs.
 
 Main Features:
-- A window to view tables and queries
-- Auto completion for SQL text within python files (requires "dabbler" vscode extension)
+- A window to view tables and query results from an IPython session: `pip install "dabbler[gui]"`, then `%load_ext dabbler.ext`
+- Completions, signature help, hover docs and syntax errors for SQL in python files, from the session's schema or a DuckDB database file (`# dabbler use 'file.duckdb'`); needs the "dabbler" VS Code extension and `pip install dabbler`
+
+More: https://github.com/ryanwd123/dabbler
 """
 content-type = "text/markdown"
 
