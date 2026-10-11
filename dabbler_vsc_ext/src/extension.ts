@@ -1,8 +1,10 @@
 /* -------------------------------------------------------------------------
- * Based on the pygls VS Code client example.
+ * dabbler's VS Code client. Copyright (c) Ryan DeWitt, MIT License (LICENSE.txt).
+ *
+ * Started from the pygls VS Code client example:
  * Original work Copyright (c) Microsoft Corporation. All rights reserved.
  * Original work licensed under the MIT License.
- * All modifications Copyright (c) Open Law Library. All rights reserved.
+ * Modifications Copyright (c) Open Law Library. All rights reserved.
  * Licensed under the Apache License, Version 2.0.
  * ----------------------------------------------------------------------- */
 "use strict";
