@@ -6,3 +6,13 @@ dabbler_vsc_ext/node_modules/*
 *.pytest_cache/
 dabbler/lsp/pygls.log
 **/*_ext_gui_settings.json
+.coverage
+*.log
+dist/
+build/
+.venv/
+*.vsix
+dabbler/lsp/lark_cache
+test_files/test.db
+test_files/test_standalone_duckdb.py
+test_files/try_standalone.py

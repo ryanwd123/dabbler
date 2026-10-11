@@ -8,11 +8,14 @@ from enum import Enum
 from lark import Lark, Transformer, v_args, Discard, Visitor, Tree, UnexpectedToken, Token, UnexpectedCharacters
 from lark.parsers.lalr_interactive_parser import InteractiveParser
 from typing import Callable, Union
+
+from dabbler.paths import get_datadir
 import duckdb
 import logging
 import time
 
-lark_cache = Path(__file__).parent.joinpath('lark_cache')
+# Lark's analysis of the grammar, cached between runs (Lark checks it matches the grammar)
+lark_cache = get_datadir() / 'lark_cache'
 lark_file = Path(__file__).parent.joinpath('duckdb.lark')
 
 def set_search_path_sql(search_path:str):

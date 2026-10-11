@@ -1,7 +1,9 @@
+"""A window for debugging the completion parser: shows tokens, what the parser
+expects at the cursor, and the cursor context. Run: python tools/parser_debug_gui.py"""
 #%%
 
 from qtpy import QtWidgets, QtGui, QtCore
-from dabbler.txt_util import line_col, move_line, get_idx
+from txt_util import line_col, move_line, get_idx
 from dabbler.gui_stuff import gui_style
 from dabbler.lsp.parser import interactive_parse, cursor_context
 

@@ -6,6 +6,7 @@ import re
 from urllib.parse import urlparse, unquote
 import duckdb
 from dabbler.lsp.parser import lark_file
+from dabbler.paths import get_datadir  # noqa: F401  (used to live here)
 
 
 log = logging.getLogger(__name__)
@@ -19,19 +20,6 @@ def uri_to_path(uri:str):
         return Path(path)
     else:
         raise ValueError(f"Unsupported scheme: {parsed.scheme}")
-
-
-def get_datadir() -> Path:
-    """dabbler's data folder (%APPDATA%\\dabbler, ~/.local/share/dabbler, ~/Library/Application Support/dabbler)."""
-    home = Path.home()
-    if sys.platform == "win32":
-        data_dir = Path(os.environ.get("APPDATA") or home / "AppData/Roaming") / "dabbler"
-    elif sys.platform == "darwin":
-        data_dir = home / "Library/Application Support/dabbler"
-    else:
-        data_dir = Path(os.environ.get("XDG_DATA_HOME") or home / ".local/share") / "dabbler"
-    data_dir.mkdir(parents=True, exist_ok=True)
-    return data_dir
 
 
 def get_grammar_kw():

@@ -104,7 +104,7 @@ create table if not exists commands(
 def default_cache_path() -> Path:
     if os.environ.get(CACHE_PATH_ENV):
         return Path(os.environ[CACHE_PATH_ENV])
-    from dabbler.common import get_datadir
+    from dabbler.paths import get_datadir
 
     return Path(get_datadir()) / CACHE_FILE_NAME  # type: ignore
 
