@@ -4,12 +4,22 @@ Open work as of 2026-10-11. Completed work is in the git history.
 
 ## 1. Grammar coverage
 
-- Port further constructs from DuckDB's PEG grammar (`src/parser/peg/grammar/`
-  in the DuckDB repo, MIT): MERGE INTO, PIVOT's full SQL-standard form, CREATE
-  TABLE constraints and options, `RENAME` in star expressions, ALL as a
-  subquery quantifier.
-- A wider corpus from DuckDB's `test/sql/**/*.test` files would find gaps the
-  hand-picked cases miss.
+The grammar parses 98.1% of the 25,041 distinct statements in DuckDB 1.5.6's
+test suite that DuckDB itself parses (`tools/duckdb_test_corpus.py`; the
+docstring says how to get the files). The largest remaining groups:
+- names with more than two parts: `db.schema.table.col`, `db.schema.f()`,
+  `CREATE MACRO db.schema.m`, `ALTER TABLE t ADD COLUMN s.a.b` (about 80)
+- a VALUES branch in a set operation: `select ... union all values (...)` (16)
+- prefix aliases in FROM: `FROM t : alias` (19)
+- casts and subscripts on `COLUMNS(*)` and quoted names: `COLUMNS(*)::VARCHAR`,
+  `"t"."col"['a']` (20)
+- reserved words as column names after a dot: `t.when`, `AS end` (16)
+- `IN ((subquery), (subquery))`, `GROUP BY *` / `ORDER BY *`, a string as an
+  alias (`t('k')`), trailing commas in VALUES rows
+- test-only syntax (`EXPORT_STATE`, `check_peg_parser`) isn't worth adding.
+
+Adding rules raises the LALR conflict count (403 now, 327 before this round);
+each new conflict was checked to resolve the way SQL means.
 
 ## 2. Path completion for `Path('...')` literals
 
