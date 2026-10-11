@@ -4,24 +4,27 @@ verify_ssl = true
 name = "pypi"
 
 [packages]
-ipython = "*"
-pygls = "*"
 duckdb = "*"
-sqlparse = "*"
 lark = "*"
+pygls = "*"
 sqlglot = "*"
-cutelog = "*"
+ipython = "*"
+ipykernel = "*"
+qtpy = "*"
+pyside6-essentials = "*"
 polars = "*"
 pyarrow = "*"
+pygments = "*"
+xlsxwriter = "*"
+
+[dev-packages]
 pytest = "*"
 pytest-cov = "*"
 pytest-lsp = "*"
-pyside6-essentials = "*"
-qtpy = "*"
-ipykernel = "*"
-
-[dev-packages]
-ipykernel = "*"
+pytest-asyncio = "*"
+pandas = "*"
+ruff = "*"
+cutelog = "*"
 
 [requires]
 python_version = "3.13"
