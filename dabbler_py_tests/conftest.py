@@ -1,5 +1,6 @@
 import gc
 import sys
+import threading
 from pathlib import Path
 from typing import Union
 
@@ -12,13 +13,18 @@ from dabbler.lsp.completer import SqlCompleter
 
 @pytest.fixture(scope="session", autouse=True)
 def delete_qt_objects_on_the_gui_thread():
-    """After the tests, stops table worker threads and deletes Qt widgets on this thread.
+    """After the tests, waits for query threads, stops table worker threads and deletes Qt widgets.
 
     Left to Python's garbage collector, a widget can be freed from whatever thread
     triggers a collection (a query or heartbeat thread), and on Linux Qt then aborts
     the process ("Timers cannot be stopped from another thread").
     """
     yield
+    # Python 3.12 kills daemon threads still running at exit with pthread_exit, which
+    # aborts the process when one is inside DuckDB's C++ ("terminate called ...")
+    for thread in threading.enumerate():
+        if thread.name in ("dabbler-query", "dabbler-cancel"):
+            thread.join(10)
     qt = sys.modules.get("dabbler.gui_qt")
     app = qt.QtWidgets.QApplication.instance() if qt else None
     if app is None:

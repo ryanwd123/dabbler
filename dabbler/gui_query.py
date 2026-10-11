@@ -72,6 +72,7 @@ class QueryRunner(QtCore.QObject):
         self.namespace = namespace
         self.generation = 0
         self.cursor: Union[duckdb.DuckDBPyConnection, None] = None
+        self.thread: Union[threading.Thread, None] = None
         self._done.connect(self._deliver)
 
     @property
@@ -84,16 +85,33 @@ class QueryRunner(QtCore.QObject):
         cur = self.make_cursor()
         self.cursor = cur
         registered = register_dataframes(cur, sql, self.namespace())
-        threading.Thread(
+        self.thread = threading.Thread(
             target=self._run, args=(self.generation, cur, sql, limit, registered), name="dabbler-query", daemon=True
-        ).start()
+        )
+        self.thread.start()
 
     def cancel(self) -> None:
-        if self.cursor is not None:
+        """Stops the running query. DuckDB's interrupt() only stops a query that has
+        started executing, so it's repeated until the query's thread is done."""
+        cur, thread = self.cursor, self.thread
+        if cur is None or thread is None or not thread.is_alive():
+            return
+        threading.Thread(target=self._interrupt_until_done, args=(cur, thread), name="dabbler-cancel", daemon=True).start()
+
+    @staticmethod
+    def _interrupt_until_done(cur: duckdb.DuckDBPyConnection, thread: threading.Thread, timeout: float = 30) -> None:
+        deadline = time.monotonic() + timeout
+        while thread.is_alive() and time.monotonic() < deadline:
             try:
-                self.cursor.interrupt()
+                cur.interrupt()
             except Exception:
-                pass
+                pass  # closed meanwhile: the query is done
+            thread.join(0.05)
+
+    def wait(self, timeout: float = 10) -> None:
+        """Waits for the query thread to end (after cancel(), when shutting down)."""
+        if self.thread is not None:
+            self.thread.join(timeout)
 
     def _run(self, generation: int, cur: duckdb.DuckDBPyConnection, sql: str, limit, registered: list[str]) -> None:
         start = time.perf_counter()

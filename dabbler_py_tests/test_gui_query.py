@@ -85,6 +85,22 @@ def test_cancel(db):
     assert results and results[0].cancelled
 
 
+def test_cancel_right_after_starting(db):
+    # DuckDB's interrupt() is lost if it comes before the query starts executing
+    runner = QueryRunner(db.cursor, dict)
+    results = []
+    runner.finished.connect(results.append)
+    runner.run("select sum(i) from range(100000000000) t(i)", None)
+    runner.cancel()
+    runner.wait(10)
+    assert not runner.thread.is_alive()
+    deadline = time.time() + 5
+    while not results and time.time() < deadline:
+        QtWidgets.QApplication.processEvents()
+        time.sleep(0.01)
+    assert results and results[0].cancelled
+
+
 def test_a_newer_query_replaces_the_running_one(db):
     runner = QueryRunner(db.cursor, dict)
     results = []

@@ -327,6 +327,9 @@ class mainWindow(QtWidgets.QMainWindow):
         self.app.settings.setValue("pos", self.pos())
 
     def closeEvent(self, event):
+        # a query left running would outlive the window (and keep a CPU busy)
+        self.selection_area.runner.cancel()
+        self.selection_area.runner.wait(5)
         self.table.stop_worker()
         super().closeEvent(event)
 
