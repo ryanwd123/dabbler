@@ -70,14 +70,10 @@ Intellisnse / autocomplete:
     - "send SQL to GUI" goes the other way through the same cache: the language server queues the query and the IPython extension picks it up
     - set `DABBLER_LSP_LOG` to a file path to get a debug log from the language server
 - The language server includes an SQL parser created from using lark package
-    - Within the python document ranges SQL text are idenitified using regular expressions:
-        ```py
-        re_patterns = [
-            r'([^\n]*?"""--sql[^\n]*?\n)(?P<sql>.*?)(""")',
-            r'(.(sql|execute|executemany)\(")(?P<sql>.*?)("\s*(\)|,))',
-            r"(.(sql|execute|executemany)\(')(?P<sql>.*?)('\s*(\)|,))",
-            ]
-        ```
+    - SQL strings in the python document are found with python's tokenizer (`lsp/sql_regions.py`). A string is SQL when:
+        - it is the first argument of `.sql(...)`, `.execute(...)` or `.executemany(...)` (or their `query=` keyword), with any quotes and `r`/`f` prefixes, or
+        - its text starts with a `--sql` line, e.g. `q = """--sql` (the SQL starts on the next line)
+        - in f-strings, replacement fields like `{table}` are treated as a name; completions inside the braces are left to python
         - example:
         
             ![syntax_highlighting_example](images/syntax_highlighting_example.png)

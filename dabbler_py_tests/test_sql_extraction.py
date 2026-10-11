@@ -19,7 +19,7 @@ def extract(source_with_cursor: str):
     [
         pytest.param('q = """--sql\nselect * from |orders\n"""\n', "select * from orders\n", id="triple_quote_block"),
         pytest.param('db.sql("""--sql\n    select |1\n    """)', "    select 1\n    ", id="triple_quote_in_call"),
-        pytest.param('q = f"""--sql\nselect {x} from |t\n"""', "select {x} from t\n", id="f_string_block"),
+        pytest.param('q = f"""--sql\nselect {x} from |t\n"""', "select ___ from t\n", id="f_string_block"),
         pytest.param('q = """--SQL\nselect |1\n"""', "select 1\n", id="uppercase_marker"),
         pytest.param('db.sql("select * from |orders")', "select * from orders", id="sql_call_double_quotes"),
         pytest.param("db.sql('select * from |orders')", "select * from orders", id="sql_call_single_quotes"),
@@ -30,6 +30,19 @@ def extract(source_with_cursor: str):
             "select * from second\n", id="second_of_two_blocks",
         ),
         pytest.param('q = """--sql\r\nselect * from |orders\r\n"""\r\n', "select * from orders\r\n", id="crlf_line_endings"),
+        pytest.param('db.sql("""\nselect * from |orders\n""")', "\nselect * from orders\n", id="triple_quote_call_without_marker"),
+        pytest.param("q = '''--sql\nselect |1\n'''", "select 1\n", id="triple_single_quote_block"),
+        pytest.param('db.sql(r"select * from |t")', "select * from t", id="raw_string"),
+        pytest.param('db.sql(query="select * from |t")', "select * from t", id="query_keyword"),
+        pytest.param('duckdb.sql("select |1")', "select 1", id="module_function"),
+        pytest.param('db.sql(f"select * from {tbl} where |x")', "select * from _____ where x", id="f_string_call"),
+        pytest.param('db.sql(f"select {d["k"]}, |x from t")', "select ________, x from t", id="f_string_nested_quotes"),
+        pytest.param("db.sql(f\"select {{'a': 1}} as |s\")", "select { 'a': 1}  as s", id="f_string_escaped_braces"),
+        pytest.param('db.sql("select \\"a b\\" from |t")', 'select \\"a b\\" from t', id="escaped_quotes"),
+        pytest.param('db.sql("select |1\nx = 2\n', "select 1", id="unterminated_string_ends_at_line"),
+        pytest.param('db.sql(f"select |a from\nx = 2\n', "select a from", id="unterminated_f_string"),
+        pytest.param('if x:\n    a = 1\n  b = 2\ndb.sql("select |3")\n', "select 3", id="after_indentation_error"),
+        pytest.param('db.sql("select 1\nx = 2\ndb.execute("select |2")\n', "select 2", id="after_unterminated_string"),
     ],
 )
 def test_finds_sql_around_cursor(source, expected_sql):
@@ -37,7 +50,10 @@ def test_finds_sql_around_cursor(source, expected_sql):
     assert rng is not None
     assert rng.txt == expected_sql
     assert rng.cur_idx == idx
-    assert source[rng.start:rng.end] == rng.txt
+    # f-string fields are replaced, but offsets still line up with the source
+    assert len(source[rng.start:rng.end]) == len(rng.txt)
+    if "{" not in source:
+        assert source[rng.start:rng.end] == rng.txt
     assert rng.start <= idx <= rng.end
 
 
@@ -50,6 +66,10 @@ def test_finds_sql_around_cursor(source, expected_sql):
         pytest.param('print("select * from |orders")', id="string_not_in_sql_call"),
         pytest.param('q = """--sql|\nselect 1\n"""', id="on_marker_line"),
         pytest.param('q = """--sql\n|  \n"""', id="empty_block"),
+        pytest.param('db.sql(b"select |1")', id="bytes"),
+        pytest.param('db.execute("select 1", "not |sql")', id="second_argument"),
+        pytest.param('db.sql(f"select {t|} from x")', id="inside_f_string_field"),
+        pytest.param('x = 1|\ndb.sql("select 1\n', id="before_unterminated_string"),
     ],
 )
 def test_no_sql_outside_sql_strings(source):
@@ -67,3 +87,12 @@ def test_cursor_offset_within_range_maps_back_to_source():
 
 def test_strip_sql_whitespace_collapses_and_drops_marker():
     assert strip_sql_whitespace("--sql\nselect  *\n\tfrom   t") == "select * from t"
+
+
+def test_positions_count_utf16_units():
+    # VS Code counts a character outside the BMP as two columns
+    source = 'e = "\U0001F600"; db.sql("select 1")'
+    col_utf16 = source.index("select") + 1
+    rng = get_sql2(source, 0, col_utf16)
+    assert rng is not None
+    assert rng.cur_idx == source.index("select")

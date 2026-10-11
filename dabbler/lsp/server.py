@@ -14,6 +14,7 @@ from lark import UnexpectedToken
 from dabbler.lsp.server_classes import InlineSqlLangServer
 from dabbler.lsp.sql_utils import (
     get_sql2,
+    sql_range_at,
     line_col,
     get_range,
     get_statement,
@@ -56,8 +57,7 @@ def completions(
 
     trigger = params.context.trigger_character
 
-    # sql_rng = get_sql(document.source, params.position.line, params.position.character)
-    sql_rng = get_sql2(document.source, params.position.line, params.position.character)
+    sql_rng = sql_range_at(document.source, document.offset_at_position(params.position))
 
     # ls.log_to_client(f'{params}')
     # ls.log_to_client(f'\nsql_rng: {sql_rng.start,sql_rng.end}\nleft of idx{document.source[sql_rng.cur_idx-5:sql_rng.cur_idx]}\n{sql_rng.txt}\n{document.source[sql_rng.start:sql_rng.end]}')
@@ -198,7 +198,7 @@ def send_sql_to_gui(ls: InlineSqlLangServer, *args):
     uri, line, char = location
 
     document = ls.workspace.get_text_document(uri)
-    sql_rng = get_sql2(document.source, line, char)
+    sql_rng = sql_range_at(document.source, document.offset_at_position(lsp.Position(line, char)))
 
     if not sql_rng:
         ls.log_to_client(

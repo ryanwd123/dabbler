@@ -1,10 +1,10 @@
 #%%
 from dataclasses import dataclass
-from itertools import chain
 import duckdb
 import sqlparse
 import re as regex
 from dabbler.common import check_name
+from dabbler.lsp.sql_regions import position_to_offset, region_at
 from typing import Union
 
 from lsprotocol.types import (
@@ -146,53 +146,23 @@ def get_statement(rng:SqlTxtRange,txt:str):
 
 
 
-re_patterns = [
-    # '(?:"""--sql[^\n]*\n)(?P<sql>.*?)(?:""")',
-    # '([^\n]*"""--sql[^\n]*\n)(?P<sql>.*?)([\n]*?""")',
-    r'([^\n]*?"""--sql[^\n]*?\n)(?P<sql>.*?)(""")',
-    # '([^\n]*?"""--sql[^\n]*?\n)(?P<sql>.*?)([\n]*?\s*?""")',
-    r'(.(sql|execute|executemany)\(")(?P<sql>.*?)("\s*(\)|,))',
-    r"(.(sql|execute|executemany)\(')(?P<sql>.*?)('\s*(\)|,))",
-    ]
-
-
-def get_idx(txt,cur_line,cur_col):
-    x = sum(len(x)+1 for i,x in enumerate(txt.split('\n'),start=0) if i < cur_line)
-    return x + cur_col
-
-def get_range(txt,cur_line,cur_col):
-    # print(len(txt))
-    idx = get_idx(txt,cur_line,cur_col)
-    # print(idx)
-    re_matches = chain.from_iterable(
-        (regex.finditer(
-            pattern=p,
-            string=txt,
-            flags=regex.DOTALL | regex.IGNORECASE) for p in re_patterns)
+def sql_range_at(txt: str, idx: int) -> Union[SqlTxtRange, None]:
+    """The SQL string around offset idx of a python file (see sql_regions)."""
+    region = region_at(txt, idx)
+    if region is None:
+        return None
+    return SqlTxtRange(
+        txt=region.text,
+        length=region.end - region.start,
+        start=region.start,
+        end=region.end,
+        cur_idx=idx,
     )
-    
-    for m in re_matches:
-        s,e = m.span('sql')
-        if idx >= s and idx <= e:
-            # print(f'{s},{e}\n',m.groups()[0])
-            txt = m.group('sql')
-            if not txt or len(txt.strip()) == 0:
-                return
-            # if txt.strip()[-1] != ';':
-            #     txt += ';'
-            
-            return SqlTxtRange(
-                txt=txt,
-                length=e-s,
-                start=s,
-                end=e,
-                cur_idx=idx
-            )
 
 
-def get_sql2(txt,cur_line,cur_col):
-    
-    result = get_range(txt,cur_line,cur_col)
-    return result
+def get_sql2(txt, cur_line, cur_col):
+    """The SQL string around an LSP position (UTF-16 columns) of a python file."""
+    return sql_range_at(txt, position_to_offset(txt, cur_line, cur_col))
 
 
+get_range = get_sql2
