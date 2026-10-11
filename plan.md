@@ -53,6 +53,25 @@ change. Now the schema is stored as rows in `schema_cache.sqlite3`:
   read live.
 - Old version-1 cache files (JSON snapshots) are upgraded in place on first open.
 
+## Done: finding SQL strings, syntax errors, formatting
+
+- SQL strings are found with python's tokenizer (`lsp/sql_regions.py`), not
+  regexes. It handles f-strings (fields become same-length `___` names),
+  `'''`/raw strings, the `query=` keyword, and half-typed code. Unterminated
+  strings end at their line, and indentation errors restart the scan. Python
+  escapes in non-raw strings are blanked to same-length whitespace. Positions
+  are UTF-16 as LSP requires.
+- Syntax errors come from DuckDB's parser (`lsp/diagnostics.py`:
+  `extract_statements`, with the position from `json_serialize_sql`). Every SQL
+  string in the file is checked 0.3s after typing stops. f-strings with
+  fields are skipped. Never bind python parameters in DuckDB calls from the
+  language server's threads: DuckDB may import pandas under its lock and
+  deadlock (seen with `json_serialize_sql(?)`).
+- Table function describes (`read_csv(...)`) are interrupted after 1s, skip
+  URLs without httpfs, and keep an LRU of 256.
+- The format command uses sqlglot's DuckDB dialect on the whole SQL string,
+  keeps its indentation, and refuses f-strings and escaped strings.
+
 ## 1. Remove DataFrame completions
 
 Done: the IPython side no longer looks for DataFrames (`get_pathlib_paths` in
