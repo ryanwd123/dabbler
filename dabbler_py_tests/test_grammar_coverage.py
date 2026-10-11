@@ -4,6 +4,8 @@ Completions work best where the grammar parses; elsewhere the completer falls ba
 regexes. Known gaps are strict xfails: when a construct is added to duckdb.lark, its
 case starts passing and must be taken off KNOWN_GAPS (plan.md, section 2).
 """
+import re
+
 import duckdb
 import pytest
 
@@ -146,3 +148,29 @@ def test_grammar_accepts(sql):
 @pytest.mark.parametrize("sql", CASES.values(), ids=CASES.keys())
 def test_cases_are_valid_duckdb(sql):
     duckdb.connect().extract_statements(sql)
+
+
+def function_examples():
+    """DuckDB's examples for its functions, as SELECT statements DuckDB accepts."""
+    con = duckdb.connect()
+    rows = con.execute("select examples from duckdb_functions() where len(examples) > 0").fetchall()
+    examples = sorted({e for (found,) in rows for e in found})
+    statements = []
+    for example in examples:
+        sql = example if re.match(r"(?i)\s*(select|from|with|pivot|describe)", example) else f"select {example}"
+        try:
+            con.extract_statements(sql)
+        except duckdb.Error:
+            continue  # some examples are fragments, not statements
+        statements.append(sql)
+    return statements
+
+
+def test_grammar_parses_duckdb_function_examples():
+    failed = []
+    for sql in function_examples():
+        try:
+            sql_parser.parse(sql)
+        except Exception:
+            failed.append(sql)
+    assert failed == []

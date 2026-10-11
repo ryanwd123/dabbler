@@ -399,6 +399,7 @@ other_op: CONCAT | ARROW | DOUBLE_ARROW | BIT_AND | BIT_OR | SHIFT_LEFT | SHIFT_
         | postfix "[" slice_args "]" -> slice
         | postfix "." IDENT "(" [DISTINCT] [args] ")" [window_form] -> dot_function
         | postfix "." IDENT -> field
+        | postfix FACTORIAL -> factorial
 
 ?primary: _col_ref -> col_ref
         | _z9_incomplete_col_ref -> z9_incomplete_col_ref
@@ -411,6 +412,8 @@ other_op: CONCAT | ARROW | DOUBLE_ARROW | BIT_AND | BIT_OR | SHIFT_LEFT | SHIFT_
         | INTERVAL (STRING|NUMBER|"(" expression ")") [IDENT] -> interval
         | [IDENT "."] IDENT "(" [DISTINCT] [args] [order_by] ")" [WITHIN GROUP "(" order_by ")"] [filter] [window_form] -> function
         | [IDENT "."] IDENT "(" STAR ")" [filter] [window_form] -> function
+        // functions whose names are keywords elsewhere: map(keys, values), left(s, n), right(s, n)
+        | (MAP|LEFT|RIGHT) "(" [args] ")" -> function
         | CASE [expression] (WHEN expression THEN expression)+ [ELSE expression] END -> case
         | (CAST|TRY_CAST) "(" expression _AS type ")" -> cast
         | "(" expression ")" -> parenthesized_expression
