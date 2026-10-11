@@ -24,7 +24,7 @@ from dabbler.lsp.completion_utils import (
     duckdb_settings,
     duckdb_pragmas,
     duckdb_types,
-    file_path_completion_regex,
+    path_at,
 )
 from lsprotocol.types import (
     CompletionItem,
@@ -305,7 +305,21 @@ class SqlCompleter:
                     item.insert_text_format = InsertTextFormat.Snippet
         return result
 
+    def replace_span(self, cursor_pos: int, txt: str) -> Union[tuple[int, int], None]:
+        """What a chosen item should replace, when the editor's word range would be
+        wrong: the last segment of a file path, or a quoted name with its quote."""
+        path = path_at(txt, cursor_pos)
+        if path is not None:
+            return path[1], path[2]
+        start, end = word_span(txt, cursor_pos)
+        if txt[start:start + 1] == '"':
+            return start, end
+        return None
+
     def _route_completion(self, cursor_pos: int, txt: str, trigger: Union[str, None]):
+        path = path_at(txt, cursor_pos)
+        if path is not None:
+            return CompletionList(is_incomplete=False, items=self.path_completer.get_items(path[0]))
         start, end = word_span(txt, cursor_pos)
         if txt[start:start + 1] == '"':
             return self._complete_quoted(start, end, cursor_pos, txt)
@@ -336,11 +350,6 @@ class SqlCompleter:
             flags=re.IGNORECASE,
         ):
             return CompletionList(is_incomplete=False, items=duckdb_settings)
-
-        file_comp = file_path_completion_regex.match(sql_left_of_cur)
-        if file_comp:
-            items = self.path_completer.get_items(file_comp.group(2))
-            return CompletionList(is_incomplete=False, items=items)
 
         try:
             parsed_items, parsed = self.parse_sql2(cursor_pos, txt)

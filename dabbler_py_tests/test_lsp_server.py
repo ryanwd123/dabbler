@@ -380,3 +380,24 @@ async def test_quoted_name_completion_replaces_the_quote(client: LanguageClient)
     start = source.index('"Order Li')
     assert (item.text_edit.range.start.character, item.text_edit.range.end.character) == (start, start + 9)
     assert item.text_edit.new_text == '"Order Lines"'
+
+
+@pytest.mark.asyncio
+async def test_path_completion_replaces_the_typed_file_name(client: LanguageClient):
+    (client.workspace_path / "my data.csv").write_text("a\n1\n")
+    db_data = get_db_data_new(make_completion_db(), skip_ipython=True)
+    db_data["cwd"] = str(client.workspace_path)
+    SchemaCache(CACHE_PATH).save_snapshot(client.workspace_path / "nb.py", db_data)
+    source = "db.sql(\"select * from 'my d\")\n"
+    uri = open_doc(client, source)
+    result = await client.text_document_completion_async(
+        types.CompletionParams(
+            text_document=types.TextDocumentIdentifier(uri=uri),
+            position=position_of(source, "'my d"),
+            context=types.CompletionContext(trigger_kind=types.CompletionTriggerKind.Invoked),
+        )
+    )
+    (item,) = [x for x in result.items if x.label == "my data.csv"]
+    start = source.index("my d")
+    assert (item.text_edit.range.start.character, item.text_edit.range.end.character) == (start, start + 4)
+    assert item.text_edit.new_text == "my data.csv"

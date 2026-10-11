@@ -1,10 +1,11 @@
 from typing import Union
 import logging
+import os
 from pathlib import Path
 import duckdb
 import re
-# from dabbler.lsp.server_classes import InlineSqlLangServer
 from lsprotocol.types import (
+    Command,
     CompletionItem,
     CompletionItemKind,
     CompletionItemLabelDetails
@@ -28,10 +29,16 @@ duckdb_pragmas = [CompletionItem(label=f'{x[0]}',sort_text="99") for x in
                 duckdb.execute("select distinct function_name from duckdb_functions() where function_type ='pragma'").fetchall()]
 
 types_to_exclude = set(['.py','.ipynb'])
-# path characters; a bare "/-_" in a character class is a range that also matches ;<=>?@ etc.
-path_chars = r"[\w./ ,:-]"
-file_path_completion_pattern = r".*('\./)(" + path_chars + r"+)?$"
-file_path_completion_regex = re.compile(file_path_completion_pattern)
+# path characters in python code (pathlib completions); a bare "/-_" in a character
+# class is a range that also matches ;<=>?@ etc.
+path_chars = r"[\w./ ,:\\~()&#+=@\[\]-]"
+MAX_PATH_ITEMS = 500
+# SQL that reads or writes the file named by the string that follows
+re_file_context = re.compile(
+    r"(?:\b(?:read_\w+|parquet_\w+|sniff_csv|glob|from|join|attach|copy\s+\w+\s+(?:to|from)|to|from)\s*\(?\s*)$",
+    re.IGNORECASE,
+)
+re_path_like = re.compile(r"^(?:\.{1,2}[/\\]|~|[/\\]|[a-zA-Z]:)|[/\\]")
 
 
 def sizeof_fmt(num, suffix="B"):
@@ -42,54 +49,112 @@ def sizeof_fmt(num, suffix="B"):
     return f"{num:.1f}Yi{suffix}"
 
 
-class PathCompleter:
-    def __init__(self,cwd:str,search_path:Union[str,None],types_to_exclude=types_to_exclude) -> None:
-        self.cwd = None
-        self.search_path = None
-        self.log = logging.getLogger('PathCompleter')
-        if cwd and Path(cwd).is_dir():
-            self.cwd = Path(cwd)
-        if search_path and Path(search_path).is_dir():
-            self.search_path = Path(search_path)
-            
-    def get_items(self, search:str):
-        if search is None:
-            search = ''
-        
-        if '/' in search:
-            path,file = search.rsplit('/',1)
-        else:
-            path,file = '',search
-        
-        items:list[Path] = []
+def open_string_start(sql: str, pos: int) -> Union[int, None]:
+    """Where the single-quoted SQL string around pos starts (after its quote), if pos is in one."""
+    i, start = 0, None
+    while i < pos:
+        c = sql[i]
+        if start is not None:
+            if c == "'":
+                if i + 1 < pos and sql[i + 1] == "'":
+                    i += 2  # '' is a quote inside the string
+                    continue
+                start = None
+        elif c == "'":
+            start = i + 1
+        elif c == '"':
+            end = sql.find('"', i + 1)
+            if end < 0 or end >= pos:
+                return None
+            i = end
+        elif sql.startswith("--", i):
+            end = sql.find("\n", i)
+            if end < 0 or end >= pos:
+                return None
+            i = end
+        elif sql.startswith("/*", i):
+            end = sql.find("*/", i + 2)
+            if end < 0 or end + 2 > pos:
+                return None
+            i = end + 1
+        i += 1
+    return start
 
-        if self.cwd:
-            items.extend([f for f in self.cwd.joinpath(path).glob(f'{file}*') if f.suffix.lower() not in types_to_exclude])
-        
-        file_names = {x.name for x in items}
-        
-        if self.search_path:
-            glob = self.search_path.joinpath(path).glob(f'{file}*')
-            files = [f for f in glob if f.name not in file_names and f.suffix.lower() not in types_to_exclude]
-            items.extend(files)
-        
-        
-        comp_items = [CompletionItem(
-            label=f.name,
-            sort_text="1",
-            kind=CompletionItemKind.Folder if f.is_dir() else CompletionItemKind.File,
-            label_details=CompletionItemLabelDetails(
-                detail=None,
-                description=sizeof_fmt(f.stat().st_size) if f.is_file() else None,
-            )
-            
-            )
-                      
-                      for f in items]
-        
-        self.log.debug([search,path,file,items])
-        return comp_items
-    
+
+def path_at(sql: str, pos: int) -> Union[tuple[str, int, int], None]:
+    """(typed path, start, end of its last segment) when the cursor is in a string
+    holding a file path: one that looks like a path ('./', '~/', 'C:\\', 'a/b'),
+    or any string where SQL reads a file (FROM '...', read_csv('...'), COPY ... TO '...')."""
+    start = open_string_start(sql, pos)
+    if start is None:
+        return None
+    typed = sql[start:pos]
+    if "\n" in typed:
+        return None
+    if not (re_path_like.search(typed) or re_file_context.search(sql[:start - 1])):
+        return None
+    segment_start = start + max(typed.rfind("/"), typed.rfind("\\")) + 1
+    end = pos
+    while end < len(sql) and sql[end] not in "'/\\\n":
+        end += 1
+    return typed, segment_start, end
+
+
+class PathCompleter:
+    """Files and folders for a path typed so far, relative to the session's working
+    directory and file_search_path, or absolute, or starting with ~."""
+
+    def __init__(self, cwd: Union[str, None], search_path: Union[str, None], types_to_exclude=types_to_exclude) -> None:
+        self.log = logging.getLogger('PathCompleter')
+        self.bases: list[Path] = []
+        for base in [cwd, *(search_path or '').split(',')]:
+            if base and Path(base).is_dir() and Path(base) not in self.bases:
+                self.bases.append(Path(base))
+        self.types_to_exclude = types_to_exclude
+
+    def get_items(self, search: Union[str, None]) -> list[CompletionItem]:
+        search = os.path.expanduser(search or '')
+        cut = max(search.rfind('/'), search.rfind('\\')) + 1
+        folder, prefix = search[:cut], search[cut:].lower()
+        if os.path.isabs(folder) or re.match(r'^[a-zA-Z]:', folder):
+            dirs = [Path(folder)]
+        else:
+            dirs = [base / folder for base in self.bases]
+
+        found: dict[str, Path] = {}
+        for d in dirs:
+            try:
+                entries = list(os.scandir(d))
+            except OSError:
+                continue
+            for entry in entries:
+                if entry.name in found or not entry.name.lower().startswith(prefix):
+                    continue
+                if Path(entry.name).suffix.lower() in self.types_to_exclude:
+                    continue
+                found[entry.name] = Path(entry.path)
+                if len(found) >= MAX_PATH_ITEMS:
+                    break
+
+        items = []
+        for name, path in sorted(found.items(), key=lambda x: (not x[1].is_dir(), x[0].lower())):
+            is_dir = path.is_dir()
+            try:
+                size = None if is_dir else sizeof_fmt(path.stat().st_size)
+            except OSError:
+                size = None
+            items.append(CompletionItem(
+                label=name + ('/' if is_dir else ''),
+                sort_text=('0' if is_dir else '1') + name.lower(),
+                filter_text=name,
+                kind=CompletionItemKind.Folder if is_dir else CompletionItemKind.File,
+                label_details=CompletionItemLabelDetails(description=size),
+                # a folder's contents come next
+                command=Command(title='', command='editor.action.triggerSuggest') if is_dir else None,
+            ))
+        self.log.debug([search, folder, prefix, len(items)])
+        return items
+
 
 re_path_parent_step = re.compile(r"""\.parent|\.joinpath\(['"]([^'"]+)['"]\)""")
 
