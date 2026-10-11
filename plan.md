@@ -196,7 +196,40 @@ literals in python code (only `Path` variables complete today).
   table count as detail.
 - Prune entries whose file no longer exists.
 
+## Done: packaging and tooling (2026-10-11)
+
+- Python 3.12+. Core dependencies are only what the language server needs
+  (duckdb, lark, pygls, sqlglot); the window needs `pip install "dabbler[gui]"`
+  (IPython, PySide6, polars, pyarrow, pygments). xlsxwriter is in `[excel]`.
+  sqlparse is gone.
+- Untracked: .vsix packages, test_files/test.db (86 MB), the generated
+  standalone parser, the Lark cache (now in the data folder), .coverage and
+  import.log. History still contains them.
+- The parser debug window is `tools/parser_debug_gui.py`.
+- `.github/workflows/tests.yml`: pytest on Ubuntu and Windows, Python 3.12 and
+  3.13, and ruff (syntax errors and undefined names only for now). The publish
+  workflow builds the tagged commit and checks the tag against `__version__`
+  (bump with `python scripts/version.py`).
+- VS Code extension: starts on activation, offers to install dabbler when it's
+  missing, the TextMate injection matches the server's SQL strings, and the
+  template leftovers are gone.
+
 ## Other open items
 
-- `Pipfile` still lists the empty `zmq` placeholder package (the pyproject
-  dependency was removed); re-lock when convenient.
+- VS Code extension: run `npm ci` and `npm run compile` to type-check the new
+  extension.ts. It wasn't compiled when it changed, because node_modules wasn't
+  installed. Then:
+  - upgrade vscode-languageclient 8 to 9, TypeScript and eslint
+  - turn on `strict` in tsconfig
+  - add a packaging workflow
+- License: LICENSE.txt in dabbler_vsc_ext is Apache-2.0 (from the pygls
+  template), and package.json says MIT. Decide which applies.
+- `Pipfile`: drop sqlparse and the zmq placeholder, move pytest and friends to
+  [dev-packages], and re-lock (`pipenv lock`).
+- The CI workflow hasn't run yet; push and check it, especially Qt offscreen on
+  Ubuntu.
+- Widen the ruff rules (pyflakes F, then pycodestyle) and fix what they find.
+- Shrinking the repo needs a history rewrite (git filter-repo) to drop the
+  large files; ask before doing it.
+- Path completion for `Path('...')` literals in python code.
+- Sections 3 (`# dabbler use`) and 5 (remember database files) are untouched.
