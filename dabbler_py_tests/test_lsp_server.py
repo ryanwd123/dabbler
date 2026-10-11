@@ -4,6 +4,7 @@ These are the safety net for the pygls upgrade, so they only use the protocol,
 never the server's internals. The server reads schemas from a schema cache file
 that these tests write to directly, standing in for the IPython extension.
 """
+import asyncio
 import atexit
 import os
 import shutil
@@ -148,18 +149,66 @@ async def test_syntax_error_diagnostic_and_clear(client: LanguageClient):
             )
         )
 
-    # "select * from t" -> "select * from t wher x"
+    await diagnostics_for(client, uri)
+    # "select * from t" -> "select * from t wher x": DuckDB reads "wher" as an alias and stops at "x"
     change(2, 1, 15, 15, " wher x")
-    await client.wait_for_notification(types.TEXT_DOCUMENT_PUBLISH_DIAGNOSTICS)
-    diags = client.diagnostics[uri]
-    assert len(diags) == 1
-    assert "Unexpected Token" in diags[0].message
-    assert diags[0].range.start.line == 1
+    diags = await diagnostics_for(client, uri, lambda d: len(d) == 1)
+    assert "syntax error" in diags[0].message
+    assert (diags[0].range.start.line, diags[0].range.start.character) == (1, 21)
+    assert (diags[0].range.end.line, diags[0].range.end.character) == (1, 22)
 
     # fix it: "wher" -> "where"
     change(3, 1, 20, 20, "e")
-    await client.wait_for_notification(types.TEXT_DOCUMENT_PUBLISH_DIAGNOSTICS)
-    assert len(client.diagnostics[uri]) == 0
+    await diagnostics_for(client, uri, lambda d: len(d) == 0)
+
+
+async def diagnostics_for(client: LanguageClient, uri: str, done=lambda d: True, timeout=5.0):
+    """The document's diagnostics once the server has published some that satisfy done."""
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + timeout
+    while loop.time() < deadline:
+        if uri in client.diagnostics and done(client.diagnostics[uri]):
+            return client.diagnostics[uri]
+        await asyncio.sleep(0.05)
+    raise AssertionError(f"no matching diagnostics; last: {client.diagnostics.get(uri)}")
+
+
+@pytest.mark.asyncio
+async def test_errors_in_every_sql_string_are_reported(client: LanguageClient):
+    source = (
+        'a = db.sql("select * fro t")\n'
+        'b = db.sql("select 1 from t where x qualify row_number() over () = 1")\n'
+        'c = """--sql\ndelete from t wher x = 1\n"""\n'
+    )
+    uri = open_doc(client, source)
+    diags = await diagnostics_for(client, uri, lambda d: len(d) == 2)
+    starts = sorted((d.range.start.line, d.range.start.character) for d in diags)
+    # 'fro' reads as an alias, so the error is at "t"; "wher" likewise, so it's at "x"
+    assert starts == [(0, 25), (3, 19)]
+
+    # an edit to the valid string in the middle keeps both errors
+    client.text_document_did_change(
+        types.DidChangeTextDocumentParams(
+            text_document=types.VersionedTextDocumentIdentifier(uri=uri, version=2),
+            content_changes=[types.TextDocumentContentChangeWholeDocument(text=source.replace("select 1", "select 2"))],
+        )
+    )
+    await asyncio.sleep(0.6)
+    assert len(client.diagnostics[uri]) == 2
+
+
+@pytest.mark.asyncio
+async def test_valid_duckdb_sql_has_no_errors(client: LanguageClient):
+    source = (
+        'db.sql("select list_transform([1, 2], x -> x + 1)")\n'
+        'db.sql("delete from t where x = 1")\n'
+        'db.sql("pivot t on year using sum(amount)")\n'
+        'db.sql("select * from t qualify row_number() over (partition by a) = 1")\n'
+        'db.sql(f"select * from {table} where a in {values}")\n'
+        'db.sql("select 1\\nfrom t")\n'
+    )
+    uri = open_doc(client, source)
+    assert list(await diagnostics_for(client, uri)) == []
 
 
 @pytest.mark.asyncio

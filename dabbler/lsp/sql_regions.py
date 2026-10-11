@@ -125,16 +125,32 @@ def _tokens(source: str):
         first_line = next_line
 
 
-def _string_content(s: str, tok_start: int, tok_end: int) -> Union[tuple[int, int, str], None]:
-    """(start, end, quote) of a plain string's text, or None for bytes."""
-    prefix = re_prefix.match(s).group(0)  # type: ignore
-    if "b" in prefix.lower():
+def _string_content(s: str, tok_start: int, tok_end: int) -> Union[tuple[int, int, bool], None]:
+    """(start, end, raw) of a plain string's text, or None for bytes."""
+    prefix = re_prefix.match(s).group(0).lower()  # type: ignore
+    if "b" in prefix:
         return None
     body = s[len(prefix):]
     quote = body[:3] if body[:3] in ('"""', "'''") else body[:1]
     start = tok_start + len(prefix) + len(quote)
     end = tok_end - len(quote) if s.endswith(quote) and len(body) >= 2 * len(quote) else tok_end
-    return start, max(start, end), quote
+    return start, max(start, end), "r" in prefix
+
+
+def _blank_escapes(chars: list[str]) -> None:
+    """Turns python escapes into what SQL sees, without moving anything: `\\n` into
+    two spaces, `\\"` into a space and a quote."""
+    i = 0
+    while i < len(chars) - 1:
+        if chars[i] != "\\":
+            i += 1
+            continue
+        nxt = chars[i + 1]
+        if nxt in "ntr":
+            chars[i] = chars[i + 1] = " "
+        elif nxt in "'\"\\\n":
+            chars[i] = " "
+        i += 2
 
 
 def _is_sql_call(previous: deque) -> bool:
@@ -145,8 +161,14 @@ def _is_sql_call(previous: deque) -> bool:
     return len(names) >= 3 and names[-1] == "(" and names[-2] in SQL_CALLS and names[-3] == "."
 
 
-def _make_region(source: str, start: int, end: int, fields: list[tuple[int, int]], is_call: bool, fstring=False):
+def _make_region(
+    source: str, start: int, end: int, fields: list[tuple[int, int]], is_call: bool, fstring=False, raw=False
+):
     text = source[start:end]
+    if not raw and "\\" in text:
+        chars = list(text)
+        _blank_escapes(chars)
+        text = "".join(chars)
     if fstring:
         chars = list(text)
         field_set = set()
@@ -181,12 +203,12 @@ def sql_regions(source: str) -> tuple[SqlRegion, ...]:
         return ()
     regions: list[SqlRegion] = []
     previous: deque[str] = deque(maxlen=5)  # text of the last significant tokens
-    # f-strings being read: [content start, brace depth, fields, is_call]
+    # f-strings being read: [content start, brace depth, fields, is_call, raw]
     fstrings: list[list] = []
 
     def close_fstring(ctx, end: int):
         fields = [(s, e) for s, e in ctx[2] if e is not None]
-        region = _make_region(source, ctx[0], end, fields, ctx[3], fstring=True)
+        region = _make_region(source, ctx[0], end, fields, ctx[3], fstring=True, raw=ctx[4])
         if region:
             regions.append(region)
         previous.append("")
@@ -199,7 +221,7 @@ def sql_regions(source: str) -> tuple[SqlRegion, ...]:
                 close_fstring(fstrings[0], end)
                 fstrings.clear()
             elif typ == tokenize.FSTRING_START:
-                fstrings.append([end, 0, [], False])
+                fstrings.append([end, 0, [], False, False])
             elif typ == tokenize.OP and string == "{":
                 if ctx[1] == 0:
                     ctx[2].append([start, None])
@@ -215,12 +237,12 @@ def sql_regions(source: str) -> tuple[SqlRegion, ...]:
             continue
 
         if typ == tokenize.FSTRING_START:
-            fstrings.append([end, 0, [], _is_sql_call(previous)])
+            fstrings.append([end, 0, [], _is_sql_call(previous), "r" in string.lower()])
             continue
         if typ == tokenize.STRING or typ == RECOVERED:
             content = _string_content(string, start, end)
             if content:
-                region = _make_region(source, content[0], content[1], [], _is_sql_call(previous))
+                region = _make_region(source, content[0], content[1], [], _is_sql_call(previous), raw=content[2])
                 if region:
                     regions.append(region)
         if typ not in SKIP:

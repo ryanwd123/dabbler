@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import threading
 from typing import Union
@@ -24,6 +25,8 @@ class InlineSqlLangServer(LanguageServer):
         self.completers: dict[str, tuple[str, SqlCompleter]] = {}
         self.default_completer: Union[SqlCompleter, None] = None
         self.completer_lock = threading.Lock()
+        # uri -> scheduled syntax check, so a burst of edits is checked once
+        self.pending_diagnostics: dict[str, asyncio.TimerHandle] = {}
 
     def log_to_client(self, message: str):
         """Writes to the extension's output channel."""
@@ -33,8 +36,10 @@ class InlineSqlLangServer(LanguageServer):
         """Shows a notification in the editor."""
         self.window_show_message(lsp.ShowMessageParams(type=type, message=message))
 
-    def publish_diagnostics(self, uri: str, diagnostics: list[lsp.Diagnostic]):
-        self.text_document_publish_diagnostics(lsp.PublishDiagnosticsParams(uri=uri, diagnostics=diagnostics))
+    def publish_diagnostics(self, uri: str, diagnostics: list[lsp.Diagnostic], version: Union[int, None] = None):
+        self.text_document_publish_diagnostics(
+            lsp.PublishDiagnosticsParams(uri=uri, diagnostics=diagnostics, version=version)
+        )
 
     def workspace_root(self) -> Union[str, None]:
         try:

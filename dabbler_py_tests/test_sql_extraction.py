@@ -38,7 +38,9 @@ def extract(source_with_cursor: str):
         pytest.param('db.sql(f"select * from {tbl} where |x")', "select * from _____ where x", id="f_string_call"),
         pytest.param('db.sql(f"select {d["k"]}, |x from t")', "select ________, x from t", id="f_string_nested_quotes"),
         pytest.param("db.sql(f\"select {{'a': 1}} as |s\")", "select { 'a': 1}  as s", id="f_string_escaped_braces"),
-        pytest.param('db.sql("select \\"a b\\" from |t")', 'select \\"a b\\" from t', id="escaped_quotes"),
+        pytest.param('db.sql("select \\"a b\\" from |t")', 'select  "a b " from t', id="escaped_quotes"),
+        pytest.param('db.sql("select 1\\nfrom |t")', "select 1  from t", id="newline_escape"),
+        pytest.param('db.sql(r"select 1\\nfrom |t")', "select 1\\nfrom t", id="raw_string_keeps_backslashes"),
         pytest.param('db.sql("select |1\nx = 2\n', "select 1", id="unterminated_string_ends_at_line"),
         pytest.param('db.sql(f"select |a from\nx = 2\n', "select a from", id="unterminated_f_string"),
         pytest.param('if x:\n    a = 1\n  b = 2\ndb.sql("select |3")\n', "select 3", id="after_indentation_error"),
@@ -50,9 +52,9 @@ def test_finds_sql_around_cursor(source, expected_sql):
     assert rng is not None
     assert rng.txt == expected_sql
     assert rng.cur_idx == idx
-    # f-string fields are replaced, but offsets still line up with the source
+    # f-string fields and escapes are replaced, but offsets still line up with the source
     assert len(source[rng.start:rng.end]) == len(rng.txt)
-    if "{" not in source:
+    if "{" not in source and "\\" not in source:
         assert source[rng.start:rng.end] == rng.txt
     assert rng.start <= idx <= rng.end
 

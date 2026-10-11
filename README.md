@@ -77,7 +77,7 @@ Intellisnse / autocomplete:
         - example:
         
             ![syntax_highlighting_example](images/syntax_highlighting_example.png)
-    - If changes are made to the document within an sql text range the only that range of text is parsed and if there is an error that is published to the client.  Since the parse is not 100% complete at this point the parser could return errors that due parse in DuckDb.
+    - Syntax errors come from DuckDB's own parser (`lsp/diagnostics.py`), which parses without running anything, so valid DuckDB SQL is never flagged. Every SQL string in the file is checked once typing pauses. f-strings with `{fields}` aren't checked, since what the fields expand to isn't known.
 
 
 ### Next steps

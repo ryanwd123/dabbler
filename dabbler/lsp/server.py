@@ -1,6 +1,6 @@
+import asyncio
 from typing import Optional
 import sqlglot
-import time
 
 
 from lsprotocol import types as lsp
@@ -8,8 +8,8 @@ from lsprotocol.types import (
     CompletionList,
 )
 
-from dabbler.lsp.parser import sql_parser, with_clause
-from lark import UnexpectedToken
+from dabbler.lsp.diagnostics import sql_errors
+from dabbler.lsp.parser import with_clause
 
 from dabbler.lsp.server_classes import InlineSqlLangServer
 from dabbler.lsp.sql_utils import (
@@ -23,6 +23,9 @@ from dabbler.lsp.completion_utils import pathlib_completetions
 
 
 sql_server = InlineSqlLangServer("dabbler", "v0.2")
+
+# seconds of no typing before a document's SQL is checked for syntax errors
+DIAGNOSTICS_DELAY = 0.3
 
 
 # list("abcdefghijklmnopqrstuvwxyz")+
@@ -96,82 +99,60 @@ def completions(
 
 
 
-def publish_syntax_error(ls:InlineSqlLangServer, uri, line, char,  msg):
-    d = lsp.Diagnostic(
-            range=lsp.Range(
-                start=lsp.Position(line=line, character=char),
-                end=lsp.Position(line=line, character=char+1),
-            ),
-            message=msg,
-            source='inline_sql',
-        )
-    ls.publish_diagnostics(uri,[d])
-
-
-@sql_server.thread()
-@sql_server.feature(lsp.TEXT_DOCUMENT_DID_CHANGE)
-def did_change(ls: InlineSqlLangServer, params: lsp.DidChangeTextDocumentParams):
-    """Text document did change notification."""
-    if not params:
-        return
-    
-    if not params.content_changes:
-        return
-
-    change = params.content_changes[0]
-    if not isinstance(change, lsp.TextDocumentContentChangePartial):
-        return
-    start_line = change.range.end.line
-    char = change.range.end.character
-    document = ls.workspace.get_text_document(params.text_document.uri)
-    # current_line_txt = document.lines[start_line]
-    # ls.log_to_client(f"did change: {start_line,char}, line txt: {current_line_txt}")
-    sql_range = get_sql2(document.source, start_line, char)
-    if not sql_range:
-        # ls.log_to_client(f"did not find sql range at line:{start_line + 1}")
-        ls.publish_diagnostics(params.text_document.uri, [])
-        return
-
+def publish_sql_errors(ls: InlineSqlLangServer, uri: str):
+    """Checks every SQL string in the document with DuckDB's parser and publishes the errors."""
     try:
-        sql_range.txt = sql_range.txt.replace('\r\n','\n')
-        # ls.log_to_client(f"sql: {sql_range}")
-        start = time.time()
-        p = sql_parser.parse(sql_range.txt)
-        # ls.log.debug(['parse time',time.time()-start])
+        document = ls.workspace.get_text_document(uri)
+        version = document.version
+        errors = sql_errors(document.source)
+        diagnostics = [
+            lsp.Diagnostic(
+                range=lsp.Range(
+                    start=document.client_position_at_offset(e.start),
+                    end=document.client_position_at_offset(e.end),
+                ),
+                message=e.message,
+                severity=lsp.DiagnosticSeverity.Error,
+                source="dabbler",
+            )
+            for e in errors
+        ]
+        if ls.workspace.get_text_document(uri).version != version:
+            return  # edited meanwhile; the newer check publishes
+        ls.publish_diagnostics(uri, diagnostics, version)
+    except Exception:
+        ls.log.exception(f"failed to check SQL in {uri}")
 
 
-    except Exception as e:
-        # ls.log.debug(['parse time',time.time()-start])
-        rng_start_line, rng_start_col = line_col(
-        ls.workspace.get_text_document(params.text_document.uri).source, sql_range.start
-        )
-        
-        if isinstance(e, UnexpectedToken):
-            msg = f'Unexpected Token "{e.token}"'
-            # ls.log_to_client(f'line: {e.line}, col: {e.column} {msg}')
-            publish_syntax_error(ls, params.text_document.uri, rng_start_line+e.line-2, e.column, msg)
-            
-    
-    else:
-        ls.publish_diagnostics(params.text_document.uri, [])
+def schedule_sql_errors(ls: InlineSqlLangServer, uri: str, delay: float):
+    """Checks the document's SQL once typing pauses for `delay` seconds."""
+    loop = asyncio.get_running_loop()
+    pending = ls.pending_diagnostics.pop(uri, None)
+    if pending:
+        pending.cancel()
+    ls.pending_diagnostics[uri] = loop.call_later(
+        delay, lambda: loop.run_in_executor(None, publish_sql_errors, ls, uri)
+    )
 
+
+@sql_server.feature(lsp.TEXT_DOCUMENT_DID_CHANGE)
+async def did_change(ls: InlineSqlLangServer, params: lsp.DidChangeTextDocumentParams):
+    schedule_sql_errors(ls, params.text_document.uri, DIAGNOSTICS_DELAY)
 
 
 @sql_server.feature(lsp.TEXT_DOCUMENT_DID_OPEN)
 async def did_open(ls: InlineSqlLangServer, params: lsp.DidOpenTextDocumentParams):
-
-    if not params:
-        return
-#     p = uri_to_path(params.text_document.uri)
-
-#     sql_server.show_message_log(
-# f"""workspace_path: {sql_server.workspace.root_path}
-# workspace_uri: {sql_server.workspace.root_uri}
-# file_uri: {params.text_document.uri}
-# file_path: {p}""")
-
     ls.log_workspace_info()
     ls.warm_up(params.text_document.uri)
+    schedule_sql_errors(ls, params.text_document.uri, 0)
+
+
+@sql_server.feature(lsp.TEXT_DOCUMENT_DID_CLOSE)
+async def did_close(ls: InlineSqlLangServer, params: lsp.DidCloseTextDocumentParams):
+    pending = ls.pending_diagnostics.pop(params.text_document.uri, None)
+    if pending:
+        pending.cancel()
+    ls.publish_diagnostics(params.text_document.uri, [])
 
 
 def command_location(ls: InlineSqlLangServer, args: tuple):
