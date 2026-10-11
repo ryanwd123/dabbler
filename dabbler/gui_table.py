@@ -108,7 +108,7 @@ def get_col_width(
             else:
                 c = df[col].cast(pl.String).unique()
 
-            c = c.is_not_null()
+            c = c.drop_nulls()
 
             if df.shape[0] > 100:
                 length_chars = c.str.len_chars()

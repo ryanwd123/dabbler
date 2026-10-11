@@ -1,13 +1,15 @@
-import pytest
-import logging
+import os
 
-from regex import P
+os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+
+import pytest
+
 from dabbler.gui_table import get_col_width, pl, QFont, QFontMetrics, QtWidgets
 
-app = QtWidgets.QApplication([])
 
 @pytest.fixture
 def font_metrics():
+    QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
     font = QFont("Arial", 10)
     return QFontMetrics(font)
 
@@ -28,6 +30,14 @@ def test_string_column(font_metrics):
     width = get_col_width(font_metrics, "strings", df, pl.String, "", 'VARCHAR')
     assert width > font_metrics.horizontalAdvance("strings")
     assert width > font_metrics.horizontalAdvance("very long string here")
+
+
+def test_string_column_with_nulls_is_measured(font_metrics):
+    # nulls used to turn the values into booleans, and every string column got the fallback width
+    df = pl.DataFrame({"s": [None, "a fairly long value to measure here", None]})
+    width = get_col_width(font_metrics, "s", df, pl.String, "", "VARCHAR")
+    assert width > font_metrics.horizontalAdvance("a fairly long value to measure here")
+    assert width != 200
 
 def test_list_column(font_metrics):
     df = pl.DataFrame({"lists": [[1, 2], [3, 4, 5], [6]]})
