@@ -1,3 +1,4 @@
+import logging
 import re
 import threading
 import sys
@@ -23,6 +24,9 @@ from typing import Union
 # from dabbler.gui_compenents import Shortcut
 import polars as pl
 import time
+
+
+log = logging.getLogger("dabbler_gui")
 
 
 def create_shortcut(key, function, parent):
@@ -56,7 +60,7 @@ def get_col_fmts(c: str, df: pl.DataFrame, dtype: pl.DataType, fm: QFontMetrics)
 def get_str(val, fmt: str, limit = 200):
     if val is None:
         return ""
-    
+
     if isinstance(val, pl.Series):
         val = val.to_list()
 
@@ -117,7 +121,7 @@ def get_col_width(
                 s = length_chars.std()
                 if (q and q > 100) or (m and isinstance(m,int) and m > 100):
                     return 600
-                
+
                 if not s is None and int(s) == 0:    # type: ignore
                     q = None
                 if q:
@@ -150,6 +154,12 @@ def get_col_fmts_and_widths(font: QFontMetrics, df: pl.DataFrame, dtypes: list[s
     return widths, fmts
 
 
+def sort_frame(df: pl.DataFrame, col: str, descending: bool) -> pl.DataFrame:
+    if df.schema[col] == pl.Categorical:
+        return df.sort(pl.col(col).cast(pl.String), descending=descending, nulls_last=True)
+    return df.sort(col, descending=descending, nulls_last=True)
+
+
 def get_alignment(dtype: pl.DataType):
     if dtype.is_numeric():
         return Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
@@ -162,46 +172,42 @@ def remove_regex_special_chars(term:str):
     return re.sub(r'(?<!\\)[\[\]{}()*+?.,\\^$|#\s]', '', term)
 
 
-def build_filter(filters:list, term:str, columns):
+def build_filter(filters: list, term: str, columns: list[str], numeric_columns: Union[list[str], None] = None):
+    """Adds the filter for one search term: text anywhere in a row (case-insensitive),
+    "-text" for rows without it, ">5" / "<5" for rows with a number above / below."""
     try:
-        if term[0] in ['>','<']:
-            op = term[0]
-            term = term[1:]
+        if term[0] in ['>', '<']:
             try:
-                term = float(term)  # type: ignore
-                if op == ">":
-                    filters.append(pl.any_horizontal(pl.col(pl.NUMERIC_DTYPES | pl.TEMPORAL_DTYPES) > term))
-                if op == "<":
-                    filters.append(pl.any_horizontal(pl.col(pl.NUMERIC_DTYPES | pl.TEMPORAL_DTYPES) < term))
+                value = float(term[1:])
+            except ValueError:
                 return filters
-            except Exception:
-                return filters
+            if numeric_columns:
+                cols = pl.col(numeric_columns)
+                filters.append(pl.any_horizontal(cols > value if term[0] == ">" else cols < value))
+            return filters
 
         if term[0] == "-":
-            term = term[1:]
-            term = remove_regex_special_chars(term)
-            if columns:
-                non_cat_predicate = ~pl.col(columns).fill_null('').str.contains(rf"(?i){term}")
-                filters.append(pl.all_horizontal(non_cat_predicate))
+            term = remove_regex_special_chars(term[1:])
+            if columns and term:
+                text = pl.col(columns).cast(pl.String).fill_null('')
+                filters.append(pl.all_horizontal(~text.str.contains(rf"(?i){term}")))
             return filters
 
         term = remove_regex_special_chars(term)
-        non_cat_predicate = pl.col(columns).cast(pl.String).str.contains(rf"(?i){term}")
-        f1 = pl.any_horizontal(non_cat_predicate)
-
-        filters.append(f1)
-
+        if columns and term:
+            filters.append(pl.any_horizontal(pl.col(columns).cast(pl.String).str.contains(rf"(?i){term}")))
         return filters
     except Exception:
         return filters
 
 
 def get_columns_for_filter(df: pl.DataFrame):
-    # list_cols = [c for c, dt in df.schema.items() if dt == pl.List]
-    # struct_cols = [c for c, dt in df.schema.items() if dt == pl.Struct]
-    columns_str = [c for c,dt in df.schema.items() if dt not in [pl.List, pl.Struct]]
+    """Columns that text search looks in: all but lists and structs."""
+    return [c for c, dt in df.schema.items() if dt.base_type() not in (pl.List, pl.Struct, pl.Array)]
 
-    return columns_str
+
+def get_numeric_columns(df: pl.DataFrame):
+    return [c for c, dt in df.schema.items() if dt.is_numeric()]
 
 
 # MARK: TableModel
@@ -238,7 +244,7 @@ class TableModel(QtCore.QAbstractTableModel):
         self.end_row = max(self.active_cell[0], self.anchor_cell[0])
         self.end_col = max(self.active_cell[1], self.anchor_cell[1])
         self.layoutChanged.emit()
-    
+
     def reset_selection(self):
         self.active_cell = None
         self.anchor_cell = None
@@ -278,8 +284,8 @@ class TableModel(QtCore.QAbstractTableModel):
                     value = self.df.item(row, column)
                     fmt = self.formats.get(column, "")
                     # if ((self.df.dtypes[column].base_type() == pl.Struct
-                    #     or self.df.dtypes[column].base_type() == pl.List) 
-                    #     and type(value) == pl.Series):        
+                    #     or self.df.dtypes[column].base_type() == pl.List)
+                    #     and type(value) == pl.Series):
                     #         value = str(value.to_list())
                     #         if len(value) > 200:
                     #             value = value[:200] + "..."
@@ -298,7 +304,7 @@ class TableModel(QtCore.QAbstractTableModel):
                 column = index.column()
                 if 0 <= column < self.columnCount():
                     return self.alignments[column]
-                
+
 
         if role == QtCore.Qt.ItemDataRole.BackgroundRole:
             row = index.row()
@@ -329,7 +335,7 @@ class TableModel(QtCore.QAbstractTableModel):
             if orientation == QtCore.Qt.Orientation.Vertical:
                 # return str(section)
                 return None
-        
+
 
 class Table(QtWidgets.QTableView):
 
@@ -346,19 +352,19 @@ class Table(QtWidgets.QTableView):
         self.setEditTriggers(
             QtWidgets.QAbstractItemView.EditTrigger.NoEditTriggers
         )
-        
+
         self.verticalHeader().setVisible(False)
         self.setWordWrap(False)
 
     # def eventFilter(self, object, event: QtCore.QEvent):
     #     print(f"eventFilter {event.type()}")
     #     if object == self and event.type() == QtCore.QEvent.Type.KeyPress:
-            
+
     #         if event.matches(Qt.KeyboardModifier.ControlModifier | Qt.Key.Key_C):
     #             print("Ctrl+C")
     #             return True
     #     return super().eventFilter(object, event)
-    
+
 
 
     def mousePressEvent(self, event: QtGui.QMouseEvent) -> None:
@@ -406,7 +412,7 @@ class Table(QtWidgets.QTableView):
                         fmt = fmt.replace(',', '')
                     else:
                         fmt = ',' + fmt
-                
+
                     self.p.formats[model.active_cell[1]] = fmt
                     model.formats[col] = fmt
                     model.layoutChanged.emit()
@@ -420,12 +426,12 @@ class Table(QtWidgets.QTableView):
             self.p.copy_values2()
             event.accept()
             return
-        
+
         if ctrlShift and key == QtCore.Qt.Key.Key_C:
             self.p.copy_values2(fmt=True)
             event.accept()
             return
-        
+
 
         if (ctrlShift or ctrl) and key == QtCore.Qt.Key.Key_Right:
             selModel.setCurrentIndex(
@@ -456,14 +462,20 @@ class Table(QtWidgets.QTableView):
 #MARK: TableWorker
 class TableWorker(QtCore.QObject):
 
-    provideDf = Signal(pl.DataFrame)
-    provideWidths = Signal(list, list)
+    provideDf = Signal(int, pl.DataFrame)
+    provideWidths = Signal(int, list, list)
 
     def __init__(self, df: pl.DataFrame):
         super(TableWorker, self).__init__()
+        # made on first use, so they belong to the worker's thread
         self.widthsTimer = None
+        self.searchTimer = None
         self.org_df = df
-        self.search_requets = []
+        self.generation = 0
+        self.search_requests = []
+        self.df = None
+        self.fm = None
+        self.dtypes = None
 
 
     def set_up_timers(self):
@@ -476,21 +488,23 @@ class TableWorker(QtCore.QObject):
         self.searchTimer.setSingleShot(True)
         self.searchTimer.timeout.connect(self.filter_df2)
 
-    @Slot(pl.DataFrame)
-    def set_df(self, df: pl.DataFrame):
+    @Slot(int, pl.DataFrame)
+    def set_df(self, generation: int, df: pl.DataFrame):
+        self.generation = generation
         self.org_df = df
 
     @Slot(str)
     def filter_df(self, search: str):
-        self.search_requets.append(search)
-        if not self.searchTimer:
+        self.search_requests.append(search)
+        if self.searchTimer is None:
             self.set_up_timers()
-
-        self.searchTimer.start()
+        self.searchTimer.start()  # type: ignore
 
     def filter_df2(self):
-        search_str: str = self.search_requets.pop()
-        self.search_requets = []
+        if not self.search_requests:
+            return
+        search_str: str = self.search_requests.pop()
+        self.search_requests = []
         terms_split = search_str.split()
         terms = []
         for term in terms_split:
@@ -500,30 +514,28 @@ class TableWorker(QtCore.QObject):
 
         filters = []
         if not terms:
-            self.provideDf.emit(self.org_df)
-            return
-
-        if len(terms) == 0:
-            self.provideDf.emit(self.org_df)
+            self.provideDf.emit(self.generation, self.org_df)
             return
 
         df = self.org_df
 
-        
+
         col_to_filter = get_columns_for_filter(df)
-        
-
+        numeric_columns = get_numeric_columns(df)
         for term in terms:
-            filters = build_filter(filters, term, col_to_filter)
+            filters = build_filter(filters, term, col_to_filter, numeric_columns)
 
-        if len(filters) > 0:   
-            df = df.filter(filters)
-        else:
-            df = self.org_df
-        self.provideDf.emit(df)
+        if filters:
+            try:
+                df = df.filter(filters)
+            except Exception:
+                log.exception(f"search {search_str!r} failed")
+                df = self.org_df
+        self.provideDf.emit(self.generation, df)
 
-    @Slot(pl.DataFrame, QFont, list)
-    def calc_widths(self, df: pl.DataFrame, font: QFont, dtypes: list[str]):
+    @Slot(int, pl.DataFrame, QFont, list)
+    def calc_widths(self, generation: int, df: pl.DataFrame, font: QFont, dtypes: list[str]):
+        self.widths_generation = generation
         self.fm = QFontMetrics(font)
         self.df = df
         self.dtypes = dtypes
@@ -550,7 +562,7 @@ class TableWorker(QtCore.QObject):
         if df.shape[0] == 0:
             return
         widths, fmts = get_col_fmts_and_widths(fm, df, dtypes)
-        self.provideWidths.emit(widths, fmts)
+        self.provideWidths.emit(self.widths_generation, widths, fmts)
         if clear:
             self.fm = None
             self.df = None
@@ -558,8 +570,8 @@ class TableWorker(QtCore.QObject):
 #MARK: DfView
 class DfView(QtWidgets.QWidget):
 
-    setWorkerDf = Signal(pl.DataFrame)
-    calcWidths = Signal(pl.DataFrame, QFont,list)
+    setWorkerDf = Signal(int, pl.DataFrame)
+    calcWidths = Signal(int, pl.DataFrame, QFont, list)
     searchDf = Signal(str)
 
     def __init__(self, parent=None, app:Union[QtWidgets.QApplication,None] = None):
@@ -567,12 +579,16 @@ class DfView(QtWidgets.QWidget):
         self.setup_table()
         self.col_widths = []
         self.sort = {}
+        # (column, descending) of the last header click, kept when searching
+        self.current_sort: Union[tuple[str, bool], None] = None
+        # bumped for each new result, so the worker's answers for an older one are ignored
+        self.generation = 0
         self.app = app
-        self.formats = {}
-        self.show_dtypes = True        
+        self.show_dtypes = True
 
+        # selection statistics (sum, median, ...) wait until the selection settles
         self.bottom_status_timer = QtCore.QTimer()
-        self.bottom_status_timer.setInterval(10)
+        self.bottom_status_timer.setInterval(150)
         self.bottom_status_timer.setSingleShot(True)
         self.bottom_status_timer.timeout.connect(self.update_bottom_status)
 
@@ -672,17 +688,30 @@ class DfView(QtWidgets.QWidget):
 
 #MARK: set_df
     def set_df(self, df: pl.DataFrame, dtypes=None):
+        self.generation += 1
+        self.sort = {}
+        self.current_sort = None
         new_model = TableModel(df, self, dtypes)
         self.table.setModel(new_model)
         self.table.selectionModel().currentChanged.connect(self.current_changed)
         self._model = new_model
         self.total_rows = df.shape[0]
-        self.setWorkerDf.emit(df)
+        self.setWorkerDf.emit(self.generation, df)
         self.update_col_widths()
         self.bottom_status_timer.start()
+        if self.search.text():
+            self.search_df()
 
-    @Slot(pl.DataFrame)
-    def set_filter_sort_df(self, df: pl.DataFrame):
+    @Slot(int, pl.DataFrame)
+    def set_filter_sort_df(self, generation: int, df: pl.DataFrame):
+        if generation != self.generation:
+            return  # filtered from an earlier result
+        if self.current_sort is not None:
+            col, descending = self.current_sort
+            try:
+                df = sort_frame(df, col, descending)
+            except Exception:
+                pass
         self._model.df = df
         self._model.reset_selection()
         self._model.layoutChanged.emit()
@@ -690,7 +719,7 @@ class DfView(QtWidgets.QWidget):
         self.bottom_status_timer.start()
 
     def update_col_widths(self):
-        self.calcWidths.emit(self._model.df, self.table.font(),self._model.dtypes)
+        self.calcWidths.emit(self.generation, self._model.df, self.table.font(), self._model.dtypes)
 
 
     def update_bottom_status(self):
@@ -716,7 +745,7 @@ class DfView(QtWidgets.QWidget):
         if sel_info['char_count']:
             status_txt += f'{sep} char count: {char_count:,}'
         if sel_info['sel_nulls']:
-            status_txt += f'{sep} nulls: {sel_nulls:,}'        
+            status_txt += f'{sep} nulls: {sel_nulls:,}'
         if sel_info['min_val']:
             status_txt += f'{sep} min: {sel_info["min_val"]:,.2f}'
         if sel_info['max_val']:
@@ -737,7 +766,7 @@ class DfView(QtWidgets.QWidget):
             # if not sel_info['mean']:
             status_txt += f'{sep} avg: {sel_info["sel_sum"]/count :,.2f}'
             status_txt += f'{sep} sum: {sel_info["sel_sum"]:,.2f}'
-        
+
         self.bottom_right_status.setText(status_txt)
 
     def selection_calcs(self):
@@ -774,14 +803,14 @@ class DfView(QtWidgets.QWidget):
                         # q50_pct = c.quantile(0.5)
                         # q90_pct = c.quantile(0.9)
                         # q10_pct = c.quantile(0.1)
-                        
+
 
                 if c.dtype in [pl.String, pl.Categorical]:
                     char_count += c.cast(pl.String).str.len_chars().sum()
 
         return {
             "sel_sum": sel_sum,
-            "sel_nulls": sel_nulls, 
+            "sel_nulls": sel_nulls,
             "char_count": char_count,
             "mean": mean,
             "median": median,
@@ -806,15 +835,14 @@ class DfView(QtWidgets.QWidget):
         self.bottom_left_status.setFont(font)
         self.bottom_right_status.setFont(font)
         self.table.verticalHeader().setDefaultSectionSize(
-            self.font_metrics.height() 
+            self.font_metrics.height()
         )
 
-    @Slot(list, list)
-    def set_col_widths(self, widths, fmts):
-        formats = {}
-        for i, w in self.formats.items():
-            fmts[i] = w
-        self._model.formats = {i:fmts[i] for i in range(len(fmts))}
+    @Slot(int, list, list)
+    def set_col_widths(self, generation, widths, fmts):
+        if generation != self.generation or len(widths) != self._model.columnCount():
+            return  # measured for an earlier result
+        self._model.formats = {i: fmts[i] for i in range(len(fmts))}
 
         self.col_widths = widths
         for i, w in enumerate(self.col_widths):
@@ -861,7 +889,7 @@ class DfView(QtWidgets.QWidget):
             col_fmts = [self._model.formats[i] for i in range(self._model.start_col, self._model.end_col + 1)]
         else:
             col_fmts = ['' for i in range(self._model.start_col, self._model.end_col + 1)]
-        
+
         copy_str = ""
 
         data = self._model.df[col_names][self._model.start_row : self._model.end_row + 1].rows()
@@ -880,7 +908,7 @@ class DfView(QtWidgets.QWidget):
             try:
                 import win32clipboard
                 import win32con
-                
+
                 win32clipboard.OpenClipboard()
                 win32clipboard.EmptyClipboard()
                 win32clipboard.SetClipboardData(win32con.CF_UNICODETEXT, text)
@@ -904,7 +932,7 @@ class DfView(QtWidgets.QWidget):
 
 
         self.table.horizontalHeader().sectionClicked.connect(self.sort_df)
-#         self.table.setStyleSheet("""                        
+#         self.table.setStyleSheet("""
 # QHeaderView {
 # 	font-family: Calibri, Arial;
 # 	border:0px;
@@ -913,7 +941,7 @@ class DfView(QtWidgets.QWidget):
 
 #                                  """)
         self.table.clicked.connect(self.click_info)
-        
+
 
     def click_info(self, index):
         shift = (
@@ -939,15 +967,13 @@ class DfView(QtWidgets.QWidget):
             self.clear_status_info.start()
             return
 
-        if dt == pl.Categorical:
-            self._model.df = self._model.df.sort(pl.col(col).cast(pl.String), descending=self.sort[index], nulls_last=True)
-        else:
-            try:
-                self._model.df = self._model.df.sort(col, descending=self.sort[index], nulls_last=True)
-            except Exception as e:
-                self.status_info.setText(f'{type(e).__module__}.{type(e).__name__}:\n{e}')
-                self.clear_status_info.start()
-        
+        try:
+            self._model.df = sort_frame(self._model.df, col, self.sort[index])
+            self.current_sort = (col, self.sort[index])
+        except Exception as e:
+            self.status_info.setText(f'{type(e).__module__}.{type(e).__name__}:\n{e}')
+            self.clear_status_info.start()
+
         self._model.layoutChanged.emit()
 
     def current_changed(self, index):
