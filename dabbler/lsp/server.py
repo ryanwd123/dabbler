@@ -1,25 +1,16 @@
 import asyncio
 from typing import Optional
-import sqlglot
-
 
 from lsprotocol import types as lsp
-from lsprotocol.types import (
-    CompletionList,
-)
+from lsprotocol.types import CompletionList
 
-from dabbler.lsp.diagnostics import sql_errors
-from dabbler.lsp.parser import with_clause
-
-from dabbler.lsp.server_classes import InlineSqlLangServer
-from dabbler.lsp.sql_utils import (
-    get_sql2,
-    sql_range_at,
-    line_col,
-    get_range,
-    get_statement,
-)
 from dabbler.lsp.completion_utils import pathlib_completetions
+from dabbler.lsp.diagnostics import sql_errors
+from dabbler.lsp.formatting import FormatError, format_region
+from dabbler.lsp.parser import with_clause
+from dabbler.lsp.server_classes import InlineSqlLangServer
+from dabbler.lsp.sql_regions import region_at
+from dabbler.lsp.sql_utils import sql_range_at
 
 
 sql_server = InlineSqlLangServer("dabbler", "v0.2")
@@ -28,29 +19,19 @@ sql_server = InlineSqlLangServer("dabbler", "v0.2")
 DIAGNOSTICS_DELAY = 0.3
 
 
-# list("abcdefghijklmnopqrstuvwxyz")+
-
-
-
-
-
-
-# trigger_characters=[":",'.',' '],
 @sql_server.thread()
 @sql_server.feature(
     lsp.TEXT_DOCUMENT_COMPLETION,
     lsp.CompletionOptions(
         trigger_characters=[":", ".",'/', ' ','"',"'"],
-    ),  # all_commit_characters=[":"]
+    ),
 )
 def completions(
     ls: InlineSqlLangServer, params: Optional[lsp.CompletionParams] = None
 ) -> CompletionList:
     """Returns completion items."""
-    # ls.check_sockets()
     if not params:
         return CompletionList(is_incomplete=False, items=[])
-    
 
     document = ls.workspace.get_text_document(params.text_document.uri)
     current_line_txt = document.lines[params.position.line]
@@ -61,15 +42,9 @@ def completions(
     trigger = params.context.trigger_character
 
     sql_rng = sql_range_at(document.source, document.offset_at_position(params.position))
-
-    # ls.log_to_client(f'{params}')
-    # ls.log_to_client(f'\nsql_rng: {sql_rng.start,sql_rng.end}\nleft of idx{document.source[sql_rng.cur_idx-5:sql_rng.cur_idx]}\n{sql_rng.txt}\n{document.source[sql_rng.start:sql_rng.end]}')
-
-
     completer = ls.get_completer(params.text_document.uri)
 
     if not sql_rng:
-        # ls.log_to_client(f"txt {current_line_txt[:params.position.character]}")
         try:
             path_completions = pathlib_completetions(current_line_txt[:params.position.character], completer.pathlib_paths, ls.log)
             if path_completions:
@@ -83,15 +58,7 @@ def completions(
 
     pos_in_range = sql_rng.cur_idx - sql_rng.start
 
-    # try:
-    comps = completer.route_completion2(
-        pos_in_range, sql_rng.txt, trigger
-    )
-    # ls.log_to_client(f'completion time: {time.time()-start}')
-
-    # except:
-    # ls.log_to_client('problem with completion')
-    # return None
+    comps = completer.route_completion2(pos_in_range, sql_rng.txt, trigger)
     if comps:
         return comps
     return CompletionList(is_incomplete=False, items=[])
@@ -214,99 +181,32 @@ def send_sql_to_gui(ls: InlineSqlLangServer, *args):
 
     ls.schema_cache.push_command(source, "run_sql", sql)
 
-    # ls.log_to_client(f"args: {args}\n")
-    return
 
-
-# @sql_server.feature(lsp.TEXT_DOCUMENT_FORMATTING)
 @sql_server.command(InlineSqlLangServer.CMD_FORMAT_CURRENT_STATEMENT)
 def format_range(ls: InlineSqlLangServer, *args):
-    """Formats the SQL statement under the cursor with sqlglot."""
+    """Formats the SQL string under the cursor with sqlglot's DuckDB dialect."""
     location = command_location(ls, args)
     if location is None:
         return
     uri, line, char = location
 
     document = ls.workspace.get_text_document(uri)
-    sql_rng = get_range(document.source, line, char)
-    if not sql_rng:
+    region = region_at(document.source, document.offset_at_position(lsp.Position(line, char)))
+    if region is None:
+        ls.notify_user("dabbler: the cursor isn't in an SQL string.", lsp.MessageType.Info)
         return
-
-    sql_rng = get_statement(sql_rng, document.source)
-    if not sql_rng:
-        return
-
     try:
-        p = sqlglot.parse_one(sql_rng.txt)
-    except:
-        ls.log_to_client("problem parsing sql")
+        edit = format_region(document.source, region)
+    except FormatError as e:
+        ls.notify_user(f"dabbler: couldn't format the SQL: {e}", lsp.MessageType.Info)
         return
 
-    sql = p.sql(pretty=True, dialect="duckdb", pad=4, indent=4)
-    sql = "\n".join([f"    {x}" for i, x in enumerate(sql.split("\n"))]) + "\n"
-    s_line, s_char = line_col(document.source, sql_rng.start)
-    e_line, e_char = line_col(document.source, sql_rng.end)
-    rng = lsp.Range(lsp.Position(s_line - 1, 0), lsp.Position(e_line - 1, 0))
-
-    text_edit = lsp.TextEdit(rng, sql)
-
-    # ls.send_notification('textDocument/didChange', {
-    # 'textDocument': {
-    #     'uri': document.uri,
-    #     'version': document.version
-    # },
-    # 'contentChanges': [{
-    #     'range': rng,
-    #     'rangeLength': len(text_edit.range),
-    #     'text': text_edit.new_text
-    # }]
-    # })
+    text_edit = lsp.TextEdit(
+        lsp.Range(document.client_position_at_offset(edit.start), document.client_position_at_offset(edit.end)),
+        edit.new_text,
+    )
     ls.workspace_apply_edit(lsp.ApplyWorkspaceEditParams(edit=lsp.WorkspaceEdit(changes={document.uri: [text_edit]})))
-    # ls.log_to_client(f"args: {args}\n")
     return [text_edit]
-
-
-# validation_error = []
-
-# def get_validations():
-#     return validation_error
-
-# @json_server.feature(
-#     lsp.TEXT_DOCUMENT_DIAGNOSTIC,
-#     lsp.DiagnosticOptions(
-#         identifier="jsonServer",
-#         inter_file_dependencies=False,
-#         workspace_diagnostics=False,
-#     ),
-# )
-# def text_document_diagnostic(ls:InlineSqlLangServer,
-#     params: lsp.DocumentDiagnosticParams,
-# ) -> lsp.DocumentDiagnosticReport:
-#     """Returns diagnostic report."""
-#     document = json_server.workspace.get_document(params.text_document.uri)
-#     ls.show_message(f"val: {validation_error}")
-#     return lsp.RelatedFullDocumentDiagnosticReport(
-#         items=get_validations(),
-#         kind=lsp.DocumentDiagnosticReportKind.Full,
-#     )
-
-# @json_server.feature(lsp.WORKSPACE_DIAGNOSTIC)
-# def workspace_diagnostic(ls,
-#     params: lsp.WorkspaceDiagnosticParams,
-# ) -> lsp.WorkspaceDiagnosticReport:
-#     """Returns diagnostic report."""
-#     first = list(json_server.workspace._docs.keys())[0]
-#     document = json_server.workspace.get_document(first)
-#     ls.show_message(f"val: {validation_error}")
-#     return lsp.WorkspaceDiagnosticReport(
-#         items=[
-#             lsp.WorkspaceFullDocumentDiagnosticReport(
-#                 uri=document.uri,
-#                 items=validation_error,
-#                 kind=lsp.DocumentDiagnosticReportKind.Full,
-#             )
-#         ]
-#     )
 
 
 def main():

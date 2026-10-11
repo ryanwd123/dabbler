@@ -16,7 +16,7 @@ from dabbler.lsp.parser import (
 from dabbler.lsp.catalog import Catalog
 from dabbler.lsp.db_data import make_engine, search_path_for
 from dabbler.schema_cache import IN_MEMORY, SchemaCache
-from dabbler.lsp.sql_utils import strip_sql_whitespace, SelectNode, CmpItem
+from dabbler.lsp.sql_utils import strip_sql_whitespace, CmpItem
 from typing import Union
 from dabbler.lsp.completion_utils import (
     PathCompleter,
