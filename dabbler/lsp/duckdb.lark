@@ -28,7 +28,7 @@ databse_name:STRING
         |IDENT
 
 
-update_statment: UPDATE table_name [_AS table_name] SET column_update ("," column_update)*  [from_clause] [where]
+update_statment: UPDATE table_name [[_AS] table_name] SET column_update ("," column_update)*  [from_clause] [where]
 
 column_update: _col_ref "=" (expression|query)
 
@@ -228,12 +228,13 @@ select_clause: SELECT [(DISTINCT [ON (distinct_on_list)] |ALL)] col_exps
 
 // _z9_empty_select_clause.-3: SELECT
 
-_optional_clauses: [where] [group_by] [having] [order_by] [limit]
+_optional_clauses: [where] [group_by] [having] [qualify] [order_by] [limit]
 
 where.4: WHERE expression
 group_by.6: GROUP BY [(expression ",")*] expression
         | GROUP BY ALL
 having: HAVING expression
+qualify: QUALIFY expression
 
 limit: LIMIT expression [OFFSET expression]
         
@@ -249,12 +250,15 @@ from_ref.3: table_ref [join*]
 
 table_ref.2: table_name [[_AS] alias [col_alias]] [sample_clause] -> db_table
         | "(" query ")" [[_AS] alias [col_alias]] [sample_clause]-> subquery
+        | LATERAL "(" query ")" [[_AS] alias [col_alias]] -> lateral_subquery
         |table_func [[_AS] alias [col_alias]] [sample_clause]-> table_function
         // |STRING [[_AS] alias [col_alias]] [sample_clause]-> table_function
         |"(" values ")" [[_AS] alias [col_alias]] -> values
 
-sample_clause: (TABLESAMPLE|USING SAMPLE) [sample_method] "(" NUMBER [("%"|PERCENT|ROWS)] ")" [REPEATABLE "(" NUMBER ")"]
-        | (TABLESAMPLE|USING SAMPLE) NUMBER [("%"|PERCENT|ROWS)]   ["(" sample_method [ "," NUMBER] ")"] 
+// "USING SAMPLE" is one token so a bare USING after a table alias means JOIN ... USING (...).
+// As two tokens the parser has to choose with one token of lookahead and always picked SAMPLE.
+sample_clause: (TABLESAMPLE|USING_SAMPLE) [sample_method] "(" NUMBER [("%"|PERCENT|ROWS)] ")" [REPEATABLE "(" NUMBER ")"]
+        | (TABLESAMPLE|USING_SAMPLE) NUMBER [("%"|PERCENT|ROWS)]   ["(" sample_method [ "," NUMBER] ")"] 
 
 
 sample_method: SYSTEM
@@ -572,6 +576,7 @@ ELSE: "ELSE"i
 FULL: "FULL"i
 SELECT: "SELECT"i
 USING: "USING"i
+USING_SAMPLE.2: /USING\s+SAMPLE\b/i
 CONSTRAINT: "CONSTRAINT"i
 FOREIGN: "FOREIGN"i
 OVERLAPS: "OVERLAPS"i

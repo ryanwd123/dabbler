@@ -62,9 +62,12 @@ Intellisnse / autocomplete:
 ### Overview
 - The dabbler python package inlcudes a pygls language server.
     - The vscode extension starts the language server by running: `py -m dabbler.lsp`
-- The language server communicates with ipython/jupyter to get table and column names using zmq
-    - the IPython extension checks for updates to the database/dataframes each time cells are exectued using the ipython pre_run_cell and post_run_cell events
-    - table/column information is sent from IPython to the language server upon the initial connection and after cell execution (if there are changes)
+- The language server gets table and column names from a SQLite schema cache that the IPython extension writes to
+    - the cache is `schema_cache.sqlite3` in the dabbler data folder (`%APPDATA%\dabbler` on Windows, `~/.local/share/dabbler` on Linux, `~/Library/Application Support/dabbler` on macOS), or the path in the `DABBLER_SCHEMA_CACHE` environment variable
+    - the IPython extension checks for updates to the database/dataframes each time cells are executed (the ipython pre_run_cell and post_run_cell events) and saves a snapshot for the file it is running when something changed
+    - snapshots persist, so completions keep working after the IPython session ends; files without their own snapshot (e.g. helper modules) use the most recently updated snapshot in the same workspace
+    - "send SQL to GUI" goes the other way through the same cache: the language server queues the query and the IPython extension picks it up
+    - set `DABBLER_LSP_LOG` to a file path to get a debug log from the language server
 - The language server includes an SQL parser created from using lark package
     - Within the python document ranges SQL text are idenitified using regular expressions:
         ```py

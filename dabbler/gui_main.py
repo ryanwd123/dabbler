@@ -1,7 +1,6 @@
 import time
 import logging
 from typing import Union
-from dabbler.common import PprintSocketHandler
 from sqlglot import parse_one, exp
 from IPython.core.getipython import get_ipython
 
@@ -23,7 +22,7 @@ from dabbler.gui_stuff import (
     check_dataframe_type,
     highlight,
 )
-from dabbler.gui_compenents import Shortcut, TreeItem, ZmqServer
+from dabbler.gui_compenents import Shortcut, TreeItem, SchemaSync
 from dabbler.gui_table import DfView
 
 def check_dtype(dt:str):
@@ -421,13 +420,12 @@ class MyApp(QtWidgets.QApplication):
         self.debug = debug
         self.log = logging.getLogger("dabbler_gui")
         if self.debug:
-            self.log.setLevel(1)
-            socket_handler = PprintSocketHandler('127.0.0.1', 19996)
-            # socket_handler.setFormatter(LogFmt)
-            self.log.addHandler(socket_handler)
+            logging.basicConfig()
+            for name in ("dabbler_gui", "dabbler_schema_sync"):
+                logging.getLogger(name).setLevel(logging.DEBUG)
             self.log.info("debugging")
-        if file:
-            self.zmq = ZmqServer(self, self.db)
+        if file and self.db:
+            self.schema_sync = SchemaSync(self, self.db)
         self.win_id = 0
         self.setStyle("Fusion")
         self.new_window()

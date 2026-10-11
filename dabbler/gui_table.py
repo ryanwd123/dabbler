@@ -35,10 +35,16 @@ def get_col_fmts(c: str, df: pl.DataFrame, dtype: pl.DataType, fm: QFontMetrics)
         if dtype.is_numeric():
             q = df[c].quantile(0.9)
             b = df[c].quantile(0.1)
+            m = df[c].mean()
             if q and q < 0.5:
                 return ",.6f"
-            if b and b > 10:
+            if b and abs(b) > 10:
                 return ",.0f"
+            try:
+                if m and abs(m) > 10:   # type: ignore
+                    return ",.0f"
+            except Exception:
+                pass
             return ",.2f"
 
         if dtype.is_temporal():
@@ -101,6 +107,9 @@ def get_col_width(
                 c = df[col].unique()
             else:
                 c = df[col].cast(pl.String).unique()
+
+            c = c.is_not_null()
+
             if df.shape[0] > 100:
                 length_chars = c.str.len_chars()
                 q = length_chars.quantile(0.99)
@@ -804,6 +813,7 @@ class DfView(QtWidgets.QWidget):
         self.col_widths = widths
         for i, w in enumerate(self.col_widths):
             self.table.setColumnWidth(i, int(w))
+        self._model.layoutChanged.emit()
 
     def increase_font_size(self):
         self.font_size += 1
@@ -857,7 +867,7 @@ class DfView(QtWidgets.QWidget):
             else:
                 copy_str += "\t".join([str(r) for r in row]) + "\n"
 
-        self.set_clipboard(copy_str)
+        self.set_clipboard(copy_str.rstrip('\n'))
 
     def set_clipboard(self, text):
         if sys.platform == 'win32':

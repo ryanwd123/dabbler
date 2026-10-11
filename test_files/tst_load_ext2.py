@@ -6,8 +6,8 @@ import pandas as pd
 sys.path.append(str(Path(__file__).parent.parent))
 import duckdb
 db = duckdb.connect()
-db.install_extension('autocomplete')
-db.load_extension('autocomplete')
+# db.install_extension('autocomplete')
+# db.load_extension('autocomplete')
 import tempfile
 print(tempfile.gettempdir())
 # import paths_z as pp
@@ -40,9 +40,22 @@ for f in files:
 db.sql("""--sql
            attach './../../sample_data/imdb.db' (READ_ONLY TRUE);
            """)
+#%%
+db.sql(
+"""--sql,
+select
+    i.APPENDIX_F_REMOVED,
+    i.COUNCIL_DISTRICT,
+    i.LATITUDE
+FROM Issued_Tree_Permits i
+"""
+)
+
 
 #%%
 df1 = pl.DataFrame({'a':[1,2,3,0],'b':[4,5,6,0]})
+
+#%%
 
 
 
@@ -79,9 +92,6 @@ except Exception as e:
 
 #%%
 aa = Path(__file__).parent.parent.parent.parent
-ab = Path(__file__).parent.parent.parent.parent
-ac = Path(__file__).parent.parent.parent.parent
-
 #%%
 
 db.sql(
@@ -109,8 +119,8 @@ CREATE OR REPLACE VIEW test_view as select * from Issued_Tree_Permits;
 db.sql(
 """--sql,
 select
-    t.genres, t.premiered
-from imdb.main.titles t
+    v.add(1,2),
+from v.test_view
 """
 )
 
@@ -131,8 +141,7 @@ with kk as (SELECT
     j.PROPERTY_ID
 from v.test_view j)
 from kk k
-SELECT k.APPLICATION_TYPE,
-    k.PROPERTY_ID
+SELECT k.PROPERTY_ID
 
 """
 )
@@ -207,7 +216,7 @@ db.sql(
     ),
     t1234 as (
     SELECT
-        t.j7,
+        t.j7 as k,
         t.JURISDICTION,
         t.Combined_Geo,
         t.TRUNK_DIAMETER,
@@ -222,7 +231,6 @@ db.sql(
     SELECT 
         g.APPENDIX_F_REMOVED,
         g.JURISDICTION,
-        g.APPENDIX_F_REMOVED,
         g.APPENDIX_F_REMOVED
     from t1234 g 
     """

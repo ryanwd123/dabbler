@@ -3,7 +3,7 @@
 from qtpy import QtWidgets, QtGui, QtCore
 from dabbler.txt_util import line_col, move_line, get_idx
 from dabbler.gui_stuff import gui_style
-from dabbler.lsp.new_parser import interactive_parse_new
+from dabbler.lsp.parser import interactive_parse, cursor_context
 
 
 key_map = {
@@ -54,13 +54,17 @@ class SqlTextBox(QtWidgets.QPlainTextEdit):
     def cursor_move(self):
         cursor = self.textCursor()
         pos = cursor.position()
-        self.editor.cur_pos.setText(f'cursor_pos: {pos}')
-
-        result = interactive_parse_new(self.toPlainText(), pos)
+        text = self.toPlainText()
+        result = interactive_parse(text, pos, keep_cursor_parser=True)
+        context = cursor_context(result, text, pos)
+        self.editor.cur_pos.setText(f'cursor_pos: {pos}  context: {context.kind} {context.qualifier or ""}')
+        token_history = [f'{t} {t.start_pos}:{t.end_pos}' for t in result.tokens]
+        tokens_to_pos = [f'{t} {t.start_pos}:{t.end_pos}' for t in result.tokens_before_cursor]
+        accepts = result.accepts()
         if result:
-            if result.token_history:
+            if token_history:
                 self.editor.all_toekns_box.clear()
-                self.editor.all_toekns_box.addItems(result.token_history)
+                self.editor.all_toekns_box.addItems(token_history)
             else:
                 self.editor.all_toekns_box.clear()
 
@@ -74,15 +78,15 @@ class SqlTextBox(QtWidgets.QPlainTextEdit):
             else:
                 self.editor.choices_box.clear()
 
-            if result.accepts:
+            if accepts:
                 self.editor.accepts.clear()
-                self.editor.accepts.addItems(sorted(result.accepts))
+                self.editor.accepts.addItems(sorted(accepts))
             else:
                 self.editor.accepts.clear()
 
-            if result.tokens_to_pos:
+            if tokens_to_pos:
                 self.editor.token_history.clear()
-                self.editor.token_history.addItems(result.tokens_to_pos)
+                self.editor.token_history.addItems(tokens_to_pos)
             else:                
                 self.editor.token_history.clear()
             if result.duration:

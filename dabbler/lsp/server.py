@@ -1,16 +1,14 @@
-import sys
-import asyncio
 from typing import Optional
 import sqlglot
 import time
+
 
 from lsprotocol import types as lsp
 from lsprotocol.types import (
     CompletionList,
 )
 
-from dabbler.common import FromLangServer
-from dabbler.lsp.parser import sql_parser
+from dabbler.lsp.parser import sql_parser, with_clause
 from lark import UnexpectedToken
 
 from dabbler.lsp.server_classes import InlineSqlLangServer
@@ -23,12 +21,14 @@ from dabbler.lsp.sql_utils import (
 from dabbler.lsp.completion_utils import pathlib_completetions
 
 
-if sys.platform == 'win32':
-    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
-sql_server = InlineSqlLangServer("pygls-json-example", "v0.1")
+sql_server = InlineSqlLangServer("dabbler", "v0.2")
 
 
 # list("abcdefghijklmnopqrstuvwxyz")+
+
+
+
+
 
 
 # trigger_characters=[":",'.',' '],
@@ -43,13 +43,12 @@ def completions(
     ls: InlineSqlLangServer, params: Optional[lsp.CompletionParams] = None
 ) -> CompletionList:
     """Returns completion items."""
-    # ls.zmq_check_for_update()
     # ls.check_sockets()
     if not params:
         return CompletionList(is_incomplete=False, items=[])
     
 
-    document = ls.workspace.get_document(params.text_document.uri)
+    document = ls.workspace.get_text_document(params.text_document.uri)
     current_line_txt = document.lines[params.position.line]
 
     if not params.context:
@@ -60,14 +59,16 @@ def completions(
     # sql_rng = get_sql(document.source, params.position.line, params.position.character)
     sql_rng = get_sql2(document.source, params.position.line, params.position.character)
 
-    # ls.show_message_log(f'{params}')
-    # ls.show_message_log(f'\nsql_rng: {sql_rng.start,sql_rng.end}\nleft of idx{document.source[sql_rng.cur_idx-5:sql_rng.cur_idx]}\n{sql_rng.txt}\n{document.source[sql_rng.start:sql_rng.end]}')
+    # ls.log_to_client(f'{params}')
+    # ls.log_to_client(f'\nsql_rng: {sql_rng.start,sql_rng.end}\nleft of idx{document.source[sql_rng.cur_idx-5:sql_rng.cur_idx]}\n{sql_rng.txt}\n{document.source[sql_rng.start:sql_rng.end]}')
 
+
+    completer = ls.get_completer(params.text_document.uri)
 
     if not sql_rng:
-        # ls.show_message_log(f"txt {current_line_txt[:params.position.character]}")
+        # ls.log_to_client(f"txt {current_line_txt[:params.position.character]}")
         try:
-            path_completions = pathlib_completetions(current_line_txt[:params.position.character], ls.pathlibs_paths, ls.log)
+            path_completions = pathlib_completetions(current_line_txt[:params.position.character], completer.pathlib_paths, ls.log)
             if path_completions:
                 return CompletionList(is_incomplete=False, items=path_completions)
         except Exception as e:
@@ -79,17 +80,14 @@ def completions(
 
     pos_in_range = sql_rng.cur_idx - sql_rng.start
 
-    if not ls.completer:
-        return CompletionList(is_incomplete=False, items=[])
-
     # try:
-    comps = ls.completer.route_completion2(
+    comps = completer.route_completion2(
         pos_in_range, sql_rng.txt, trigger
     )
-    # ls.show_message_log(f'completion time: {time.time()-start}')
+    # ls.log_to_client(f'completion time: {time.time()-start}')
 
     # except:
-    # ls.show_message_log('problem with completion')
+    # ls.log_to_client('problem with completion')
     # return None
     if comps:
         return comps
@@ -98,7 +96,7 @@ def completions(
 
 
 
-def publish_diagnostics(ls:InlineSqlLangServer, uri, line, char,  msg):
+def publish_syntax_error(ls:InlineSqlLangServer, uri, line, char,  msg):
     d = lsp.Diagnostic(
             range=lsp.Range(
                 start=lsp.Position(line=line, character=char),
@@ -120,24 +118,23 @@ def did_change(ls: InlineSqlLangServer, params: lsp.DidChangeTextDocumentParams)
     if not params.content_changes:
         return
 
-    if not params.content_changes[0].range: # type: ignore
+    change = params.content_changes[0]
+    if not isinstance(change, lsp.TextDocumentContentChangePartial):
         return
-    # ls.show_message_log(f'did change: {params}')
-    # ls.show_message_log(f'did change: {params.content_changes[0].range.start}')
-    start_line = params.content_changes[0].range.end.line # type: ignore
-    char = params.content_changes[0].range.end.character # type: ignore
-    document = ls.workspace.get_document(params.text_document.uri)
+    start_line = change.range.end.line
+    char = change.range.end.character
+    document = ls.workspace.get_text_document(params.text_document.uri)
     # current_line_txt = document.lines[start_line]
-    # ls.show_message_log(f"did change: {start_line,char}, line txt: {current_line_txt}")
+    # ls.log_to_client(f"did change: {start_line,char}, line txt: {current_line_txt}")
     sql_range = get_sql2(document.source, start_line, char)
     if not sql_range:
-        # ls.show_message_log(f"did not find sql range at line:{start_line + 1}")
+        # ls.log_to_client(f"did not find sql range at line:{start_line + 1}")
         ls.publish_diagnostics(params.text_document.uri, [])
         return
 
     try:
         sql_range.txt = sql_range.txt.replace('\r\n','\n')
-        # ls.show_message_log(f"sql: {sql_range}")
+        # ls.log_to_client(f"sql: {sql_range}")
         start = time.time()
         p = sql_parser.parse(sql_range.txt)
         # ls.log.debug(['parse time',time.time()-start])
@@ -146,13 +143,13 @@ def did_change(ls: InlineSqlLangServer, params: lsp.DidChangeTextDocumentParams)
     except Exception as e:
         # ls.log.debug(['parse time',time.time()-start])
         rng_start_line, rng_start_col = line_col(
-        ls.workspace.get_document(params.text_document.uri).source, sql_range.start
+        ls.workspace.get_text_document(params.text_document.uri).source, sql_range.start
         )
         
         if isinstance(e, UnexpectedToken):
             msg = f'Unexpected Token "{e.token}"'
-            # ls.show_message_log(f'line: {e.line}, col: {e.column} {msg}')
-            publish_diagnostics(ls, params.text_document.uri, rng_start_line+e.line-2, e.column, msg)
+            # ls.log_to_client(f'line: {e.line}, col: {e.column} {msg}')
+            publish_syntax_error(ls, params.text_document.uri, rng_start_line+e.line-2, e.column, msg)
             
     
     else:
@@ -162,100 +159,94 @@ def did_change(ls: InlineSqlLangServer, params: lsp.DidChangeTextDocumentParams)
 
 @sql_server.feature(lsp.TEXT_DOCUMENT_DID_OPEN)
 async def did_open(ls: InlineSqlLangServer, params: lsp.DidOpenTextDocumentParams):
+
+    if not params:
+        return
+#     p = uri_to_path(params.text_document.uri)
+
+#     sql_server.show_message_log(
+# f"""workspace_path: {sql_server.workspace.root_path}
+# workspace_uri: {sql_server.workspace.root_uri}
+# file_uri: {params.text_document.uri}
+# file_path: {p}""")
+
     ls.log_workspace_info()
-    ls.save_key_file()
-    ls.create_default_compelter()
+    ls.warm_up(params.text_document.uri)
+
+
+def command_location(ls: InlineSqlLangServer, args: tuple):
+    """(document uri, line, character) from the VS Code extension's command arguments.
+
+    The extension passes the document's Uri and the cursor Position; pygls
+    hands each command argument to the handler as a separate positional arg.
+    """
+    try:
+        uri_data, pos = args[0], args[1]
+        return uri_data["external"], pos["line"], pos["character"]
+    except (IndexError, KeyError, TypeError):
+        ls.log_to_client(f"unexpected command arguments: {args!r}")
+        return None
 
 
 @sql_server.command(InlineSqlLangServer.CMD_SEND_SQL_TO_GUI)
 def send_sql_to_gui(ls: InlineSqlLangServer, *args):
-    """Starts counting down and showing message asynchronously.
-    It won't `block` the main thread, which can be tested by trying to show
-    completion items.
-    """
+    """Sends the query under the cursor to the dabbler window of the file's IPython session."""
     q = None
-    try:
-        uri_data = args[0][0]
-        pos = args[0][1]
-    except:
-        ls.show_message_log("send cmd gui: error getting uri and pos")
+    location = command_location(ls, args)
+    if location is None:
         return
+    uri, line, char = location
 
-    if "line" not in pos or "character" not in pos:
-        ls.show_message_log("did not find line/charager in pos")
-        return
-
-    if "external" not in uri_data:
-        ls.show_message_log("problem obtaining document uri")
-        return
-
-    uri = uri_data["external"]
-    line = pos["line"]
-    char = pos["character"]
-
-    document = ls.workspace.get_document(uri)
+    document = ls.workspace.get_text_document(uri)
     sql_rng = get_sql2(document.source, line, char)
 
     if not sql_rng:
-        ls.show_message_log(
+        ls.log_to_client(
             f"did not find sql range at line:{line + 1} char: {char + 1}"
         )
         return
 
     pos_in_range = sql_rng.cur_idx - sql_rng.start
 
+    source = ls.snapshot_source(uri)
+    if source is None:
+        ls.notify_user(
+            "dabbler: no IPython session has shared its database for this file yet. "
+            "Load the extension with %load_ext dabbler.ext and run a cell."
+        )
+        return
+
     try:
-        if not ls.completer:
-            return
-        q, queries, choices_pos = ls.completer.get_queries(pos_in_range,sql_rng.txt)
+        q, _, _ = ls.get_completer(uri).get_queries(pos_in_range,sql_rng.txt)
     except Exception as e:
         ls.log.debug(['error getting queries',e])
 
     if not q:
-        ls.show_message_log("did not find query")
+        ls.log_to_client("did not find query")
         return
     
-    cte_sql = ''
-    if q.cte_sibblings:
-        sibblings = ',\n'.join([f'{k} as ({v.sql})' for k,v in q.cte_sibblings.items()])
-        cte_sql = f'with {sibblings}'
-    sql = f'{cte_sql}\n{q.sql}'
+    sql = f'{with_clause(q.cte_sibblings)}\n{q.sql}'
     
-    msg:FromLangServer = {"cmd": "run_sql", "data": sql, "con_id": ls.connection_info['server_id']}
+    if not ls.schema_cache.session_active(source):
+        ls.notify_user(f"dabbler: the IPython session for {source} isn't running, so the query wasn't sent.")
+        return
 
-    resp = ls.zmq_send(msg)
+    ls.schema_cache.push_command(source, "run_sql", sql)
 
-    # ls.show_message_log(f"args: {args}\n")
+    # ls.log_to_client(f"args: {args}\n")
     return
 
 
 # @sql_server.feature(lsp.TEXT_DOCUMENT_FORMATTING)
 @sql_server.command(InlineSqlLangServer.CMD_FORMAT_CURRENT_STATEMENT)
 def format_range(ls: InlineSqlLangServer, *args):
-    """Starts counting down and showing message asynchronously.
-    It won't `block` the main thread, which can be tested by trying to show
-    completion items.
-    """
-    try:
-        uri_data = args[0][0]
-        pos = args[0][1]
-    except:
-        ls.show_message_log("send cmd gui: error getting uri and pos")
+    """Formats the SQL statement under the cursor with sqlglot."""
+    location = command_location(ls, args)
+    if location is None:
         return
+    uri, line, char = location
 
-    if "line" not in pos or "character" not in pos:
-        ls.show_message_log("did not find line/charager in pos")
-        return
-
-    if "external" not in uri_data:
-        ls.show_message_log("problem obtaining document uri")
-        return
-
-    uri = uri_data["external"]
-    line = pos["line"]
-    char = pos["character"]
-
-    document = ls.workspace.get_document(uri)
+    document = ls.workspace.get_text_document(uri)
     sql_rng = get_range(document.source, line, char)
     if not sql_rng:
         return
@@ -267,7 +258,7 @@ def format_range(ls: InlineSqlLangServer, *args):
     try:
         p = sqlglot.parse_one(sql_rng.txt)
     except:
-        ls.show_message_log("problem parsing sql")
+        ls.log_to_client("problem parsing sql")
         return
 
     sql = p.sql(pretty=True, dialect="duckdb", pad=4, indent=4)
@@ -289,8 +280,8 @@ def format_range(ls: InlineSqlLangServer, *args):
     #     'text': text_edit.new_text
     # }]
     # })
-    ls.apply_edit(lsp.WorkspaceEdit(changes={document.uri: [text_edit]}))
-    # ls.show_message_log(f"args: {args}\n")
+    ls.workspace_apply_edit(lsp.ApplyWorkspaceEditParams(edit=lsp.WorkspaceEdit(changes={document.uri: [text_edit]})))
+    # ls.log_to_client(f"args: {args}\n")
     return [text_edit]
 
 
@@ -339,12 +330,12 @@ def format_range(ls: InlineSqlLangServer, *args):
 
 def main():
     import logging
-    from pathlib import Path
+    import os
 
-    # logging.basicConfig(filename=Path(__file__).parent.joinpath("pygls.log"), filemode="w", level=logging.DEBUG)
+    # set DABBLER_LSP_LOG to a file path to get a debug log of the language server
+    if os.environ.get("DABBLER_LSP_LOG"):
+        logging.basicConfig(filename=os.environ["DABBLER_LSP_LOG"], filemode="w", level=logging.DEBUG)
     sql_server.start_io()
-    # sql_server.check_sockets2()
-    # sql_server.create_sockets2()
 
 
 if __name__ == "__main__":

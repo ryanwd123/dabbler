@@ -2,7 +2,7 @@
 import pytest
 import logging
 from dabbler.db_stuff import get_db_data_new
-from dabbler.lsp.db_data import make_completion_map, make_db
+from dabbler.lsp.db_data import make_completion_map
 from dabbler.lsp.completer import SqlCompleter
 from pathlib import Path
 import duckdb
@@ -225,63 +225,36 @@ def test_get_db_data_new_file_search_path(test_db):
     assert result['file_search_path'] == custom_path
 
 
-def test_make_db(test_db):
+def test_completion_map_from_snapshot(test_db):
+    """The completion list is built from the snapshot plus DuckDB's built-in catalog, without recreating the database."""
     db_data = get_db_data_new(test_db)
-    new_db = make_db(db_data)
+    comp_map = make_completion_map(db_data)
 
-    assert isinstance(new_db, duckdb.DuckDBPyConnection)
+    root = {(x.label, x.obj_type) for x in comp_map['root_namespace']}
+    assert ('test_table', 'table') in root
+    assert ('test_view', 'table') in root
+    assert ('read_csv', 'table') in root  # built-in table function
+    assert ('sum', 'function') in root  # built-in function
 
-    # Test databases
-    databases = new_db.execute("SELECT database_name FROM duckdb_databases()").fetchall()
-    assert ('memory',) in databases
-
-    # Test schemas
-    schemas = new_db.execute("SELECT database_name || '.' || schema_name FROM duckdb_schemas()").fetchall()
-    assert ('memory.main',) in schemas
-    assert ('memory.test_schema',) in schemas
-
-    # Test current schema
-    current_schema = new_db.execute("SELECT current_schema()").fetchone()[0]
-    assert current_schema == 'main'
-
-    # Test tables
-    tables = new_db.execute("SELECT table_name FROM duckdb_tables()").fetchall()
-    assert ('test_table',) in tables
-
-    # Test views
-    # views = [new_db.execute("SELECT view_name FROM duckdb_views()").fetchall()]
-    assert ('test_view',) in tables
-
-    # Test table columns
-    columns = new_db.execute("SELECT column_name, data_type FROM duckdb_columns WHERE table_name = 'test_table'").fetchall()
-    assert ('PERMIT_NUMBER', 'VARCHAR') in columns
-    assert ('ISSUED_DATE', 'DATE') in columns
-    assert ('SPECIES', 'VARCHAR') in columns
-
-    # Test view columns
-    view_columns = new_db.execute("SELECT column_name, data_type FROM duckdb_columns WHERE table_name = 'test_view'").fetchall()
-    assert ('PERMIT_NUMBER', 'VARCHAR') in view_columns
-    assert ('ISSUED_DATE', 'DATE') in view_columns
-    assert ('SPECIES', 'VARCHAR') in view_columns
-
-    # Test dataframes (if any were in the original db_data)
-    if db_data['dataframes']:
-        for df in db_data['dataframes']:
-            df_name = df[0]
-            assert (df_name,) in tables
-
-    # Test file_search_path
-    if db_data['file_search_path']:
-        file_search_path = new_db.execute("SELECT current_setting('file_search_path')").fetchone()[0]
-        assert file_search_path == db_data['file_search_path']
+    columns = {x.label: x.typ for x in comp_map['test_table']}
+    assert columns['PERMIT_NUMBER'] == 'VARCHAR'
+    assert columns['ISSUED_DATE'] == 'DATE'
+    assert {x.label for x in comp_map['test_view']} >= {'PERMIT_NUMBER', 'ISSUED_DATE', 'SPECIES'}
+    assert {x.typ for x in comp_map['root_namespace'] if x.label == 'test_view'} == {'view'}
 
 
-@pytest.fixture
-def sql_completer(test_db):
-    db_data = get_db_data_new(test_db)
-    db2 = make_db(db_data)
-    completion_map = make_completion_map(db2, db_data)
-    return SqlCompleter(completion_map)
+def test_completion_map_keeps_enum_types_and_macros():
+    db = duckdb.connect()
+    db.sql("""--sql
+        create type mood as enum ('happy', 'sad');
+        create table people(id int, feeling mood);
+        create macro add_tax(x) as x * 1.1;
+        create macro top_people(n) as table select * from people limit n;
+    """)
+    comp_map = make_completion_map(get_db_data_new(db, skip_ipython=True))
+    assert {x.label: x.typ for x in comp_map['people']}['feeling'].startswith('ENUM(')
+    labels = {x.label for x in comp_map['root_namespace']}
+    assert {'add_tax', 'top_people', 'people'} <= labels
 
 # def test_route_completions2(sql_completer: SqlCompleter):
 #     # Test root namespace completions

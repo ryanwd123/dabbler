@@ -1,4 +1,5 @@
 import enum
+import functools
 from math import log
 import attrs
 
@@ -8,7 +9,7 @@ import attrs
 # )
 from pathlib import Path
 from dabbler.lsp.sql_utils import CmpItem
-from dabbler.common import make_table_sql
+from dabbler.lsp.parser import set_search_path_sql
 import duckdb
 import json
 from dabbler.common import check_name
@@ -170,88 +171,67 @@ get_records_sql = r"""--sql
 
 
 
-def make_db(db_data:dict):
-    """
-    makes a duckdb in memory database from mirroring the tables 
-    and columns in the IPython database.
-    
-    This DB is used by the language server to get column completion items
-    for subqueries and CTEs.
-    """
-    db2 = duckdb.connect()
-    databases = [x[0] for x in db2.execute("select database_name from duckdb_databases()").fetchall()]
+def search_path_for(db_data:dict):
+    """The session's file_search_path plus its working directory.
 
-    for ext in db_data['loaded_extensions']:
+    Relative paths in queries (read_csv('./x.csv')) then resolve the way they do
+    in the IPython session without changing this process's working directory,
+    which matters when one language server serves several notebooks.
+    """
+    paths = [p for p in (db_data.get('file_search_path') or '').split(',') if p]
+    if db_data.get('cwd'):
+        paths.append(db_data['cwd'])
+    return ','.join(paths)
+
+
+def make_engine(db_data:dict):
+    """A plain DuckDB connection for describing table functions, e.g. read_csv('x.csv').
+
+    It has the session's extensions and file search path, but none of its
+    tables: everything about the session's schema comes from the snapshot.
+    """
+    engine = duckdb.connect()
+    for ext in db_data.get('loaded_extensions') or []:
         try:
-            db2.load_extension(ext)
+            engine.load_extension(ext)
         except Exception as e:
-            logger.exception(f'Error loading extension "{ext}" to dummy db, {e}')
+            logger.info(f'could not load extension "{ext}": {e}')
+    search_path = search_path_for(db_data)
+    if search_path:
+        try:
+            engine.execute(set_search_path_sql(search_path))
+        except Exception as e:
+            logger.info(f'could not set file_search_path to {search_path}: {e}')
+    return engine
 
 
-    for db_to_add in db_data['databases']:
-        if db_to_add not in databases:
-            try:
-                db2.execute(f'''attach ':memory:' as "{db_to_add}" ''')
-            except Exception as e:
-                logger.exception(f'Error attaching dummy memory database {db_to_add}, {e}')
-
-    schemas = [x[0] for x in db2.execute("select database_name ||'.'|| schema_name from duckdb_schemas()").fetchall()]
-
-    for schema in db_data['schemas']:
-        if schema not in schemas:
-            try:
-                sql_code = f'create schema {schema}'
-                logger.debug(sql_code)
-                db2.execute(sql_code)
-            except Exception as e:
-                logger.exception(f'Error creating schema {schema}, {e}')
-    
+@functools.lru_cache(maxsize=8)
+def builtin_records(extensions: tuple[str, ...]):
+    """DuckDB's own functions, table functions and system views, with the given extensions loaded."""
+    con = duckdb.connect()
+    for ext in extensions:
+        try:
+            con.load_extension(ext)
+        except Exception as e:
+            logger.info(f'could not load extension "{ext}": {e}')
     try:
-        db2.execute(f'''use {db_data['current_schema']};''')
-    except Exception as e:
-        logger.exception(f'Error setting current schema to {db_data["current_schema"]}, {e}')
-
-    for df in db_data['dataframes']:
-        try:
-            db2.execute(df[1])
-        except Exception as e:
-            logger.exception(f'Error creating table for dataframe {df[0]}, {e}')
+        return con.execute(get_records_sql).fetchall()
+    finally:
+        con.close()
 
 
-    for schema, item, sql, cols in db_data['data']:
+def user_records(db_data:dict):
+    """The session's tables and views from the snapshot, shaped like get_records_sql rows."""
+    for db_scm, name, kind, cols in db_data['data']:
         if not cols:
-            continue
-        col_names = []
-        col_items = []
-        for c, d in cols:
-            if c in col_names:
-                continue
-            col_names.append(c)
-            col_items.append([c, d])
-
-        sql2 = make_table_sql(item, col_items)
-        try:
-            db2.execute(f'''use {schema}; {sql2}''')
-        except Exception as e:
-            logger.exception(f'Error creating table {item} in schema {schema}, {e}')
-
-    try:
-        db2.execute(f'''use {db_data['current_schema']};''')
-    except Exception as e:
-        logger.exception(f'Error setting current schema to {db_data["current_schema"]}, {e}')
-    if db_data['file_search_path']:
-        try:
-            db2.execute(f"""set file_search_path to '{db_data['file_search_path']}';""")
-        except Exception as e:
-            logger.exception(f'Error setting file_search_path to {db_data["file_search_path"]}, {e}')
-    
-    return db2
+            continue  # sequences
+        table_type = 'view' if kind == 'view' else 'table'
+        yield (db_scm, name, 'table', table_type, None, cols)
 
 
-
-def make_completion_map(db:duckdb.DuckDBPyConnection,db_data):
+def make_completion_map(db_data):
     """makes a map of completion items for the language server"""
-    records = db.execute(get_records_sql).fetchall()
+    records = builtin_records(tuple(sorted(db_data.get('loaded_extensions') or []))) + list(user_records(db_data))
     function_docs = json.loads(Path(__file__).parent.joinpath('functions.json').read_text())
     kind_map = {
         'table':CompletionItemKind.File,
@@ -277,7 +257,7 @@ def make_completion_map(db:duckdb.DuckDBPyConnection,db_data):
     except:
         cur_db = 'memory'
 
-    for db_scm, fn_name, fn_type in db_data['functions']:
+    for db_scm, fn_name, fn_type, *_ in db_data['functions']:
         if fn_type == 'table_macro':
             obj_type = 'table_macro'
         else:

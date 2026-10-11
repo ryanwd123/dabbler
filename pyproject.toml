@@ -28,13 +28,15 @@ dependencies = [
   "sqlparse",
   "sqlglot",
   "lark",
-  "pygls",
+  "pygls>=2.0,<3",
   "ipython",
-  "zmq",
   "ipykernel",
   "polars",
   "pyarrow"
 ]
+
+[project.optional-dependencies]
+test = ["pytest", "pytest-lsp>=1.0"]
 
 
 
@@ -64,3 +66,6 @@ packages = ["dabbler","dabbler.lsp"]
 
 [tool.setuptools.package-data]
 "*" = ["*.lark", "*.json"]
+
+[tool.pytest.ini_options]
+testpaths = ["dabbler_py_tests"]

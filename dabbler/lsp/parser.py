@@ -1,17 +1,22 @@
 import os
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from enum import Enum
 from lark import Lark, Transformer, v_args, Discard, Visitor, Tree, UnexpectedToken, Token, UnexpectedCharacters
 from lark.parsers.lalr_interactive_parser import InteractiveParser
-from typing import Union
+from typing import Callable, Union
 import duckdb
 import logging
 import time
 
 lark_cache = Path(__file__).parent.joinpath('lark_cache')
 lark_file = Path(__file__).parent.joinpath('duckdb.lark')
+
+def set_search_path_sql(search_path:str):
+    # SET doesn't take bound parameters, so quote the literal
+    return "set file_search_path = '{}'".format(search_path.replace("'", "''"))
+
 
 def parser_error_handler(e:UnexpectedToken):
     # assert isinstance(e, UnexpectedToken)
@@ -60,6 +65,110 @@ class Cte:
     projection: Union[list[tuple[str,Union[str,None]]], None]
     cte_start: int
     self_start: int
+    col_aliases: Union[list[str], None] = None
+
+    @property
+    def definition(self):
+        """The CTE as it appears in a WITH clause."""
+        cols = f"({', '.join(self.col_aliases)})" if self.col_aliases else ""
+        return f"{self.name}{cols} as ({self.sql})"
+
+
+def with_clause(ctes: dict[str, Cte]):
+    if not ctes:
+        return ""
+    return "with " + ",\n".join(c.definition for c in ctes.values())
+
+
+def rename_columns(projection, col_aliases: Union[list[str], None]):
+    """Applies a column alias list like t(a, b) to the first columns of a projection."""
+    if not projection or not col_aliases:
+        return projection
+    renamed = [(alias, col[1]) for alias, col in zip(col_aliases, projection)]
+    return renamed + list(projection[len(col_aliases):])
+
+
+Columns = list[tuple[Union[str, None], Union[str, None]]]
+"""(column name, type) pairs; the type is None when it isn't known. The name is
+None for unaliased expressions: they don't get completions, but they keep their
+position so column alias lists like t(a, b) line up."""
+
+
+def norm_name(name: str) -> str:
+    """DuckDB matches identifiers case-insensitively, and quoting doesn't change the name."""
+    return ".".join(part.strip('"') for part in name.split(".")).lower()
+
+
+def lookup(mapping: dict, name: str):
+    """mapping[name], falling back to a case- and quote-insensitive match."""
+    if name in mapping:
+        return mapping[name]
+    target = norm_name(name)
+    for k, v in mapping.items():
+        if norm_name(k) == target:
+            return v
+    return None
+
+
+@dataclass
+class SelectItem:
+    """One entry of a select list, as far as its output column names go."""
+    name: Union[str, None] = None
+    """Output name: the alias, or the column of a plain column reference. None for
+    unaliased expressions, which don't get completions."""
+    source: Union[tuple[Union[str, None], str], None] = None
+    """(qualifier, column) when the expression is a plain column reference, for its type."""
+    star: bool = False
+    qualifier: Union[str, None] = None
+    """t in t.*"""
+    exclude: list[str] = field(default_factory=list)
+    replace: list[str] = field(default_factory=list)
+    regex: Union[str, None] = None
+    """COLUMNS('regex')"""
+
+
+def _star_item(star: Tree, regex: Union[str, None] = None) -> SelectItem:
+    item = SelectItem(star=True, regex=regex)
+    for child in star.children:
+        if isinstance(child, Token) and child.type == "IDENT":
+            item.qualifier = child.value
+        elif isinstance(child, Tree) and child.data == "exclude":
+            item.exclude = [c.children[0].value for c in child.children if isinstance(c, Tree)]
+        elif isinstance(child, Tree) and child.data == "replace":
+            item.replace = [c.children[-1].value for c in child.children if isinstance(c, Tree)]
+        elif isinstance(child, Tree) and child.data == "columns_exp":
+            return _columns_item(child)
+    return item
+
+
+def _columns_item(columns: Tree) -> SelectItem:
+    """COLUMNS('regex') or COLUMNS(* EXCLUDE (...)); lambda forms aren't expanded."""
+    arg = columns.children[1] if len(columns.children) > 1 else None
+    if isinstance(arg, Token) and arg.type == "STRING":
+        return SelectItem(star=True, regex=arg.value[1:-1].replace("''", "'"))
+    if isinstance(arg, Tree) and arg.data == "star_options":
+        return _star_item(arg)
+    return SelectItem()
+
+
+def select_items(col_exps: Tree) -> list[SelectItem]:
+    items = []
+    for col in col_exps.children:
+        if not isinstance(col, Tree) or not col.children:
+            continue
+        first = col.children[0]
+        if isinstance(first, Tree) and first.data == "star_options":
+            items.append(_star_item(first))
+            continue
+        alias = col.children[1] if len(col.children) > 1 else None
+        source = None
+        if isinstance(first, Tree) and first.data == "col_ref":
+            qualifier, column = first.children[0], first.children[-1]
+            if isinstance(column, Token):
+                source = (qualifier.value if isinstance(qualifier, Token) else None, column.value)
+        name = alias.children[0].value if isinstance(alias, Tree) else (source[1] if source else None)
+        items.append(SelectItem(name=name, source=source))
+    return items
 
 
 @dataclass
@@ -81,12 +190,16 @@ class Query:
     end_pos: int
     cte_sibblings: dict[str, Cte]
     set_operation:bool
+    select_items: list[SelectItem] = field(default_factory=list)
+    set_first: Union["Query", None] = None
+    """For UNION etc.: the first branch, which names the output columns."""
 
 
 class FromRefKind(Enum):
     table = 0
     table_function = 1
     subquery = 2
+    values = 3
 
 
 @dataclass
@@ -97,6 +210,14 @@ class FromRef:
     sql: Union[str,None] = None
     start_pos: Union[int,None] = None
     projection: Union[list[tuple[str,str]],None] = None
+    col_aliases: Union[list[str],None] = None
+
+
+def col_alias_names(value) -> Union[list[str], None]:
+    """Names from a col_alias / cte_col_alias tree, e.g. t(a, b) -> ['a', 'b']."""
+    if not isinstance(value, Tree):
+        return None
+    return [x.value for x in value.children if isinstance(x, Token)] or None
 
 
 class TransformFromClause(Transformer):
@@ -112,7 +233,7 @@ class TransformFromClause(Transformer):
         else:
             alias = value[0]
 
-        self.map[alias] = FromRef(kind=FromRefKind.table, alias=alias, name=value[0])
+        self.map[alias] = FromRef(kind=FromRefKind.table, alias=alias, name=value[0], col_aliases=col_alias_names(value[2]))
         # return {alias:FromRef(kind=FromRefKind.table,alias=alias,name=value[0])}
 
     def join_type(self, value):
@@ -126,18 +247,46 @@ class TransformFromClause(Transformer):
         return value[0].value
 
     def table_function(self, value):
-        if value[1]:
-            
-            sql:str = self.sql[value[0].meta.start_pos : value[0].meta.end_pos]
-            
-            self.map[value[1]] = FromRef(
-                kind=FromRefKind.table_function,
-                alias=value[1],
-                name=value[0],
-                sql=sql,
-                projection=self.parser.db_describe_columns(f'select * from {sql}')
-            )
-            # self.sql[value[0].meta.start_pos:value[0].meta.end_pos]
+        sql:str = self.sql[value[0].meta.start_pos : value[0].meta.end_pos]
+        # without an alias the function's name is the alias, as in DuckDB
+        names = [c.value for c in value[0].children[:3] if isinstance(c, Token)]
+        alias = value[1] or (names[-1] if names else None)
+        if not alias:
+            return
+        self.map[alias] = FromRef(
+            kind=FromRefKind.table_function,
+            alias=alias,
+            name=names[-1] if names else alias,
+            sql=sql,
+            projection=self.parser.table_function_columns(names[-1] if names else alias, sql),
+            col_aliases=col_alias_names(value[2]),
+        )
+
+    def values(self, value):
+        if value and isinstance(value[0], Token) and value[0].type == "VALUES":
+            # the VALUES list itself: DuckDB names its columns col0, col1, ...
+            first_row = next((v for v in value[1:] if isinstance(v, Tree)), None)
+            width = len([c for c in first_row.children if c is not None]) if first_row else 0
+            return [f"col{i}" for i in range(width)]
+        default_names, alias, col_alias = (list(value) + [None, None, None])[:3]
+        if not alias:
+            return Discard
+        names = col_alias_names(col_alias) or default_names or []
+        self.map[alias] = FromRef(
+            kind=FromRefKind.values,
+            alias=alias,
+            name=alias,
+            projection=[(n, None) for n in names],
+        )
+
+    def _inner_query_start(self, from_pos: int):
+        """Start of the query inside the first "(" at or after from_pos.
+
+        Queries are keyed by where their text starts, so skip whitespace after the paren.
+        """
+        paren = self.sql.index("(", from_pos)
+        m = non_space.search(self.sql, paren + 1)
+        return m.start() if m else paren + 1
 
     @v_args(tree=True)
     def subquery(self, tree: Tree):
@@ -150,11 +299,17 @@ class TransformFromClause(Transformer):
                 alias=alias, # type: ignore
                 name=sql, # type: ignore
                 sql=sql, # type: ignore
-                start_pos=tree.meta.start_pos+1,
+                start_pos=self._inner_query_start(tree.meta.start_pos),
+                col_aliases=col_alias_names(value[2]),
             )
             # return {alias:sql}
         else:
             return Discard
+
+    @v_args(tree=True)
+    def lateral_subquery(self, tree: Tree):
+        tree.children = tree.children[1:]  # drop the LATERAL token
+        return self.subquery(tree)
 
 
 class QueryToSql(Transformer):
@@ -184,19 +339,6 @@ class GetQueries(Visitor):
       fr.transform(s1).pretty()
       return fr.map
 
-   def get_projections(self, tree: Tree):
-      col_names:list[str] = []
-      for col in tree.children:
-         # print(col)
-         if len(col.children) < 2:
-            continue
-         if col.children[1]:
-            col_names.append(col.children[1].children[0].value) # type: ignore
-            continue
-         if col.children[0].data == 'col_ref':
-            col_names.append(col.children[0].children[1].value) # type: ignore
-            continue
-      return [(x,None) for x in col_names]
 
    def get_ctes(self, cte: Tree):
       if not cte:
@@ -222,6 +364,7 @@ class GetQueries(Visitor):
                projection=q.projection,
                cte_start=cte.meta.start_pos,
                self_start=x.children[3].meta.start_pos,
+               col_aliases=col_alias_names(x.children[1]),
          )
 
          cte_map[name] = c
@@ -240,15 +383,15 @@ class GetQueries(Visitor):
         return
       cte_data = None
       set_op = False
-      cols = []
+      set_first = None
+      items: list[SelectItem] = []
       if tree.children[0]:
          if tree.children[0].data == "query" and tree.data == 'query':
             q = self.get_query(tree.children[0])
             return q
          if tree.data == "set_operation":
             set_op = True
-            q1 = self.get_query(tree.children[0])
-            cols = q1.projection
+            set_first = self.get_query(tree.children[0])
             
       
          if tree.children[0].data == "cte":
@@ -267,24 +410,53 @@ class GetQueries(Visitor):
                from_refs = self.get_from_tables(x)
                # print(2,from_refs)
          if x.data == "select_clause":
-            cols = self.get_projections(x.children[4])
+            items = select_items(x.children[4])
       start = tree.meta.start_pos
       end = tree.meta.end_pos
       q = Query(
          ctes=cte_data,
          sql=sql_txt,
-         projection=cols,   # type: ignore
+         projection=[(i.name, None) for i in items if i.name],
          from_refs=from_refs,
          start_pos=start,
          end_pos=end,
          cte_sibblings={},
          set_operation=set_op,
+         select_items=items,
+         set_first=set_first,
       )
       
       return q
    
    def set_operation(self, tree: Tree):
       self.query(tree)
+
+   def update_statment(self, tree: Tree):
+      """UPDATE target [AS alias] SET ... [FROM ...]: the target and FROM items are in scope."""
+      names = [c for c in tree.children if isinstance(c, Tree) and c.data == "table_name"]
+      if not names:
+         return
+      name = ".".join(t.value for t in names[0].children if isinstance(t, Token))
+      alias = ".".join(t.value for t in names[1].children if isinstance(t, Token)) if len(names) > 1 else name
+      from_refs = {alias: FromRef(kind=FromRefKind.table, alias=alias, name=name)}
+      for x in tree.children:
+         if isinstance(x, Tree) and x.data == "from_clause":
+            from_refs.update(self.get_from_tables(x))
+      q = Query(
+         ctes=None,
+         sql=self.sql[tree.meta.start_pos : tree.meta.end_pos],
+         projection=[],
+         from_refs=from_refs,
+         start_pos=tree.meta.start_pos,
+         end_pos=tree.meta.end_pos,
+         cte_sibblings={},
+         set_operation=False,
+      )
+      if (q.start_pos, q.end_pos) in self.q_start_end:
+         return
+      self.q_start_end.append((q.start_pos, q.end_pos))
+      self.queries_list.append(q)
+      self.queries[q.start_pos] = q
       
       
    def query(self, tree: Tree):
@@ -300,11 +472,155 @@ class GetQueries(Visitor):
 
 
 incomplete_col_ref = re.compile(r'(\w+[.])([\n\s),])')
+non_space = re.compile(r'\S')
+quoted_text = re.compile(r"""'(?:[^']|'')*'|"[^"]*\"""")
+
+# Stands in for the word being typed when half-typed SQL needs repairing to parse.
+CURSOR_PLACEHOLDER = "dabbler_cursor_zz"
+
+
+def repair_candidates(sql: str, pos: int):
+    """Edits at the cursor that often turn half-typed SQL into SQL that parses.
+
+    `from |)` needs a table name and `sum(o.|` needs its closing paren, so try
+    a placeholder word, the missing parens, and both.
+    """
+    left = quoted_text.sub("", sql[:pos])
+    closing = ")" * max(left.count("(") - left.count(")"), 0)
+    candidates = [CURSOR_PLACEHOLDER]
+    if closing:
+        candidates += [closing, CURSOR_PLACEHOLDER + closing]
+    for insert in candidates:
+        yield sql[:pos] + insert + sql[pos:]
+
+class ProjectionResolver:
+    """Works out queries' output columns from the SQL itself, without running it.
+
+    Columns come from select-list names and aliases; * and COLUMNS(...) are
+    expanded from what the query reads: tables (table_columns, which looks
+    them up in the session's schema snapshot), CTEs, subqueries, VALUES lists
+    and table functions. Types are kept for plain column references and are
+    None for expressions.
+    """
+
+    def __init__(self, queries: "GetQueries", table_columns: Callable[[str], Union[Columns, None]]):
+        self.queries = queries
+        self.table_columns = table_columns
+        self.memo: dict[int, Union[Columns, None]] = {}
+        self.ref_memo: dict[int, Union[Columns, None]] = {}
+
+    def enclosing(self, q: Query) -> list[Query]:
+        """q and the queries around it, innermost first."""
+        around = [
+            x for x in self.queries.queries_list
+            if x is not q and x.start_pos <= q.start_pos and x.end_pos >= q.end_pos
+        ]
+        around.sort(key=lambda x: x.end_pos - x.start_pos)
+        return [q] + around
+
+    def find_cte(self, name: str, q: Query) -> Union[Cte, None]:
+        for scope in self.enclosing(q):
+            cte = (lookup(scope.ctes.map, name) if scope.ctes else None) or lookup(scope.cte_sibblings, name)
+            if cte:
+                return cte
+        return None
+
+    def projection(self, q: Union[Query, None]) -> Union[Columns, None]:
+        if q is None:
+            return None
+        key = id(q)
+        if key in self.memo:
+            return self.memo[key]
+        self.memo[key] = None  # a recursive CTE refers to itself
+        if q.set_first is not None:
+            result = self.projection(q.set_first)
+        else:
+            result = []
+            for item in q.select_items:
+                if item.star:
+                    result.extend(self.expand_star(item, q))
+                else:
+                    result.append((item.name, self.source_type(item, q)))
+        self.memo[key] = result
+        return result
+
+    def ref_columns(self, ref: FromRef, scope: Query) -> Union[Columns, None]:
+        key = id(ref)
+        if key in self.ref_memo:
+            return self.ref_memo[key]
+        self.ref_memo[key] = None
+        if ref.kind == FromRefKind.subquery:
+            sub = self.queries.queries.get(ref.start_pos) if ref.start_pos is not None else None
+            cols = rename_columns(self.projection(sub), ref.col_aliases)
+        elif ref.kind == FromRefKind.values:
+            cols = ref.projection
+        elif ref.kind == FromRefKind.table_function:
+            cols = rename_columns(ref.projection, ref.col_aliases)
+        else:
+            cols = None
+            cte = self.find_cte(ref.name, scope)
+            if cte is not None:
+                cte_query = self.queries.queries.get(cte.self_start)
+                cols = rename_columns(self.projection(cte_query), cte.col_aliases)
+            if cols is None:
+                # not a CTE, or a CTE named after the table it reads from
+                cols = self.table_columns(ref.name)
+            cols = rename_columns(cols, ref.col_aliases)
+        self.ref_memo[key] = cols
+        return cols
+
+    def refs_for(self, q: Query, qualifier: Union[str, None]):
+        refs = list(q.from_refs.values())
+        if qualifier:
+            refs = [r for a, r in q.from_refs.items() if norm_name(a) == norm_name(qualifier)]
+        return refs
+
+    def expand_star(self, item: SelectItem, q: Query) -> Columns:
+        exclude = {norm_name(x) for x in item.exclude}
+        replace = {norm_name(x) for x in item.replace}
+        pattern = None
+        if item.regex is not None:
+            try:
+                pattern = re.compile(item.regex)  # DuckDB matches anywhere in the name, case-sensitively
+            except re.error:
+                return []
+        out: Columns = []
+        for ref in self.refs_for(q, item.qualifier):
+            for name, typ in self.ref_columns(ref, q) or []:
+                key = norm_name(name) if name else None
+                if key is not None and key in exclude:
+                    continue
+                if pattern is not None and not (name and pattern.search(name.strip('"'))):
+                    continue
+                out.append((name, None if key in replace else typ))
+        return out
+
+    def source_type(self, item: SelectItem, q: Query) -> Union[str, None]:
+        if not item.source:
+            return None
+        qualifier, column = item.source
+        for ref in self.refs_for(q, qualifier):
+            for name, typ in self.ref_columns(ref, q) or []:
+                if name and norm_name(name) == norm_name(column):
+                    return typ
+        return None
+
 
 class SqlParserNew:
     
-    def __init__(self, db: Union[duckdb.DuckDBPyConnection,None] = None, file_search_path:Union[str,None] = None) -> None:
-        self.db = db
+    def __init__(
+        self,
+        engine: Union[duckdb.DuckDBPyConnection, None] = None,
+        table_columns: Union[Callable[[str], Union[Columns, None]], None] = None,
+        file_search_path: Union[str, None] = None,
+        table_macro_sql: Union[Callable[[str], Union[str, None]], None] = None,
+    ) -> None:
+        """engine: a plain DuckDB connection, used only to describe table functions.
+        table_columns: columns of a table or view by name, from the schema snapshot.
+        table_macro_sql: the body of the session's table macro with that name, if any."""
+        self.engine = engine
+        self.table_columns = table_columns or (lambda name: None)
+        self.table_macro_sql = table_macro_sql or (lambda name: None)
         self.projection_cache = {}
         self.file_search_path = file_search_path
         self.log = logging.getLogger('sql_parser')
@@ -313,22 +629,34 @@ class SqlParserNew:
         self.log_interactive_parser = logging.getLogger('interactive_parser')
         
 
-    def parse_sql(self, sql: str, pos:int):
+    def parse_sql(self, sql: str, pos:int, repair:bool=False) -> tuple[Union["GetQueries", None], Union["ParseResult", None]]:
+        """Parses sql and collects its queries.
 
-        
+        Returns the queries (None if the SQL couldn't be parsed) and the parse
+        result, which says what the parser expected at the cursor.
+
+        With repair=True, SQL that doesn't parse as typed is retried with small
+        edits at the cursor (see repair_candidates). Only use that for
+        completions: the returned queries contain the edits.
+        """
         try:
-            tree, choices_pos = interactive_parse(sql,pos,self.log_interactive_parser)
-            # self.log.debug(['interactive_parse',tree,choices_pos])
-            # tree = sql_parser.parse(sql,on_error=parser_error_handler)
-        except UnexpectedToken as e:
-            self.log.info(['failed to parse, Unexpected Token',sql,e,e.token])
-            return None, None
+            parsed = interactive_parse(sql, pos)
         except Exception as e:
             self.log.info(['failed to parse',sql,e])
             return None, None
-            # noqa: E722
+        tree = parsed.tree
+        if not tree and repair:
+            for repaired in repair_candidates(sql, pos):
+                try:
+                    tree = sql_parser.parse(repaired)
+                except Exception:
+                    continue
+                sql = repaired
+                break
         if not tree:
-            return None, choices_pos
+            tree = parsed.partial_tree
+        if not tree:
+            return None, parsed
         queries = GetQueries(sql,self,pos)
         queries.visit(tree)
 
@@ -370,66 +698,82 @@ class SqlParserNew:
         
         
         
-        if not self.db:
-            # self.show_message(f'no db connection')
-            return queries
-        
-        # self.show_message(f'running db queries')
-        
-        # cte_and_subq = [cte for k,cte in q.ctes.map.items() for q in queries.queries_list if q.ctes]
-        # [subq for k,subq in q.from_refs.items() for q in queries.queries_list if subq.kind == FromRefKind.subquery] 
-        
         for q in queries.queries_list:
-            cte_sql = ''
-            if q.cte_sibblings:
-                sibblings = ',\n'.join([f'{k} as ({v.sql})' for k,v in q.cte_sibblings.items()])
-                cte_sql = f'with {sibblings}'
-            sql = f'{cte_sql}\n{q.sql}'
-            if not q.end_pos:              #testing
-                q.end_pos = len(sql)       #testing
+            # queries closed off with filler tokens can end without a position
+            if q.start_pos is None:
+                q.start_pos = 0
+            if q.end_pos is None:
+                q.end_pos = len(sql)
 
-            if pos >= q.start_pos and pos <= q.end_pos:
-                continue
-            projection = self.db_describe_columns(sql)
-            if projection:
+        resolver = ProjectionResolver(queries, self.table_columns)
+        for q in queries.queries_list:
+            projection = resolver.projection(q)
+            if projection is not None:
                 q.projection = projection
-        
-        
+
         for q in queries.queries_list:
             if q.ctes:
                 for k,v in q.ctes.map.items():
                     if v.self_start in queries.queries:
-                        v.projection = queries.queries[v.self_start].projection
-        
-        
-        # self.log_query_output.debug(queries.queries_list)
-        return queries, choices_pos
-    
+                        v.projection = rename_columns(queries.queries[v.self_start].projection, v.col_aliases)
 
-    def db_describe_columns(self, sql):
+        return queries, parsed
+
+    def table_function_columns(self, name: str, sql: str) -> Union[Columns, None]:
+        """Columns of a FROM item like read_csv('x.csv') or a table macro call."""
+        macro_sql = self.table_macro_sql(name)
+        if macro_sql:
+            return self.table_macro_columns(name, macro_sql)
+        return self.describe_table_function(sql)
+
+    def table_macro_columns(self, name: str, macro_sql: str) -> Union[Columns, None]:
+        """A table macro's columns, from parsing its body like any other query."""
+        key = ("table_macro", norm_name(name))
+        if key in self.projection_cache:
+            return self.projection_cache[key]
+        self.projection_cache[key] = None  # a macro that calls itself
+        queries, _ = self.parse_sql(macro_sql, len(macro_sql))
+        columns = None
+        if queries and queries.queries_list:
+            outermost = max(queries.queries_list, key=lambda q: q.end_pos - q.start_pos)
+            columns = outermost.projection
+        self.projection_cache[key] = columns
+        return columns
+
+    def describe_table_function(self, sql: str) -> Union[Columns, None]:
+        """Columns of a table function call such as read_csv('x.csv').
+
+        The one place DuckDB runs: a file's columns need a real reader. Table
+        macros from the session aren't known to the engine and give None.
+        """
         if sql in self.projection_cache:
             return self.projection_cache[sql]
-        
-        if incomplete_col_ref.search(f'{sql} '):
-            # self.log.debug(['skipping describe col, incomplete col ref',sql])
-            return
-
+        if self.engine is None or incomplete_col_ref.search(f'{sql} '):
+            return None
         try:
-            if not self.db:
-                return
-            db = self.db.cursor()
-            if self.file_search_path and len(self.file_search_path)>0:
-                db.execute(f"set file_search_path = '{self.file_search_path}';")
-            rec = db.execute(f'describe ({sql})').fetchall()
-            data = [(x[0],x[1]) for x in rec]
-            self.projection_cache[sql] = data
-            return data
-        except Exception as e:  # noqa: E722
-            # self.log.debug(['failed to run describe',sql,e,os.getcwd()])
-            return
+            # a cursor per call: completions run on several threads
+            cur = self.engine.cursor()
+            if self.file_search_path:
+                cur.execute(set_search_path_sql(self.file_search_path))
+            data = [(r[0], r[1]) for r in cur.execute(f'describe (select * from {sql})').fetchall()]
+        except Exception:
+            data = None
+        self.projection_cache[sql] = data
+        return data
 
 
-def find_end(p:InteractiveParser,cur_token:Union[Token,None]=None):
+# Tokens fed, in order of preference, to close off half-typed SQL so it still
+# gives a tree, e.g. "update orders set am" + "= 1", "select (a +" + "x)".
+END_FILLERS = (
+    ("RPAREN", ")"),
+    ("IDENT", CURSOR_PLACEHOLDER),
+    ("NUMBER", "1"),
+    ("EQUAL", "="),
+    ("END", "END"),
+)
+
+
+def find_end(p:InteractiveParser,cur_token:Union[Token,None]=None, max_fillers=6):
     choices = list(p.choices().keys())
     if 'table_ref' in choices and cur_token and cur_token.upper() in ['FROM','JOIN']:
         try:
@@ -438,6 +782,17 @@ def find_end(p:InteractiveParser,cur_token:Union[Token,None]=None):
         except:
             pass
 
+    for _ in range(max_fillers):
+        if '$END' in choices:
+            break
+        filler = next((Token(t, v) for t, v in END_FILLERS if t in choices), None)
+        if filler is None:
+            return None
+        try:
+            p.feed_token(filler)
+        except Exception:
+            return None
+        choices = list(p.choices().keys())
 
     if '$END' in choices:
         try:
@@ -447,89 +802,189 @@ def find_end(p:InteractiveParser,cur_token:Union[Token,None]=None):
 
 
 @dataclass
-class TokenHistory:
-    token:Union[Token,None]
-    choices:list
-    accept:list
-
-@dataclass
 class ParseResult:
-    parser:InteractiveParser
-    tree:Tree
-    choices:list[str]
-    token_history:list[TokenHistory]
-    tokens_to_pos:list[TokenHistory]
-    duration:float
+    tree: Union[Tree, None]
+    tokens: list[Token]
+    """Every token lexed, up to a lexer or parser error."""
+    tokens_before_cursor: list[Token]
+    expected_before: list[frozenset[str]]
+    """What the parser expected just before each token in tokens_before_cursor."""
+    choices: frozenset[str]
+    """Rule and terminal names the parser accepts at the cursor."""
+    reached_cursor: bool
+    """False when the SQL stopped parsing before the cursor; choices are then meaningless."""
+    token_at_cursor: Union[Token, None]
+    """A token that starts before the cursor and isn't finished there: the word being typed, or a string the cursor is inside."""
+    duration: float
+    cursor_parser: Union[InteractiveParser, None] = None
+    partial_tree: Union[Tree, None] = None
+    """The SQL up to a parse error, closed off with filler tokens."""
+
+    def accepts(self) -> set[str]:
+        """Terminals that can come next at the cursor (slow; for the parser debugging GUI)."""
+        return set(self.cursor_parser.accepts()) if self.cursor_parser else set()
 
 
-no_space_tokens = set([".", ",", ";", "(", ")", "[", "]","{","}"])
+word_char = re.compile(r"\w")
 
 
+def is_before_cursor(token: Token, pos: int):
+    """Tokens left of the cursor. A word that touches the cursor is the one being typed;
+    punctuation, operators and closed quotes are finished."""
+    end = token.end_pos or 0
+    return end < pos or (end <= pos and not word_char.match(token.value[-1:]))
 
-def interactive_parse(sql:str,pos:int,logger:logging.Logger, parser=sql_parser):
+
+def interactive_parse(sql: str, pos: int, parser=sql_parser, keep_cursor_parser=False) -> ParseResult:
+    """Parses sql, recording what the parser expects at the cursor position pos.
+
+    Lark yields each token before feeding it to the parser, so when the first
+    token at or after the cursor comes out of the lexer the parser's state is
+    exactly "everything left of the cursor".
+    """
     start = time.time()
     p = parser.parse_interactive(sql)
     tokens = p.iter_parse()
-    token_history:list[TokenHistory] = []
-
-    token_history.append(
-        TokenHistory(
-            token=None,
-            choices=list(p.choices().keys()),
-            accept=list(p.accepts())
-        )
-    )
-    # tk = next(lex)
-    choices_pos = []
-    if logger:
-        # logger.debug(['interactive_parse',sql,pos])
-        pass
-    
+    all_tokens: list[Token] = []
+    before: list[Token] = []
+    expected_before: list[frozenset[str]] = []
+    cursor_choices: Union[frozenset[str], None] = None
+    cursor_parser = None
+    token_at_cursor = None
+    failed = False
     token = None
-        
+
     while True:
-        prev_token = token
         try:
             token = next(tokens)
         except StopIteration:
             break
-        except UnexpectedCharacters as e:
-            # print(e)
+        except (UnexpectedCharacters, UnexpectedToken) as e:
+            failed = True
+            # The parser rejects a token when it's fed, after we've seen it; the
+            # contextual lexer rejects text before it becomes a token. In the
+            # second case every token seen was fed, so if the bad text is at or
+            # after the cursor, the parser's current state is the cursor state.
+            bad = getattr(e, "token", None)
+            lexer_error = bad is None or not all_tokens or bad.start_pos != all_tokens[-1].start_pos
+            if bad is not None:
+                # includes the word being typed, e.g. "s" at the start of a statement
+                at_or_after_cursor = not is_before_cursor(bad, pos)
+            else:
+                at_or_after_cursor = (getattr(e, "pos_in_stream", 0) or 0) >= pos
+            if cursor_choices is None and lexer_error and at_or_after_cursor:
+                cursor_choices = frozenset(p.choices())
+                if keep_cursor_parser:
+                    cursor_parser = p.copy()
+                if bad is not None and (bad.start_pos or 0) < pos:
+                    token_at_cursor = bad
             break
-        except UnexpectedToken as e:
-            # print(e)
-            break
-        
-        token_history.append(
-            TokenHistory(
-                token=prev_token,
-                choices=list(p.choices().keys()),
-                accept=list([])
-            )
-        )
 
-    token_history.append(
-        TokenHistory(
-            token=prev_token,
-            choices=list(p.choices().keys()),
-            accept=list([])
-        )
+        all_tokens.append(token)
+        if cursor_choices is not None:
+            continue
+        choices = frozenset(p.choices())
+        if is_before_cursor(token, pos):
+            before.append(token)
+            expected_before.append(choices)
+        else:
+            cursor_choices = choices
+            if keep_cursor_parser:
+                cursor_parser = p.copy()
+            if (token.start_pos or 0) < pos:
+                token_at_cursor = token
+
+    reached_cursor = cursor_choices is not None or not failed
+    if cursor_choices is None and reached_cursor:
+        # the cursor is after the last token
+        cursor_choices = frozenset(p.choices())
+        if keep_cursor_parser:
+            cursor_parser = p.copy()
+
+    # After an error, end the parse where it stopped, so queries before a grammar
+    # gap (e.g. QUALIFY) still give their tables and aliases. Closing it off with
+    # filler tokens there would drop everything after the error, so that is kept
+    # separately as a last resort, after repairs at the cursor have been tried.
+    partial_tree = None
+    if failed:
+        tree = find_end(p.copy(), cur_token=token, max_fillers=0)
+        if tree is None:
+            partial_tree = find_end(p, cur_token=token)
+    else:
+        tree = find_end(p, cur_token=token)
+    return ParseResult(
+        tree=tree,
+        partial_tree=partial_tree,
+        tokens=all_tokens,
+        tokens_before_cursor=before,
+        expected_before=expected_before,
+        choices=cursor_choices or frozenset(),
+        reached_cursor=reached_cursor,
+        token_at_cursor=token_at_cursor,
+        duration=time.time() - start,
+        cursor_parser=cursor_parser,
     )
 
-    result_history:list[TokenHistory] = []
 
-    for i, t in enumerate(token_history):
-        if t.token is None:
-            result_history.append(t)
-            continue
-        if not t.token.end_pos:
-            break
-        if t.token.end_pos < pos or (t.token.end_pos <= pos and t.token in no_space_tokens):
-            result_history.append(t)
-        else:
-            break
-    t = result_history[-1]
-    tree=find_end(p,cur_token=token)
-    choices_pos = t.choices
-    # print(t)
-    return tree, choices_pos
+TABLE_RULES = frozenset(["table_name", "table_ref", "from_ref", "table_func"])
+TYPE_RULES = frozenset(["type", "existing_types"])
+EXPRESSION_RULES = frozenset(["expression", "col_exp", "col_exps", "_col_ref", "column_update"])
+# Some states only list terminals, e.g. after "a = ". A name right after an
+# operator is a value; a name after a word or ")" may be an alias or a keyword.
+operator_token = re.compile(r"^[^\w\s\"')\]}]+$")
+line_comment_at_end = re.compile(r"--[^\n]*$")
+
+
+@dataclass
+class CursorContext:
+    kind: str
+    """'table', 'type', 'expression', 'keyword' (only keywords can go here),
+    'string', 'comment', or 'unknown' (the parser can't tell; use the regex router)."""
+    qualifier: Union[list[str], None] = None
+    """For "a.b.|": ['a', 'b'], as written (quotes kept)."""
+
+
+def classify(expected: frozenset[str], previous: Union[Token, None] = None) -> str:
+    if expected & TABLE_RULES:
+        return "table"
+    if expected & TYPE_RULES:
+        return "type"
+    if expected & EXPRESSION_RULES:
+        return "expression"
+    if "IDENT" not in expected:
+        return "keyword"
+    if previous is not None and operator_token.match(previous.value):
+        return "expression"
+    return "unknown"
+
+
+def cursor_context(parsed: ParseResult, sql: str, pos: int) -> CursorContext:
+    """What kind of thing goes at the cursor, according to the parser's state there."""
+    if not parsed.reached_cursor:
+        return CursorContext("unknown")
+
+    at = parsed.token_at_cursor
+    if at is not None and at.type == "STRING" and (at.start_pos or 0) < pos < (at.end_pos or 0):
+        return CursorContext("string")
+
+    # comments are skipped by the lexer, so look at the text between the last token and the cursor
+    gap_start = parsed.tokens_before_cursor[-1].end_pos if parsed.tokens_before_cursor else 0
+    gap_end = at.start_pos if at is not None else pos
+    gap = sql[gap_start or 0:gap_end]
+    if line_comment_at_end.search(gap) or gap.rfind("/*") > gap.rfind("*/"):
+        return CursorContext("comment")
+
+    before = parsed.tokens_before_cursor
+    if before and before[-1].type == "DOT":
+        names: list[str] = []
+        i = len(before) - 1
+        while i >= 1 and before[i].type == "DOT" and before[i - 1].type == "IDENT":
+            names.insert(0, before[i - 1].value)
+            i -= 2
+        if not names:
+            return CursorContext("unknown")
+        # what the parser expected where the qualified name starts
+        kind = classify(parsed.expected_before[i + 1], before[i] if i >= 0 and i < len(before) and before[i].type != "IDENT" else None)
+        return CursorContext(kind if kind in ("table", "expression") else "unknown", names)
+
+    return CursorContext(classify(parsed.choices, before[-1] if before else None))

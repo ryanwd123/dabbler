@@ -86,13 +86,13 @@ def get_db_data_new(db:duckdb.DuckDBPyConnection, file_search_path:Union[str,Non
             select 
                 database_name||'.'||schema_name as db_scm,
                 table_name, 
-                list([column_name, case when starts_with(data_type,'ENUM') then 'ENUM(''DUMMY'')' else data_type end]) as cols
+                list([column_name, data_type]) as cols
             from duckdb_columns
             group by all
         ), db_data as (
-            (select database_name||'.'||schema_name as db_scm, table_name, 'sql' from duckdb_tables)
+            (select database_name||'.'||schema_name as db_scm, table_name, 'table' from duckdb_tables)
             union all
-            (select database_name||'.'||schema_name, view_name, 'sql' from duckdb_views order by view_oid)
+            (select database_name||'.'||schema_name, view_name, 'view' from duckdb_views order by view_oid)
             union all
             (select database_name||'.'||schema_name, sequence_name, sql from duckdb_sequences())
         )
@@ -109,6 +109,8 @@ def get_db_data_new(db:duckdb.DuckDBPyConnection, file_search_path:Union[str,Non
                 database_name||'.'||schema_name as db_scm,
                 function_name,
                 function_type,
+                -- a table macro's body lets the language server work out its columns
+                case when function_type = 'table_macro' then macro_definition end,
             from duckdb_functions()
             WHERE internal = false
             """

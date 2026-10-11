@@ -28,7 +28,9 @@ duckdb_pragmas = [CompletionItem(label=f'{x[0]}',sort_text="99") for x in
                 duckdb.execute("select distinct function_name from duckdb_functions() where function_type ='pragma'").fetchall()]
 
 types_to_exclude = set(['.py','.ipynb'])
-file_path_completion_pattern = r'''.*('./)([A-Za-z0-9./-_, ]+)?$'''
+# path characters; a bare "/-_" in a character class is a range that also matches ;<=>?@ etc.
+path_chars = r"[\w./ ,:-]"
+file_path_completion_pattern = r".*('\./)(" + path_chars + r"+)?$"
 file_path_completion_regex = re.compile(file_path_completion_pattern)
 
 
@@ -51,19 +53,13 @@ class PathCompleter:
             self.search_path = Path(search_path)
             
     def get_items(self, search:str):
-        path = None
-        file = None
         if search is None:
             search = ''
         
         if '/' in search:
             path,file = search.rsplit('/',1)
-        
-        if path is None:
-            path = ''
-        
-        if file is None:
-            file = ''
+        else:
+            path,file = '',search
         
         items:list[Path] = []
 
@@ -95,12 +91,23 @@ class PathCompleter:
         return comp_items
     
 
+re_path_parent_step = re.compile(r"""\.parent|\.joinpath\(['"]([^'"]+)['"]\)""")
+
+
+def apply_path_parents(path: Path, chain: str) -> Path:
+    """Applies a chain like `.parent.joinpath('data')` without evaluating editor text."""
+    for step in re_path_parent_step.finditer(chain):
+        path = path.joinpath(step.group(1)) if step.group(1) else path.parent
+    return path
+
+
 def pathlib_completetions(text:str, path_dict:dict[str,str],logger):
     if len(path_dict) == 0:
         return
-    path_strings = '|'.join([x.replace('.',r'\.') for x in path_dict.keys()])
-    slash_pattern = r""".*(^|\s+|\(|=)(?P<path_ojb>(""" + path_strings + r"""))(?P<parent>(\.parent|\.joinpath\(['"][A-Za-z0-9./-_, ]+['"]\))+)?(\s+)?/(\s+)?['"](?P<search>[A-Za-z0-9./-_, ]+)?$"""
-    join__pattern = r""".*(^|\s+|\(|=)(?P<path_ojb>(""" + path_strings + r"""))(?P<parent>(\.parent|\.joinpath\(['"][A-Za-z0-9./-_, ]+['"]\))+)?\.joinpath\(["'](?P<search>[A-Za-z0-9./-_, ]+)?$"""
+    path_strings = '|'.join([re.escape(x) for x in path_dict.keys()])
+    parent_pattern = r"""(?P<parent>(\.parent|\.joinpath\(['"]""" + path_chars + r"""+['"]\))+)?"""
+    slash_pattern = r""".*(^|\s+|\(|=)(?P<path_ojb>(""" + path_strings + r"""))""" + parent_pattern + r"""(\s+)?/(\s+)?['"](?P<search>""" + path_chars + r"""+)?$"""
+    join__pattern = r""".*(^|\s+|\(|=)(?P<path_ojb>(""" + path_strings + r"""))""" + parent_pattern + r"""\.joinpath\(["'](?P<search>""" + path_chars + r"""+)?$"""
 
     m = re.search(slash_pattern,text)
     if not m:
@@ -116,7 +123,7 @@ def pathlib_completetions(text:str, path_dict:dict[str,str],logger):
         return
     _path = Path(path_dict[path_ojb])
     if groups['parent']:
-        _path = eval(f'_path{groups["parent"]}')
+        _path = apply_path_parents(_path, groups['parent'])
     if not _path.is_dir():
         return
     
@@ -125,5 +132,5 @@ def pathlib_completetions(text:str, path_dict:dict[str,str],logger):
     else:
         search = ''
     
-    completer = PathCompleter(str(_path),None,logger)
+    completer = PathCompleter(str(_path),None)
     return completer.get_items(search)
