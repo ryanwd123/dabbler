@@ -53,6 +53,16 @@ change. Now the schema is stored as rows in `schema_cache.sqlite3`:
   read live.
 - Old version-1 cache files (JSON snapshots) are upgraded in place on first open.
 
+## Done: completion features
+
+- Function docs come from `duckdb_functions()` (`lsp/functions.py`), not
+  scraped JSON: overloads with types, descriptions, examples, and a macro's
+  parameters and body. The schema cache stores function parameters (cache
+  version 3).
+- Signature help (`lsp/signature_help.py`) and hover (`lsp/hover.py`).
+- Function items insert `name($0)`. Half-typed quoted names (`"Order Li`)
+  complete and replace the quote.
+
 ## Done: finding SQL strings, syntax errors, formatting
 
 - SQL strings are found with python's tokenizer (`lsp/sql_regions.py`), not
@@ -84,67 +94,38 @@ them queryable by name with the same `locals()` trick. On Python 3.13 querying a
 DataFrame from the GUI fails ("Exception executing query"). Either remove the
 DataFrame entries from the GUI, or switch `query_db` to `cursor.register(name, df)`.
 
-## 2. Make the grammar cover DuckDB's statements
+## 2. Grammar coverage
 
-Goal: every statement DuckDB accepts parses, so completions work everywhere and
-syntax-error diagnostics stop flagging valid SQL. Where the grammar has a gap the
-completer falls back to the regex router, which is less accurate.
+Done (2026-10-11):
+- Expressions are a precedence ladder (OR, AND, NOT, predicates, operators, + -,
+  * /, ^, unary, postfix, primary) instead of one flat ambiguous rule. LALR
+  conflicts dropped from about 1,300 to about 330, and `a BETWEEN 2/3 AND 3/2`
+  (corpus 21.sql) parses.
+- Added:
+  - statements: DELETE, TRUNCATE, EXPLAIN, DESCRIBE/SHOW/SUMMARIZE,
+    transactions, CREATE INDEX/SECRET, EXPORT/IMPORT, VACUUM/ANALYZE, COMMENT
+    ON, SET VARIABLE, VALUES
+  - query clauses: WINDOW + OVER w, GROUPING SETS, SEMI/ANTI joins, set
+    operations with ALL / BY NAME, LIMIT n%, DISTINCT ON, `* LIKE`
+  - expressions: lambdas (arrow and `lambda x:`), named args, rows, list
+    comprehensions, TRIM/SUBSTRING forms, TRY_CAST, typed literals, factorial
+  - types: any name with params and arrays (INT, VARCHAR(10), INT[], user
+    types)
+  - strings: `''`, `E'...'`, `$$...$$`
+- `test_grammar_coverage.py` has 117 statements (all parse; new gaps go in
+  `KNOWN_GAPS` as strict xfails). It also checks all 492 of DuckDB's function
+  examples that are statements against the installed DuckDB, so a new DuckDB
+  version's syntax shows up as a test failure.
+- Diagnostics no longer depend on the grammar (they use DuckDB's parser), so
+  remaining gaps only affect completions, which fall back to the regex router.
 
-Current coverage (a sample of 76 common statements): 41 parse. Missing, roughly
-in order of how often they show up in notebooks:
-
-| Area | Missing |
-|---|---|
-| Statements | `DELETE`, `EXPLAIN [ANALYZE]`, `DESCRIBE`/`SHOW`/`SUMMARIZE`, `BEGIN`/`COMMIT`/`ROLLBACK`, `CREATE [UNIQUE] INDEX`, `CREATE SECRET`, `EXPORT`/`IMPORT DATABASE`, `VACUUM`, `ANALYZE` |
-| SELECT clauses | `QUALIFY`, `WINDOW w AS (...)` + `OVER w`, `LIMIT n%` |
-| Set operations | `EXCEPT`, `INTERSECT`, `UNION [ALL] BY NAME` |
-| Joins | `SEMI`, `ANTI` |
-| Grouping | `GROUPING SETS`, (`CUBE`/`ROLLUP` parse) |
-| Special function syntax | `TRIM(BOTH 'x' FROM a)`, `SUBSTRING(a FROM 2 FOR 3)`, `POSITION('a' IN b)` |
-| Expressions | lambdas `x -> x + 1`, named args `f(a := 1)`, array types `::INT[]`, `E'...'` and `$$...$$` strings |
-| DDL details | `ALTER TABLE ... ADD COLUMN b INT`, macro defaults `m(a, b := 2)`, `ATTACH ... (READ_ONLY)` |
-| Known corpus failure | `test_files/sql_tst/21.sql`: `(CASE ... END) BETWEEN 2.000/3.000 AND 3.000/2.000` |
-
-### Use DuckDB's PEG grammar as the reference
-
-DuckDB has a new PEG parser (experimental in 1.5 with `CALL enable_peg_parser();`,
-the default in v2.0; it has driven the CLI's autocomplete since v1.2). Its grammar
-is in the DuckDB repo (MIT license) under `src/parser/peg/grammar/statements/`:
-42 `.gram` files, one per statement (`select.gram`, `expression.gram`,
-`delete.gram`, `pivot.gram`, `merge_into.gram`, ...). That's the most complete and
-current description of DuckDB's syntax there is.
-
-dabbler can't load those files as they are: completions depend on Lark's LALR
-mode, which is what reports the rules expected at the cursor, and PEG grammars
-(ordered choice, unlimited lookahead) don't convert to LALR mechanically. Options:
-
-1. Use the `.gram` files as the spec and port constructs into `duckdb.lark` by
-   hand, in the priority order of the table above. Lowest risk; the corpus tests
-   catch conflicts and regressions. Start here.
-2. Write a converter from `.gram` to Lark syntax, then resolve the LALR conflicts
-   it produces by hand. More work up front, but makes following DuckDB's grammar
-   changes much easier. Worth evaluating once option 1 shows how many conflicts
-   typical rules cause.
-3. Run the PEG grammar directly with a small Python PEG interpreter that reports
-   what it expects at the cursor. Most faithful, but replaces the parser the
-   completer is built on; only if 1 and 2 stall.
-
-Keep a note of the DuckDB commit each ported rule came from, so later grammar
-changes upstream can be diffed.
-
-Approach:
-- Build a statement corpus from DuckDB's docs and its `test/sql/**/*.test` files
-  (thousands of real statements), and add a coverage test that reports the parse
-  rate, with known gaps listed as strict xfails like `21.sql` is now.
-- Add constructs in the order above. Every new keyword also becomes a keyword
-  completion automatically (they come from the grammar).
-- Watch for LALR conflicts: adding `USING` joins needed `USING SAMPLE` to become a
-  single token. Run the full suite after each grammar change; the corpus tests
-  catch regressions.
-
-Done so far: `QUALIFY`; columns for correlated `LATERAL` subqueries; the arithmetic
-operators `%`, `//`, `**`/`^`, `&`, `|`, `<<`, `>>` (any query using `%` used to fail
-to parse). Grammar cases go in `GRAMMAR_CASES` in `test_corpus_robustness.py`.
+Still open:
+- Port further constructs from DuckDB's PEG grammar (`src/parser/peg/grammar/`
+  in the DuckDB repo, MIT): MERGE INTO, PIVOT's full SQL-standard form, CREATE
+  TABLE constraints and options, `RENAME` in star expressions, ALL as a
+  subquery quantifier.
+- A wider corpus from DuckDB's `test/sql/**/*.test` files would find gaps the
+  hand-picked cases miss.
 
 ## 3. `# dabbler use '<database file>'`
 
@@ -180,28 +161,14 @@ Reading the schema:
 Tests: directive parsing, completion after `# dabbler ` and `use '`, resolution
 order, locked-file fallback, end-to-end through the server.
 
-## 4. Make the path completer reliable
+## 4. Path completion
 
-Problems today:
-- Only `'./` triggers path completion in SQL. `'~/`, `'../`, `'C:/...`, `'/abs`
-  and paths with `\` don't.
-- The allowed characters are a fixed list (`[\w./ ,:-]`), so names with `(`, `)`,
-  `&`, `#`, `+`, `=`, `[`, `@`, `'` stop completion.
-- Labels with spaces or punctuation: VS Code replaces only the "word" before the
-  cursor, so completing `my file.csv` after `'./my f` can duplicate text. Items
-  need a `text_edit` that replaces from the last `/` to the cursor.
-- In python code it only works for `Path` variables, not `Path('...')` literals.
-
-Approach:
-- In SQL, use the parser's tokens: when the cursor is inside a string literal
-  (`cursor_context(...).kind == "string"`), the path is the string's text up to
-  the cursor. No regex over the line.
-- One path-resolution function shared by SQL strings, `# dabbler use`, and python
-  `Path` expressions: expands `~`, accepts `/` and `\`, resolves relative paths
-  against the session's working directory or the document's folder.
-- Return `text_edit`s covering the typed segment.
-- Tests with awkward names: spaces, `()`, `&`, `#`, unicode, very long names,
-  directories vs files, and a missing parent directory.
+Done (2026-10-11): any SQL string holding a path completes files, either when
+it looks like a path (`./`, `../`, `~/`, `C:\`, `/`, `a/b`) or when SQL reads a
+file there (`FROM '...'`, `read_csv('...')`, `COPY ... TO '...'`, `ATTACH`).
+Names with any characters work, and items replace the whole last segment
+(text_edit). Folders come first and reopen the list. Still open: `Path('...')`
+literals in python code (only `Path` variables complete today).
 
 ## 5. Remember database files
 
