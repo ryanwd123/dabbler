@@ -473,11 +473,12 @@ class TableWorker(QtCore.QObject):
 
 
     def set_up_timers(self):
-        self.widthsTimer = QtCore.QTimer()
+        # children of the worker, so they're deleted with it, in the worker's thread
+        self.widthsTimer = QtCore.QTimer(self)
         self.widthsTimer.setInterval(100)
         self.widthsTimer.setSingleShot(True)
         self.widthsTimer.timeout.connect(self.calc_widths_2)
-        self.searchTimer = QtCore.QTimer()
+        self.searchTimer = QtCore.QTimer(self)
         self.searchTimer.setInterval(100)
         self.searchTimer.setSingleShot(True)
         self.searchTimer.timeout.connect(self.filter_df2)
@@ -635,8 +636,14 @@ class DfView(QtWidgets.QWidget):
         self.workerThread.start()
 
     def stop_worker(self):
-        """Ends the worker thread; a QThread destroyed while running aborts the process."""
+        """Ends the worker thread; a QThread destroyed while running aborts the process.
+
+        The worker and its timers belong to that thread and must be deleted there:
+        destroyed later from another thread, Qt aborts the process on Linux. A
+        deleteLater pending when the thread finishes runs in the thread.
+        """
         if self.workerThread.isRunning():
+            self.worker.deleteLater()
             self.workerThread.quit()
             self.workerThread.wait(2000)
 

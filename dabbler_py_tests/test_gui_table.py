@@ -3,6 +3,7 @@ import os
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
+import threading
 import time
 from datetime import date
 
@@ -101,3 +102,19 @@ def test_late_answers_for_an_earlier_result_are_ignored(view):
     view.set_col_widths(old_generation, [10, 20, 30, 40, 50], ["", "", "", "", ""])
     assert view._model.df.columns == ["only"]
     assert wait_for(lambda: view.table.columnWidth(0) > 0)
+
+
+def test_stopping_deletes_the_worker_in_its_thread(qapp):
+    view = DfView()
+    view.set_df(DF, ["BIGINT", "VARCHAR", "ENUM", "DATE", "BIGINT[]"])
+    assert wait_for(lambda: view.worker.widthsTimer is not None)
+    main = threading.get_ident()
+    destroyed_in = []
+    view.worker.destroyed.connect(
+        lambda *_: destroyed_in.append(threading.get_ident()), QtCore.Qt.ConnectionType.DirectConnection
+    )
+    view.stop_worker()
+    # its timers belong to the worker's thread; deleted from another one, Qt aborts on Linux
+    assert len(destroyed_in) == 1 and destroyed_in[0] != main
+    view.stop_worker()  # a second stop (window close, then app close) is harmless
+    delete_now(view)
