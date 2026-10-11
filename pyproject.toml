@@ -76,3 +76,12 @@ packages = ["dabbler","dabbler.lsp"]
 
 [tool.pytest.ini_options]
 testpaths = ["dabbler_py_tests"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py312"
+extend-exclude = ["test_files", "tools", "scripts"]
+
+[tool.ruff.lint]
+# syntax errors and undefined names to start; widen once the code is cleaned up
+select = ["E9", "F63", "F7", "F82"]
