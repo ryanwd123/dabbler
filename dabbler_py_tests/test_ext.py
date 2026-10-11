@@ -103,3 +103,20 @@ def test_several_connections_need_a_name(shell, capsys):
     shell.run_line_magic("dabbler", "nope")
     assert "isn't a DuckDB connection" in capsys.readouterr().out
     assert ext._magics.app.db_name == "second"
+
+
+def test_query_from_the_editor_shows_in_the_window(shell):
+    import time
+
+    shell.user_ns["db"] = duckdb.connect()
+    shell.user_ns["frame"] = __import__("pandas").DataFrame({"a": [1, 2, 3]})
+    ext.load_ipython_extension(shell)
+    app = ext._magics.app
+    app.msg_routing("select sum(a) as total from frame")
+    window = app.windows[-1]
+    deadline = time.time() + 10
+    while window.table._model.df.width == 0 and time.time() < deadline:
+        QtWidgets.QApplication.processEvents()
+        time.sleep(0.01)
+    assert window.table._model.df["total"].to_list() == [6]
+    assert "frame" in window.selection_area.df_list

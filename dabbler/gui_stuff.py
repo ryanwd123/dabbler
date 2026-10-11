@@ -1,20 +1,25 @@
+from typing import Union
+
 from pygments import highlight as _highlight
 from pygments.lexers import SqlLexer
 from pygments.formatters import HtmlFormatter
 
 
+# (top-level package, class name) -> kind; type paths move between versions
+# (pandas 3 is pandas.DataFrame, DuckDB 1.5 is _duckdb.DuckDBPyRelation)
 dataframe_types = {
-    "pandas.core.frame.DataFrame":'pandas',
-    "polars.dataframe.frame.DataFrame":'polars',
-    "pyarrow.lib.Table":'arrow',
-    "duckdb.DuckDBPyRelation":'duckdb_rel',
-    # "duckdb.duckdb.DuckDBPyRelation":'duckdb_rel',
+    ("pandas", "DataFrame"): "pandas",
+    ("polars", "DataFrame"): "polars",
+    ("pyarrow", "Table"): "arrow",
+    ("duckdb", "DuckDBPyRelation"): "duckdb_rel",
+    ("_duckdb", "DuckDBPyRelation"): "duckdb_rel",
 }
 
-def check_dataframe_type(type_str:str):
-    for k,v in dataframe_types.items():
-        if k in type_str:
-            return v
+
+def dataframe_kind(value) -> Union[str, None]:
+    """'pandas', 'polars', 'arrow' or 'duckdb_rel' for things a query can read, else None."""
+    cls = type(value)
+    return dataframe_types.get((cls.__module__.split(".")[0], cls.__name__))
 
 
 def dataframes_in(ipython) -> dict[str, str]:
@@ -25,7 +30,7 @@ def dataframes_in(ipython) -> dict[str, str]:
     for name, value in list(ipython.user_ns.items()):
         if name.startswith("_"):
             continue
-        kind = check_dataframe_type(str(type(value)))
+        kind = dataframe_kind(value)
         if kind:
             found[name] = kind
     return found

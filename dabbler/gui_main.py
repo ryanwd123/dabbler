@@ -1,7 +1,5 @@
-import time
 import logging
 from typing import Union
-from sqlglot import parse_one, exp
 from IPython.core.getipython import get_ipython
 
 from dabbler.gui_qt import (
@@ -14,26 +12,17 @@ from dabbler.gui_qt import (
 
 
 import duckdb
-import sqlparse
 from pathlib import Path
 from pygments.formatters import HtmlFormatter
 import datetime
 from dabbler.gui_stuff import (
-    check_dataframe_type,
     dataframes_in,
     highlight,
 )
 from dabbler.db_stuff import SessionState
 from dabbler.gui_components import Shortcut, TreeItem, SchemaSync
+from dabbler.gui_query import QueryResult, QueryRunner
 from dabbler.gui_table import DfView
-
-def check_dtype(dt:str):
-    if dt.startswith("ENUM("):
-        return "ENUM"
-    if dt.startswith("STRUCT("):
-        return "STRUCT"
-    return dt
-
 
 class TableSelectionArea(QtWidgets.QWidget):
     def __init__(
@@ -85,6 +74,8 @@ class TableSelectionArea(QtWidgets.QWidget):
 
         self.model = self.table._model
         self.lay_out.addWidget(self.table_selection)
+        self.runner = QueryRunner(self.main.app.make_cursor, lambda: user_namespace(), self)
+        self.runner.finished.connect(self.show_result)
 
         self.populate_table_list()
 
@@ -169,61 +160,36 @@ class TableSelectionArea(QtWidgets.QWidget):
 
         self.query_db(f"""select * from {tbl_db}{self.selected_table} """, True)
 
-    def query_db(_self_z, _stmt_z: str, _tbl_click=False):
-        _self_z.db = _self_z.db.cursor()
-        _self_z.db.execute(f"set file_search_path to '{_self_z.main.app.file_search_path}'")
-
+    def limit(self) -> Union[int, None]:
         try:
-            _limit = parse_one(_stmt_z, read="duckdb").find(exp.Select).find(exp.Limit)   # type: ignore
-        except Exception:
-            _limit = None
-        
-        if _limit is None:
-            _limit_str = f"limit {_self_z.limit_input.text()}"
-            _stmt_z = f"{_stmt_z} {_limit_str}"
+            return int(self.limit_input.text()) or None
+        except ValueError:
+            return None
 
-        _ipython_z = get_ipython()
-        if _ipython_z:
-            for _item_z in _ipython_z.ev("dir()"):
-                _i_type_z = str(type(_ipython_z.ev(_item_z)))
-                _df_type = check_dataframe_type(_i_type_z)
-                
-                
-                if _df_type and _item_z[0] != "_":
-                    locals().__setitem__(_item_z, _ipython_z.ev(_item_z))
+    def query_db(self, sql: str, _tbl_click=False):
+        """Runs sql on a worker thread; show_result displays it."""
+        self.main.status.setText("running... (Ctrl+. or cancel to stop)")
+        self.main.sql_doc.setHtml(highlight(sql))
+        self.main.btn_cancel.setEnabled(True)
+        self.runner.run(sql, self.limit())
 
-        try:
-            _start = time.time()
-            
-            # _desc = _self_z.db.execute(f"Describe {_stmt_z}").fetchall()
-            
-            # _self_z.dtypes = [x[1] for x in _desc]
-            # _self_z.htypes = [fmt_types.get(x, "STRING") for x in _self_z.dtypes]
-            
-            _rel = _self_z.db.sql(_stmt_z)
-            d_types = _rel.dtypes
-            d_types = [check_dtype(str(x)) for x in d_types]
-            _self_z.result = _rel.pl()
-
-            
-            _self_z.query = _stmt_z
-            _duration = time.time() - _start
-            _self_z.main.status.setText(f"{_duration:.2f} sec to execute")
-            _self_z.table.set_df(_self_z.result, d_types)
-
-
-            _highlighted_query_text = highlight(_stmt_z)
-            _self_z.main.sql_doc.setHtml(_highlighted_query_text)
-
-        except Exception as error:
-            excetion_str = 'Exception executing query\n'
-            excetion_str += f'{type(error).__module__}.{type(error).__name__}:\n{error=}'
-            _self_z.main.status.setText(excetion_str)
-            _highlighted_query_text = highlight(
-                sqlparse.format(_stmt_z, reindent_aligned=True)
-            )
-            _self_z.main.sql_doc.setHtml(_highlighted_query_text)
-
+    def show_result(self, result: QueryResult):
+        self.main.btn_cancel.setEnabled(False)
+        if result.cancelled:
+            self.main.status.setText(f"cancelled after {result.seconds:.2f} sec")
+            return
+        if result.error is not None:
+            error = result.error
+            self.main.status.setText(f"Exception executing query\n{type(error).__module__}.{type(error).__name__}:\n{error}")
+            return
+        self.query = result.sql
+        if result.df is None:
+            self.main.status.setText(f"statement executed in {result.seconds:.2f} sec")
+            self.main.app.refresh_schema()  # it may have created or dropped something
+            return
+        self.result = result.df
+        self.main.status.setText(f"{result.seconds:.2f} sec to execute")
+        self.table.set_df(result.df, result.dtypes)
 
 
 class mainWindow(QtWidgets.QMainWindow):
@@ -283,10 +249,17 @@ class mainWindow(QtWidgets.QMainWindow):
         btn_new_window.clicked.connect(self.app.new_window)
         self.table.top_layout.addWidget(btn_new_window)
 
-        btn_to_excel = QtWidgets.QPushButton()
-        btn_to_excel.setText("open_in_excel")
-        btn_to_excel.clicked.connect(self.to_excel)
-        self.table.top_layout.addWidget(btn_to_excel)
+        btn_export = QtWidgets.QPushButton()
+        btn_export.setText("export...")
+        btn_export.setToolTip("Save the rows shown to a file and open it")
+        btn_export.clicked.connect(self.export)
+        self.table.top_layout.addWidget(btn_export)
+
+        self.btn_cancel = QtWidgets.QPushButton()
+        self.btn_cancel.setText("cancel")
+        self.btn_cancel.setEnabled(False)
+        self.btn_cancel.clicked.connect(lambda: self.selection_area.runner.cancel())
+        self.table.top_layout.addWidget(self.btn_cancel)
 
         btn_refresh_tables = QtWidgets.QPushButton()
         btn_refresh_tables.setText("update table list")
@@ -298,6 +271,7 @@ class mainWindow(QtWidgets.QMainWindow):
             # Shortcut('Escape',self,self.hide_window),
             # Shortcut("PgDown", self, self.selection_area.next_page),
             Shortcut("Ctrl+=", self, self.increase_font_size),
+            Shortcut("Ctrl+.", self, lambda: self.selection_area.runner.cancel()),
             Shortcut("Ctrl+-", self, self.decrease_font_size),
         ]
 
@@ -369,30 +343,55 @@ class mainWindow(QtWidgets.QMainWindow):
         self.save_geometry_settings_timer.start(2000)
 
 
-    def to_excel(self):
-        if not self.selection_area.query:
-            self.status.setText("query not found")
+    def export(self):
+        """Saves the rows shown (after search and sort) to a file, then opens it."""
+        df = self.table._model.df
+        if df.width == 0:
+            self.status.setText("nothing to export; run a query first")
+            return
+        filters = ["CSV (*.csv)", "Parquet (*.parquet)"]
+        if excel_available():
+            filters.insert(0, "Excel (*.xlsx)")
+        default = str(Path.home() / f"query_{datetime.datetime.now():%Y%m%d_%H%M%S}")
+        path, chosen = QtWidgets.QFileDialog.getSaveFileName(self, "Export rows", default, ";;".join(filters))
+        if not path:
             return
         try:
-            self.status.setText("clicked to excel")
-            Path(r"c:\temp_rpt").mkdir(exist_ok=True)
-            self.status.setText("make_path")
-
-            output_file = Path(r"c:\temp_rpt").joinpath(
-                f"query_{datetime.datetime.now():%Y%m%d%M%S}.csv"
-            )
-            output = self.db.sql(self.selection_area.query)
-            self.status.setText("db_run")
-            output.limit(100000).to_csv(str(output_file), header=True)
-            self.status.setText("csv_saved")
-            import win32com.client as win
-
-            excel = win.Dispatch("Excel.Application")
-            excel.Workbooks.Open(str(output_file))
-            excel.Visible = True
-            self.status.setText("excel_open")
+            path = export_df(df, path, chosen)
         except Exception as error:
-            self.status.setText(f"Exception trying to export to excel:\n{error=}")
+            self.status.setText(f"Export failed:\n{type(error).__name__}: {error}")
+            return
+        self.status.setText(f"exported {df.height:,} rows to {path}")
+        QtGui.QDesktopServices.openUrl(QtCore.QUrl.fromLocalFile(str(path)))
+
+
+def excel_available() -> bool:
+    try:
+        import xlsxwriter  # noqa: F401  (polars writes .xlsx with it)
+        return True
+    except ImportError:
+        return False
+
+
+def export_df(df, path: str, chosen_filter: str = "") -> Path:
+    """Writes df as .xlsx, .parquet or .csv, by the file's suffix or the chosen filter."""
+    target = Path(path)
+    suffix = target.suffix.lower()
+    if suffix not in (".xlsx", ".parquet", ".csv"):
+        suffix = ".xlsx" if "xlsx" in chosen_filter else ".parquet" if "parquet" in chosen_filter else ".csv"
+        target = target.with_suffix(suffix)
+    if suffix == ".xlsx":
+        df.write_excel(target)
+    elif suffix == ".parquet":
+        df.write_parquet(target)
+    else:
+        df.write_csv(target)
+    return target
+
+
+def user_namespace() -> dict:
+    ipython = get_ipython()
+    return ipython.user_ns if ipython else {}
 
 
 def app_settings() -> QtCore.QSettings:
