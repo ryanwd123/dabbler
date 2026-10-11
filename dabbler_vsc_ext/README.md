@@ -17,4 +17,4 @@ If it isn't installed in the selected interpreter, the extension offers to insta
 - build: `npm run esbuild` (then F5 in VS Code to try it)
 - type check: `npm run compile`; lint: `npm run lint`
 - package a .vsix: `npm run package` (CI does this too: `.github/workflows/vscode-extension.yml`)
-- publish: `./publish_build.bat` (bumps the version with `python version.py`, builds, packages and publishes with vsce)
+- release: bump the version with `python version.py` (package.json and package-lock.json) and commit it, then `./publish_build.bat` type-checks, lints and publishes that version with vsce (log in once with `npx vsce login ryanwd123`)
