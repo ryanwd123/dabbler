@@ -14,7 +14,7 @@ import duckdb
 
 from dabbler.common import check_name
 from dabbler.lsp.db_data import CompletionItemKind, MarkupContent, MarkupKind, builtin_records, make_completion_map
-from dabbler.lsp.functions import user_function_info
+from dabbler.lsp.functions import FunctionInfo, builtin_functions, user_function_info
 from dabbler.lsp.parser import Columns, norm_name
 from dabbler.lsp.sql_utils import CmpItem
 from dabbler.schema_cache import ObjectRow, SchemaCache
@@ -158,6 +158,18 @@ class Catalog:
             rows.sort(key=lambda r: (r.catalog, r.schema) != (self.current_catalog, self.current_schema))
             return next((r.definition for r in rows if r.definition), None)
         return self._memoized(("macro", norm_name(name)), compute)
+
+    def function_info(self, name: str) -> Union[FunctionInfo, None]:
+        """Signatures and docs of a function: the session's own first, then DuckDB's."""
+        def compute():
+            last = norm_name(name).split(".")[-1]
+            rows = self.cache.objects(self.source, name=last, kinds=["function", "table_macro"])
+            rows.sort(key=lambda r: (r.catalog, r.schema) != (self.current_catalog, self.current_schema))
+            if rows:
+                r = rows[0]
+                return user_function_info(r.name, r.detail or "function", list(r.parameters or []), r.definition)
+            return builtin_functions(tuple(sorted(self.info.extensions))).get(last)
+        return self._memoized(("function", norm_name(name)), compute)
 
     def pathlib_paths(self) -> dict[str, str]:
         return self.cache.paths(self.source)

@@ -331,3 +331,20 @@ async def test_commands_with_unexpected_arguments_are_logged_not_crashed(client:
     source = 'q = """--sql\nselect * f\n"""\n'
     uri = open_doc(client, source)
     assert "FROM" in await complete(client, uri, position_of(source, "select * f"))
+
+
+@pytest.mark.asyncio
+async def test_signature_help(client: LanguageClient):
+    caps = client.initialize_result.capabilities
+    assert {"(", ","} <= set(caps.signature_help_provider.trigger_characters)
+    source = 'db.sql("select date_trunc(\'day\', ")\n'
+    uri = open_doc(client, source)
+    result = await client.text_document_signature_help_async(
+        types.SignatureHelpParams(
+            text_document=types.TextDocumentIdentifier(uri=uri),
+            position=position_of(source, "date_trunc('day', "),
+        )
+    )
+    assert result is not None
+    assert result.active_parameter == 1
+    assert result.signatures[result.active_signature].label.startswith("date_trunc(part VARCHAR")

@@ -30,7 +30,13 @@ from lsprotocol.types import (
     CompletionItem,
     CompletionList,
     CompletionItemKind,
+    MarkupContent,
+    MarkupKind,
+    ParameterInformation,
+    SignatureHelp,
+    SignatureInformation,
 )
+from dabbler.lsp.signature_help import active_signature, enclosing_call, signature_parts
 
 table_types = set(["table", "database", "schema", "cte", "table_macro"])
 kw_replace = {
@@ -218,6 +224,32 @@ class SqlCompleter:
                 root.append(CmpItem(name, CompletionItemKind.Variable, None, "alias", "1", "column"))
         comp_map["root_namespace"] = unique_by_label(root)
         return comp_map, parsed
+
+    def signature_help(self, cursor_pos: int, txt: str) -> Union[SignatureHelp, None]:
+        """Signatures of the function whose argument list the cursor is in."""
+        with self.catalog.request():
+            call = enclosing_call(txt, cursor_pos, lambda name: self.catalog.function_info(name) is not None)
+            if call is None:
+                return None
+            info = self.catalog.function_info(call.name)
+        if info is None or not info.signatures:
+            return None
+        doc = MarkupContent(kind=MarkupKind.Markdown, value=info.markdown())
+        signatures = []
+        for sig in info.signatures:
+            label, spans = signature_parts(sig)
+            signatures.append(SignatureInformation(
+                label=label,
+                documentation=doc,
+                parameters=[ParameterInformation(label=span) for span in spans],
+            ))
+        active = active_signature(info, call.arg_index)
+        param_count = len(signatures[active].parameters or [])
+        return SignatureHelp(
+            signatures=signatures,
+            active_signature=active,
+            active_parameter=min(call.arg_index, max(param_count - 1, 0)),
+        )
 
     def route_completion2(
         self,

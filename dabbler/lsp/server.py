@@ -66,6 +66,24 @@ def completions(
 
 
 
+@sql_server.thread()
+@sql_server.feature(
+    lsp.TEXT_DOCUMENT_SIGNATURE_HELP,
+    lsp.SignatureHelpOptions(trigger_characters=["(", ","], retrigger_characters=[")"]),
+)
+def signature_help(ls: InlineSqlLangServer, params: lsp.SignatureHelpParams) -> Optional[lsp.SignatureHelp]:
+    """Parameters of the function whose argument list the cursor is in."""
+    document = ls.workspace.get_text_document(params.text_document.uri)
+    sql_rng = sql_range_at(document.source, document.offset_at_position(params.position))
+    if not sql_rng:
+        return None
+    try:
+        return ls.get_completer(params.text_document.uri).signature_help(sql_rng.cur_idx - sql_rng.start, sql_rng.txt)
+    except Exception:
+        ls.log.exception("signature help failed")
+        return None
+
+
 def publish_sql_errors(ls: InlineSqlLangServer, uri: str):
     """Checks every SQL string in the document with DuckDB's parser and publishes the errors."""
     try:
