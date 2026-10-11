@@ -20,6 +20,7 @@ from pygments.formatters import HtmlFormatter
 import datetime
 from dabbler.gui_stuff import (
     check_dataframe_type,
+    dataframes_in,
     highlight,
 )
 from dabbler.gui_components import Shortcut, TreeItem, SchemaSync
@@ -125,24 +126,12 @@ class TableSelectionArea(QtWidgets.QWidget):
                 dbs[db] = TreeItem([f"{db}"], item_type="db")
             dbs[db].addChild(TreeItem([f"{scm}.{tbl}", typ], item_type=db))
 
-        if not self.main.app.in_thread:
-            dbs["dataframes"] = TreeItem(["dataframes"], item_type="db")
-            ipython = get_ipython()
-            if ipython:
-                self.df_list = set()
-                for item in ipython.ev("dir()"):
-                    i_type = str(type(ipython.ev(item)))
-                    df_type = check_dataframe_type(i_type)
-                    
-                    if df_type and item[0] != "_":
-                        dbs["dataframes"].addChild(
-                            TreeItem(
-                                [item, df_type],
-                                item_type=df_type,
-                            )
-                        )
-                        self.df_list.add(item)
-                        self.table_list[item] = df_type
+        dbs["dataframes"] = TreeItem(["dataframes"], item_type="db")
+        self.df_list = set()
+        for name, df_type in dataframes_in(get_ipython()).items():
+            dbs["dataframes"].addChild(TreeItem([name, df_type], item_type=df_type))
+            self.df_list.add(name)
+            self.table_list[name] = df_type
 
         added_items = ["dataframes", self.current_db]
         sys_info = dbs.pop("system_info")
@@ -368,6 +357,10 @@ class mainWindow(QtWidgets.QMainWindow):
         self.app.settings.setValue("size", self.size())
         self.app.settings.setValue("pos", self.pos())
 
+    def closeEvent(self, event):
+        self.table.stop_worker()
+        super().closeEvent(event)
+
     def resizeEvent(self, event):
         self.save_geometry_settings_timer.start(2000)
 
@@ -401,22 +394,33 @@ class mainWindow(QtWidgets.QMainWindow):
             self.status.setText(f"Exception trying to export to excel:\n{error=}")
 
 
-class MyApp(QtWidgets.QApplication):
+def app_settings() -> QtCore.QSettings:
+    """Window geometry, font size and the row limit, kept between sessions."""
+    return QtCore.QSettings("dabbler", "dabbler")
+
+
+class MyApp(QtCore.QObject):
+    """dabbler's windows and schema sharing for one DuckDB connection.
+
+    Uses the process's QApplication if there is one (matplotlib's Qt backend,
+    or an earlier %load_ext), and creates it otherwise.
+    """
+
     def __init__(
-        self, argv, db=None, file_search_path = None, debug = False, file:Union[str,None] = None, db_name:Union[str,None] = None
-        
+        self, db: duckdb.DuckDBPyConnection, file_search_path=None, debug=False,
+        file: Union[str, None] = None, db_name: Union[str, None] = None,
     ) -> None:
-        super().__init__(argv)
+        existing = QtWidgets.QApplication.instance()
+        self.qapp = existing or QtWidgets.QApplication([])
+        super().__init__()
+        if existing is None:
+            self.qapp.setStyle("Fusion")  # type: ignore
         self.db = db
         self.db_name = db_name
-        self.settings = QtCore.QSettings("dabbler", "dabbler")
+        self.settings = app_settings()
         self.windows: list[mainWindow] = []
-        self.in_thread = False
         self.file_search_path = file_search_path
-        if file:
-            self.py_file = Path(file)
-        else:
-            self.py_file = None
+        self.py_file = Path(file) if file else None
         self.debug = debug
         self.log = logging.getLogger("dabbler_gui")
         if self.debug:
@@ -424,41 +428,58 @@ class MyApp(QtWidgets.QApplication):
             for name in ("dabbler_gui", "dabbler_schema_sync"):
                 logging.getLogger(name).setLevel(logging.DEBUG)
             self.log.info("debugging")
-        if file and self.db:
-            self.schema_sync = SchemaSync(self, self.db)
+        self.schema_sync = SchemaSync(self, self.db) if self.py_file else None
+        self.qapp.aboutToQuit.connect(self.close)  # type: ignore
         self.win_id = 0
-        self.setStyle("Fusion")
         self.new_window()
 
-    # def update_tables(self):
-    #     self.windows = [w for w in self.windows if w.isVisible()]
+    def msg_routing(self, sql: str):
+        """Runs a query sent from the editor in the most recently used window."""
+        window = self.last_window() or self.new_window()
+        window.selection_area.query_db(sql)
+        window.raise_()
+        window.activateWindow()
 
-    #     for w in self.windows:
-    #         w.selection_area.populate_table_list()
-
-    # @Slot(str)
-    def msg_routing(self, item):
-        self.windows[0].selection_area.query_db(item)
+    def last_window(self) -> Union["mainWindow", None]:
+        self.windows = [w for w in self.windows if w.isVisible()]
+        active = QtWidgets.QApplication.activeWindow()
+        if active in self.windows:
+            return active  # type: ignore
+        return self.windows[-1] if self.windows else None
 
     def update_tables(self):
         self.windows = [w for w in self.windows if w.isVisible()]
         for w in self.windows:
             w.selection_area.populate_table_list()
 
-    def new_window(self):
-        if not self.db:
-            return
+    def refresh_schema(self):
+        if self.schema_sync is not None:
+            self.schema_sync.check_for_update()
+        self.update_tables()
+
+    def show(self):
+        window = self.last_window() or self.new_window()
+        window.showNormal()
+        window.raise_()
+        window.activateWindow()
+
+    def new_window(self) -> "mainWindow":
         window = mainWindow(self.db, self, id=self.win_id)
         self.win_id += 1
         window.show()
-        # window.move(QtCore.QPoint(900,200))
-        self.windows.append(window)
         for w in self.windows:
             if not w.isVisible():
                 w.deleteLater()
-        self.windows = [w for w in self.windows if w.isVisible()]
+        self.windows = [w for w in self.windows if w.isVisible()] + [window]
+        window.status.setText(f"windows open: {len(self.windows)}")
+        return window
 
-        txt = f"windows open: {len(self.windows)}"
-        # for w in self.windows:
-        # txt += f'\n{w},{w.isVisible()}'
-        window.status.setText(txt)
+    def close(self):
+        """Stops sharing the schema and closes the windows (on %unload_ext, or when Qt quits)."""
+        if self.schema_sync is not None:
+            self.schema_sync.stop()
+            self.schema_sync = None
+        for w in self.windows:
+            w.close()
+            w.deleteLater()
+        self.windows = []

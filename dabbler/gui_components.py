@@ -84,20 +84,19 @@ class SchemaSync(QtCore.QObject):
         self.publish()
         self.heartbeat()
 
-        ip = get_ipython()
+        self.ip = get_ipython()
         self.ipython_cell_timer = QtCore.QTimer()
         self.ipython_cell_timer.setSingleShot(True)
         self.ipython_cell_timer.timeout.connect(self.check_for_update)
-        self.monitor_ip = IPythonExecutionMonitor(ip, self, self.ipython_cell_timer)
-        if ip:
-            ip.events.register("pre_run_cell", self.monitor_ip.pre_run_cell)
-            ip.events.register("post_run_cell", self.monitor_ip.post_run_cell)
+        self.monitor_ip = IPythonExecutionMonitor(self.ip, self, self.ipython_cell_timer)
+        if self.ip:
+            self.ip.events.register("pre_run_cell", self.monitor_ip.pre_run_cell)
+            self.ip.events.register("post_run_cell", self.monitor_ip.post_run_cell)
 
         self.poll_timer = QtCore.QTimer()
         self.poll_timer.setInterval(self.POLL_MS)
         self.poll_timer.timeout.connect(self.poll)
         self.poll_timer.start()
-        app.aboutToQuit.connect(self.stop)
 
     def publish(self) -> bool:
         """Saves the current schema; returns True if it changed."""
@@ -134,5 +133,14 @@ class SchemaSync(QtCore.QObject):
             self.log.exception("failed to read commands from the language server")
 
     def stop(self):
+        """Stops listening to cells and the editor, and tells the language server the session ended."""
         self.poll_timer.stop()
+        self.ipython_cell_timer.stop()
+        if self.ip:
+            for event, callback in (("pre_run_cell", self.monitor_ip.pre_run_cell),
+                                    ("post_run_cell", self.monitor_ip.post_run_cell)):
+                try:
+                    self.ip.events.unregister(event, callback)
+                except ValueError:
+                    pass  # already unregistered
         self.cache.end_session(self.source_file)  # type: ignore

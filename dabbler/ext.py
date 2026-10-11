@@ -1,17 +1,21 @@
+from typing import Union
+
 from dabbler.ext_classes import DbDabbler
 
+_magics: Union[DbDabbler, None] = None
 
-def load_ipython_extension(ipython):
-    """
-    Any module file that define a function named `load_ipython_extension`
-    can be loaded via `%load_ext module.path` or be configured to be
-    autoloaded by IPython at startup time.
-    """
-    # You can register the class itself without instantiating it.  IPython will
-    # call the default constructor on it.
 
-    # app = .instance()
-    # if app is None:
+def load_ipython_extension(ipython, debug=None):
+    """%load_ext dabbler.ext: opens dabbler's window for the session's DuckDB connection."""
+    global _magics
+    unload_ipython_extension(ipython)
+    _magics = DbDabbler(ipython, debug=debug)
+    ipython.register_magics(_magics)
 
-    magics = DbDabbler(ipython)
-    ipython.register_magics(magics)
+
+def unload_ipython_extension(ipython):
+    """%unload_ext dabbler.ext (and %reload_ext): closes the windows and stops sharing the schema."""
+    global _magics
+    if _magics is not None:
+        _magics.close()
+        _magics = None

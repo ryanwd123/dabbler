@@ -1,48 +1,99 @@
-from IPython.core.magic import cell_magic, magics_class, Magics
-from dabbler.gui_main import MyApp
+import os
+from typing import Union
+
+import duckdb
+from IPython.core.magic import Magics, line_magic, magics_class
+
+# names checked first when the namespace has several connections
+CONNECTION_NAMES = ("db", "con", "conn", "connection", "duck")
+
+USAGE = """dabbler: %dabbler            show dabbler's window (finds the DuckDB connection)
+         %dabbler <name>     use the DuckDB connection in variable <name>
+         %dabbler refresh    re-read the schema for completions now"""
+
+
+def find_connections(user_ns: dict) -> dict[str, duckdb.DuckDBPyConnection]:
+    return {
+        name: value
+        for name, value in user_ns.items()
+        if isinstance(value, duckdb.DuckDBPyConnection) and not name.startswith("_")
+    }
+
+
+def pick_connection(connections: dict) -> Union[str, None]:
+    """The connection to use: the only one, or one with a usual name."""
+    if len(connections) == 1:
+        return next(iter(connections))
+    return next((name for name in CONNECTION_NAMES if name in connections), None)
+
+
+def source_file(user_ns: dict) -> Union[str, None]:
+    """The file this session runs: a script's __file__, or VS Code's notebook/interactive file."""
+    return user_ns.get("__file__") or user_ns.get("__vsc_ipynb_file__")
 
 
 @magics_class
 class DbDabbler(Magics):
-    def __init__(self, ipython, debug=False):
-        super(DbDabbler, self).__init__(ipython)
-        db = None
-        db_name = 'db'
-        file_search_path = None
+    def __init__(self, ipython, debug: Union[bool, None] = None):
+        super().__init__(ipython)
+        self.debug = bool(os.environ.get("DABBLER_DEBUG")) if debug is None else debug
+        self.app = None
+        self.attach()
 
-        ev_dir = ipython.ev("dir()")
-        if '__file__' in ev_dir:
-            file = ipython.ev('__file__')
+    def attach(self, name: Union[str, None] = None) -> None:
+        user_ns = self.shell.user_ns  # type: ignore
+        connections = find_connections(user_ns)
+        if name is None:
+            name = pick_connection(connections)
+            if name is None:
+                if connections:
+                    print(f"dabbler: found several DuckDB connections ({', '.join(sorted(connections))}); "
+                          "choose one with %dabbler <name>")
+                else:
+                    print("dabbler: no DuckDB connection yet. Create one (db = duckdb.connect()) and run %dabbler")
+                return
+        elif name not in connections:
+            print(f"dabbler: {name!r} isn't a DuckDB connection")
+            return
+        self.start(name, connections[name])
+
+    def start(self, name: str, db: duckdb.DuckDBPyConnection) -> None:
+        from dabbler.gui_main import MyApp
+
+        self.close()
+        # reading the connection's setting here is safe: %load_ext / %dabbler is the cell being run
+        file_search_path = db.execute("select current_setting('file_search_path')").fetchone()[0]  # type: ignore
+        self.app = MyApp(
+            db,
+            debug=self.debug,
+            file_search_path=file_search_path or None,
+            file=source_file(self.shell.user_ns),  # type: ignore
+            db_name=name,
+        )
+        try:
+            self.shell.run_line_magic("gui", "qt")  # type: ignore
+        except NotImplementedError:
+            pass  # a shell without GUI event loop support, e.g. in tests
+
+    def close(self) -> None:
+        if self.app is not None:
+            self.app.close()
+            self.app = None
+
+    @line_magic
+    def dabbler(self, line: str):
+        """%dabbler [<connection variable> | refresh]: show dabbler's window, switch connection, or re-read the schema."""
+        arg = line.strip()
+        if arg in ("help", "-h", "--help"):
+            print(USAGE)
+        elif arg == "refresh":
+            if self.app is None:
+                print("dabbler: not attached to a connection yet; run %dabbler")
+            else:
+                self.app.refresh_schema()
+        elif arg:
+            self.attach(arg)
+        elif self.app is None:
+            self.attach()
         else:
-            file = ipython.ev('__vsc_ipynb_file__')
-        for item in ipython.ev("dir()"):
-            if "duckdb.DuckDBPyConnection" in str(type(ipython.ev(item))):
-                db_name = item
-                db = ipython.ev(item)
-                file_search_path = db.execute(
-                    "select current_setting('file_search_path')"
-                ).fetchone()[0]
-                db = db.cursor()
-                if file_search_path:
-                    db.execute(f"set file_search_path to '{file_search_path}'")
-                break
-        if db:
-            self.q = None
-            self.app = MyApp([], db, debug=debug, file_search_path=file_search_path, file=file, db_name=db_name)
-            ipython.run_line_magic("gui", "qt")
-            from IPython.lib.guisupport import start_event_loop_qt4
-
-            start_event_loop_qt4(self.app)
-        else:
-            print("db not found, create duckdb db before loading extension 'db = duckdb.connect()'")
-
-    @cell_magic
-    def runq(self, line, cell):
-        if self.q:
-            start_txt = '"""--sql\n'
-            start = cell.find(start_txt) + len(start_txt)
-            end_txt = '"""'
-            end = cell[start:].find(end_txt) + start
-            sql = cell[start:end]
-            print(sql)
-            self.q.put(sql)
+            self.app.show()

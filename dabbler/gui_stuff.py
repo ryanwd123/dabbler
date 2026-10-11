@@ -15,7 +15,21 @@ def check_dataframe_type(type_str:str):
     for k,v in dataframe_types.items():
         if k in type_str:
             return v
-    
+
+
+def dataframes_in(ipython) -> dict[str, str]:
+    """DataFrames, arrow tables and relations in the IPython namespace, with their kind."""
+    if ipython is None:
+        return {}
+    found = {}
+    for name, value in list(ipython.user_ns.items()):
+        if name.startswith("_"):
+            continue
+        kind = check_dataframe_type(str(type(value)))
+        if kind:
+            found[name] = kind
+    return found
+
 
 
 gui_style = """

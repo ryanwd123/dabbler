@@ -659,6 +659,12 @@ class DfView(QtWidgets.QWidget):
         self.worker.moveToThread(self.workerThread)
         self.workerThread.start()
 
+    def stop_worker(self):
+        """Ends the worker thread; a QThread destroyed while running aborts the process."""
+        if self.workerThread.isRunning():
+            self.workerThread.quit()
+            self.workerThread.wait(2000)
+
 
     def search_df(self):
         txt = self.search.text()
