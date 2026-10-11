@@ -36,6 +36,7 @@ from lsprotocol.types import (
     SignatureHelp,
     SignatureInformation,
 )
+from dabbler.lsp.hover import hover as hover_text
 from dabbler.lsp.signature_help import active_signature, enclosing_call, signature_parts
 
 table_types = set(["table", "database", "schema", "cte", "table_macro"])
@@ -250,6 +251,11 @@ class SqlCompleter:
             active_signature=active,
             active_parameter=min(call.arg_index, max(param_count - 1, 0)),
         )
+
+    def hover(self, cursor_pos: int, txt: str):
+        """Hover text for the name under the cursor (see hover.py)."""
+        with self.catalog.request():
+            return hover_text(self, txt, cursor_pos)
 
     def route_completion2(
         self,

@@ -348,3 +348,16 @@ async def test_signature_help(client: LanguageClient):
     assert result is not None
     assert result.active_parameter == 1
     assert result.signatures[result.active_signature].label.startswith("date_trunc(part VARCHAR")
+
+
+@pytest.mark.asyncio
+async def test_hover_over_function(client: LanguageClient):
+    source = 'db.sql("select date_trunc(\'day\', now())")\n'
+    uri = open_doc(client, source)
+    result = await client.text_document_hover_async(
+        types.HoverParams(text_document=types.TextDocumentIdentifier(uri=uri), position=position_of(source, "date_tr"))
+    )
+    assert result is not None
+    assert "Truncate to specified precision" in result.contents.value
+    start = source.index("date_trunc")
+    assert (result.range.start.character, result.range.end.character) == (start, start + len("date_trunc"))

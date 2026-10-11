@@ -84,6 +84,30 @@ def signature_help(ls: InlineSqlLangServer, params: lsp.SignatureHelpParams) -> 
         return None
 
 
+@sql_server.thread()
+@sql_server.feature(lsp.TEXT_DOCUMENT_HOVER)
+def hover(ls: InlineSqlLangServer, params: lsp.HoverParams) -> Optional[lsp.Hover]:
+    """Docs for functions, columns of tables and CTEs, and column types."""
+    document = ls.workspace.get_text_document(params.text_document.uri)
+    sql_rng = sql_range_at(document.source, document.offset_at_position(params.position))
+    if not sql_rng:
+        return None
+    try:
+        found = ls.get_completer(params.text_document.uri).hover(sql_rng.cur_idx - sql_rng.start, sql_rng.txt)
+    except Exception:
+        ls.log.exception("hover failed")
+        return None
+    if found is None:
+        return None
+    return lsp.Hover(
+        contents=lsp.MarkupContent(kind=lsp.MarkupKind.Markdown, value=found.markdown),
+        range=lsp.Range(
+            document.client_position_at_offset(sql_rng.start + found.start),
+            document.client_position_at_offset(sql_rng.start + found.end),
+        ),
+    )
+
+
 def publish_sql_errors(ls: InlineSqlLangServer, uri: str):
     """Checks every SQL string in the document with DuckDB's parser and publishes the errors."""
     try:
