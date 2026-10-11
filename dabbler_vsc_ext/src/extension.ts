@@ -12,7 +12,7 @@ import * as vscode from "vscode";
 import * as semver from "semver";
 
 import { PythonExtension } from "@vscode/python-extension";
-import { LanguageClient, LanguageClientOptions, ServerOptions, State } from "vscode-languageclient/node";
+import { DocumentSelector, LanguageClient, LanguageClientOptions, ServerOptions, State } from "vscode-languageclient/node";
 
 // dabbler finds SQL in f-strings with the tokenizer of Python 3.12+
 const MIN_PYTHON = semver.parse("3.12.0")
@@ -145,7 +145,7 @@ async function stopLangServer(): Promise<void> {
 function getClientOptions(): LanguageClientOptions {
     const config = vscode.workspace.getConfiguration('dabbler.client')
     const options = {
-        documentSelector: config.get<any>('documentSelector'),
+        documentSelector: config.get<DocumentSelector>('documentSelector'),
         outputChannel: logger,
         connectionOptions: {
             maxRestartCount: 2, // restart after a crash, but not forever

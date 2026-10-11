@@ -7,8 +7,8 @@
   "version": "0.0.8",
   "publisher": "ryanwd123",
   "engines": {
-    "node": ">=16.17.1",
-    "vscode": "^1.78.0"
+    "node": ">=18",
+    "vscode": "^1.82.0"
   },
   "extensionDependencies": [
     "ms-python.python"
@@ -114,21 +114,22 @@
     "esbuild-watch": "npm run esbuild-base -- --sourcemap --watch",
     "test-compile": "tsc -p ./",
     "compile": "tsc -p .",
-    "watch": "tsc -p . -w"
+    "watch": "tsc -p . -w",
+    "lint": "eslint src"
   },
   "devDependencies": {
-    "@types/node": "^16.11.6",
-    "@types/semver": "^7.5.0",
-    "@types/vscode": "^1.78.0",
-    "@typescript-eslint/eslint-plugin": "^5.3.0",
-    "@typescript-eslint/parser": "^5.3.0",
-    "esbuild": "^0.19.5",
-    "eslint": "^8.2.0",
-    "typescript": "^5.1.0"
+    "@eslint/js": "^9.39.5",
+    "@types/node": "^18.19.130",
+    "@types/semver": "^7.8.0",
+    "@types/vscode": "~1.82.0",
+    "esbuild": "^0.25.12",
+    "eslint": "^9.39.5",
+    "typescript": "~5.9",
+    "typescript-eslint": "^8.71.1"
   },
   "dependencies": {
-    "@vscode/python-extension": "^1.0.4",
-    "semver": "^7.5.4",
-    "vscode-languageclient": "^8.1.0"
+    "@vscode/python-extension": "1.0.5",
+    "semver": "^7.8.5",
+    "vscode-languageclient": "^9.0.1"
   }
 }
