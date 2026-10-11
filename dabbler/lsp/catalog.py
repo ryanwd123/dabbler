@@ -13,7 +13,8 @@ from typing import Union
 import duckdb
 
 from dabbler.common import check_name
-from dabbler.lsp.db_data import CompletionItemKind, builtin_records, make_completion_map
+from dabbler.lsp.db_data import CompletionItemKind, MarkupContent, MarkupKind, builtin_records, make_completion_map
+from dabbler.lsp.functions import user_function_info
 from dabbler.lsp.parser import Columns, norm_name
 from dabbler.lsp.sql_utils import CmpItem
 from dabbler.schema_cache import ObjectRow, SchemaCache
@@ -63,9 +64,11 @@ def object_item(row: ObjectRow) -> CmpItem:
         return CmpItem(row.name, CompletionItemKind.Folder, None, "schema", "3", "schema")
     if row.kind in TABLE_KINDS:
         return CmpItem(check_name(row.name), CompletionItemKind.File, None, row.kind, "2", "table")
+    info = user_function_info(row.name, row.detail or "function", list(row.parameters or []), row.definition)
+    doc = MarkupContent(kind=MarkupKind.Markdown, value=info.markdown())
     if row.kind == "table_macro":
-        return CmpItem(row.name, CompletionItemKind.File, None, "function", "9", "table_macro")
-    return CmpItem(row.name, CompletionItemKind.Function, None, "function", "9", "function")
+        return CmpItem(row.name, CompletionItemKind.File, info.detail, "function", "9", "table_macro", doc)
+    return CmpItem(row.name, CompletionItemKind.Function, info.detail, "function", "9", "function", doc)
 
 
 def column_item(name: str, typ: Union[str, None]) -> CmpItem:

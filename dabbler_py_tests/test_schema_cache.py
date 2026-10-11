@@ -132,6 +132,29 @@ def test_old_json_snapshot_file_is_upgraded(tmp_path):
     cache.save_snapshot(tmp_path / "nb.py", DB_DATA)
 
 
+def test_function_parameters_round_trip(cache, tmp_path):
+    nb = tmp_path / "nb.py"
+    data = {**DB_DATA, "functions": [["memory.main", "add_tax", "macro", "(x * 1.2)", ["x"]]]}
+    cache.save_snapshot(nb, data)
+    (row,) = cache.objects(str(nb), name="add_tax")
+    assert (row.parameters, row.definition) == (("x",), "(x * 1.2)")
+    # a new parameter is a change
+    data["functions"] = [["memory.main", "add_tax", "macro", "(x * rate)", ["x", "rate"]]]
+    assert cache.save_snapshot(nb, data) is True
+    assert cache.objects(str(nb), name="add_tax")[0].parameters == ("x", "rate")
+
+
+def test_version_2_cache_is_rebuilt(tmp_path):
+    path = tmp_path / "v2.sqlite3"
+    with sqlite3.connect(path) as con:
+        con.execute("create table meta(key text primary key, value text)")
+        con.execute("insert into meta values ('schema_version', '2')")
+        con.execute("create table objects(source_file text, catalog text, definition text)")
+    cache = SchemaCache(path)
+    cache.save_snapshot(tmp_path / "nb.py", DB_DATA)
+    assert cache.objects(str(tmp_path / "nb.py"), name="add_tax")[0].parameters is None
+
+
 def test_in_memory_cache(tmp_path):
     cache = SchemaCache(IN_MEMORY)
     cache.save_snapshot("nb", DB_DATA)

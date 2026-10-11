@@ -1,17 +1,15 @@
 import enum
 import functools
-from math import log
 import attrs
 
 # from lsprotocol.types import (
 #     CompletionItemKind,
 #     MarkupContent,
 # )
-from pathlib import Path
 from dabbler.lsp.sql_utils import CmpItem
+from dabbler.lsp.functions import builtin_functions
 from dabbler.lsp.parser import set_search_path_sql
 import duckdb
-import json
 from dabbler.common import check_name
 import logging
 logger = logging.getLogger(__name__)
@@ -231,8 +229,9 @@ def user_records(db_data:dict):
 
 def make_completion_map(db_data):
     """makes a map of completion items for the language server"""
-    records = builtin_records(tuple(sorted(db_data.get('loaded_extensions') or []))) + list(user_records(db_data))
-    function_docs = json.loads(Path(__file__).parent.joinpath('functions.json').read_text())
+    extensions = tuple(sorted(db_data.get('loaded_extensions') or []))
+    records = builtin_records(extensions) + list(user_records(db_data))
+    function_docs = builtin_functions(extensions)
     kind_map = {
         'table':CompletionItemKind.File,
         'table_macro':CompletionItemKind.File,
@@ -279,10 +278,8 @@ def make_completion_map(db_data):
         #     item_map['root_namespace'].append(comp_item)
 
 
-    for db_scm, item, obj_type, comp_detial, sql, cols in records:
-
-        
-        item = check_name(item)
+    for db_scm, name, obj_type, comp_detial, sql, cols in records:
+        item = check_name(name)
 
         if not db_scm:
             db_scm = 'root_namespace'
@@ -312,11 +309,10 @@ def make_completion_map(db_data):
             sort = '9'
         
         if obj_type == 'function' or comp_detial == 'table_macro':
-            if item in function_docs:
-                fn_doc = MarkupContent(
-                    kind=MarkupKind.Markdown,
-                    value=function_docs[item]['documentation']['documentation']) 
-                fn_detail = function_docs[item]['documentation']['detail'] 
+            info = function_docs.get(name.lower())
+            if info is not None:
+                fn_doc = MarkupContent(kind=MarkupKind.Markdown, value=info.markdown())
+                fn_detail = info.detail
         
         comp_item = CmpItem(
                 label=item,

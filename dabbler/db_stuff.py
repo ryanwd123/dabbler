@@ -91,7 +91,8 @@ def get_db_data_new(db:duckdb.DuckDBPyConnection, file_search_path:Union[str,Non
                 function_name,
                 function_type,
                 -- a table macro's body lets the language server work out its columns
-                case when function_type = 'table_macro' then macro_definition end,
+                case when function_type in ('macro', 'table_macro') then macro_definition end,
+                parameters,
             from duckdb_functions()
             WHERE internal = false
             """

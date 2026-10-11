@@ -39,7 +39,7 @@ SESSION_TIMEOUT_SECONDS = 15
 # Commands nobody picked up in time are dropped instead of running much later.
 COMMAND_TIMEOUT_SECONDS = 30
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 _SCHEMA = """
 create table if not exists meta(key text primary key, value text);
@@ -63,7 +63,8 @@ create table if not exists objects(
     name_lower text not null,
     kind text not null,               -- database, schema, table, view, function, table_macro
     detail text,                      -- function type, e.g. 'scalar', 'macro'
-    definition text,                  -- a table macro's body
+    definition text,                  -- a macro's body
+    parameters text,                  -- JSON list of a function's parameter names
     fingerprint text not null,
     primary key (source_file, catalog, schema, name, kind)
 );
@@ -147,6 +148,7 @@ class ObjectRow:
     kind: str
     detail: Union[str, None]
     definition: Union[str, None]
+    parameters: Union[tuple[str, ...], None] = None
 
 
 def object_rows(db_data: dict) -> dict[tuple, tuple[ObjectRow, list[tuple[str, Union[str, None]]]]]:
@@ -170,7 +172,9 @@ def object_rows(db_data: dict) -> dict[tuple, tuple[ObjectRow, list[tuple[str, U
     for db_scm, name, fn_type, *rest in db_data.get("functions") or []:
         catalog, schema = _split_scm(db_scm)
         kind = "table_macro" if fn_type == "table_macro" else "function"
-        add(ObjectRow(catalog, schema, name, kind, fn_type, rest[0] if rest else None))
+        definition = rest[0] if rest else None
+        parameters = tuple(rest[1]) if len(rest) > 1 and rest[1] is not None else None
+        add(ObjectRow(catalog, schema, name, kind, fn_type, definition, parameters))
     return rows
 
 
@@ -193,8 +197,10 @@ class SchemaCache:
             con.execute("create table if not exists meta(key text primary key, value text)")
             row = con.execute("select value from meta where key = 'schema_version'").fetchone()
             if row is None or int(row[0]) < SCHEMA_VERSION:
-                # version 1 kept one JSON blob per file; nothing in it needs to be kept
-                con.execute("drop table if exists snapshots")
+                # Older layouts: version 1 kept one JSON blob per file, version 2 had no
+                # function parameters. It's all rebuilt on the next save from IPython.
+                for table in ("snapshots", "sources", "objects", "columns"):
+                    con.execute(f"drop table if exists {table}")
             con.executescript(_SCHEMA)
             con.execute("insert or replace into meta values ('schema_version', ?)", (str(SCHEMA_VERSION),))
 
@@ -231,7 +237,10 @@ class SchemaCache:
         Only objects whose name, kind, columns or definition changed are rewritten.
         """
         source = normalize_path(source_file)
-        new = {key: (row, cols, _hash([row.detail, row.definition, cols])) for key, (row, cols) in object_rows(db_data).items()}
+        new = {
+            key: (row, cols, _hash([row.detail, row.definition, row.parameters, cols]))
+            for key, (row, cols) in object_rows(db_data).items()
+        }
         meta = (
             db_data.get("current_schema"),
             db_data.get("cwd"),
@@ -284,9 +293,10 @@ class SchemaCache:
         for key in fresh:
             row, cols, fp = new[key]
             con.execute(
-                "insert into objects values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "insert into objects values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (source, row.catalog, row.schema, row.name, row.catalog.lower(), row.schema.lower(),
-                 row.name.lower(), row.kind, row.detail, row.definition, fp),
+                 row.name.lower(), row.kind, row.detail, row.definition,
+                 None if row.parameters is None else json.dumps(list(row.parameters)), fp),
             )
             con.executemany(
                 "insert or replace into columns values (?, ?, ?, ?, ?, ?, ?)",
@@ -340,11 +350,11 @@ class SchemaCache:
             where.append(f"kind in ({', '.join('?' for _ in kinds)})")
             args.extend(kinds)
         rows = self._reader().execute(
-            f"select catalog, schema, name, kind, detail, definition from objects where {' and '.join(where)} "
-            "order by catalog, schema, name",
+            f"select catalog, schema, name, kind, detail, definition, parameters from objects "
+            f"where {' and '.join(where)} order by catalog, schema, name",
             args,
         ).fetchall()
-        return [ObjectRow(*r) for r in rows]
+        return [ObjectRow(*r[:6], None if r[6] is None else tuple(json.loads(r[6]))) for r in rows]
 
     def columns(self, source_file: str, catalog: str, schema: str, table: str) -> list[tuple[str, Union[str, None]]]:
         return self._reader().execute(
