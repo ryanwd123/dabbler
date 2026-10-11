@@ -14,7 +14,7 @@ TRIGGER_CHARACTERS = (":", ".", "/", " ", '"', "'")
 
 CURSOR = "|"
 
-SQL_CORPUS_DIR = Path(__file__).parent.parent / "test_files" / "sql_tst"
+SQL_CORPUS_DIR = Path(__file__).parent / "sql_corpus"
 
 
 def make_completion_db():

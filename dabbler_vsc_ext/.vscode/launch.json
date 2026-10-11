@@ -9,8 +9,8 @@
             "runtimeExecutable": "${execPath}",
             "args": [
                 "--extensionDevelopmentPath=${workspaceRoot}",
-                // "--folder-uri=${workspaceRoot}/../test_files",
-                "--folder-uri=${workspaceRoot}/../test_files",
+                // the dabbler repository: python files with SQL in them
+                "--folder-uri=${workspaceRoot}/..",
             ],
             "outFiles": [
                 "${workspaceRoot}/out/**/*.js"

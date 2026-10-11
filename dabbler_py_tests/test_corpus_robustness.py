@@ -1,4 +1,4 @@
-"""Runs the grammar and completer over the SQL corpus in test_files/sql_tst.
+"""Runs the grammar and completer over the SQL corpus in dabbler_py_tests/sql_corpus.
 
 These catch grammar regressions and crashes or slowdowns on half-typed SQL,
 which is what the completer sees most of the time while someone is typing.

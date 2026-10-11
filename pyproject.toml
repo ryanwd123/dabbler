@@ -80,7 +80,7 @@ testpaths = ["dabbler_py_tests"]
 [tool.ruff]
 line-length = 120
 target-version = "py312"
-extend-exclude = ["test_files", "tools", "scripts"]
+extend-exclude = ["tools", "scripts"]
 
 [tool.ruff.lint]
 select = ["E9", "F"]
