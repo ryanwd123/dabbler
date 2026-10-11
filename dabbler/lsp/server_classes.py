@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import threading
+from dataclasses import dataclass
 from typing import Union
 
 from lsprotocol import types as lsp
@@ -9,7 +10,17 @@ from pygls.lsp.server import LanguageServer
 from dabbler.common import uri_to_path
 from dabbler.db_stuff import get_default_db_data
 from dabbler.lsp.completer import SqlCompleter
+from dabbler.lsp.database_files import DatabaseFiles, DatabaseSource
+from dabbler.lsp.directives import UseDirective, find_use_directive, resolve_database_path
 from dabbler.schema_cache import SchemaCache
+
+
+@dataclass
+class DocumentDatabase:
+    """A document's `# dabbler use` comment and what came of it."""
+    directive: UseDirective
+    path: Union[str, None]  # the file it names; None if it can't be resolved
+    database: DatabaseSource
 
 
 class InlineSqlLangServer(LanguageServer):
@@ -21,6 +32,7 @@ class InlineSqlLangServer(LanguageServer):
 
         self.log = logging.getLogger("dabbler_lsp")
         self.schema_cache = SchemaCache()
+        self.database_files = DatabaseFiles(self.schema_cache)
         # source file -> (its version in the schema cache, completer for it)
         self.completers: dict[str, tuple[str, SqlCompleter]] = {}
         self.default_completer: Union[SqlCompleter, None] = None
@@ -61,13 +73,41 @@ class InlineSqlLangServer(LanguageServer):
         }
         self.log.debug(["workspace_info", workspace_info])
 
-    def snapshot_source(self, uri: str) -> Union[str, None]:
-        """The IPython source file whose schema applies to this document, if any."""
+    def session_source(self, uri: str) -> Union[str, None]:
+        """The IPython session's file whose schema applies to this document, if any."""
         try:
             path = uri_to_path(uri)
         except ValueError:
             return None
         return self.schema_cache.resolve_source(path, self.workspace_root())
+
+    def document_database(self, uri: str) -> Union[DocumentDatabase, None]:
+        """The database file a document names with `# dabbler use '<file>'`, read if it changed."""
+        try:
+            directive = find_use_directive(self.workspace.get_text_document(uri).source)
+        except Exception:
+            return None
+        if directive is None:
+            return None
+        try:
+            document_path = str(uri_to_path(uri))
+        except ValueError:
+            document_path = None
+        path = resolve_database_path(directive.path, document_path)
+        if path is None:
+            message = "a relative path needs a saved file" if directive.path.strip() else "no database file given"
+            return DocumentDatabase(directive, None, DatabaseSource(None, message))
+        return DocumentDatabase(directive, path, self.database_files.source(path, self.workspace_root()))
+
+    def snapshot_source(self, uri: str) -> Union[str, None]:
+        """The source whose schema applies to this document: the database file of its
+        `# dabbler use` comment, else the IPython session (see session_source)."""
+        found = self.document_database(uri)
+        if found and found.database.source:
+            return found.database.source
+        if found:
+            self.log.debug(f"using the IPython session's schema: {found.database.error}")
+        return self.session_source(uri)
 
     def get_default_completer(self) -> SqlCompleter:
         if self.default_completer is None:

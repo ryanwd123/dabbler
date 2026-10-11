@@ -129,6 +129,19 @@ def test_heartbeat_continues_without_qt(setup, monkeypatch):
         sync2.stop()
 
 
+def test_database_files_of_the_session_are_saved_under_their_paths(setup, tmp_path):
+    app, sync, db, cache = setup
+    db_path = tmp_path / "lake.duckdb"
+    db.execute(f"attach '{db_path.as_posix()}' as lk")
+    db.execute("create table lk.events(ts timestamp)")
+    sync.check_for_update()
+    # as the language server would see the file opened on its own: catalog "lake"
+    assert table_names(cache, db_path) == {"events"}
+    assert cache.source_info(db_path).current_schema == "lake.main"
+    assert cache.file_mtime(db_path) is not None
+    assert "events" in table_names(cache, app.py_file)  # the session's own schema still has everything
+
+
 def test_pathlib_paths_from_the_namespace(tmp_path):
     module = types.ModuleType("my_helpers")
     module.__file__ = str(tmp_path / "my_helpers.py")

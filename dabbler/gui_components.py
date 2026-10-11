@@ -9,8 +9,14 @@ from dabbler.gui_qt import (
 )
 from IPython.core.getipython import get_ipython
 import duckdb
-from dabbler.db_stuff import SessionState, get_db_data_new, re_session_change
-from dabbler.schema_cache import SchemaCache
+from dabbler.db_stuff import (
+    SessionState,
+    database_file_db_data,
+    file_databases,
+    get_db_data_new,
+    re_session_change,
+)
+from dabbler.schema_cache import SchemaCache, database_mtime
 
 if TYPE_CHECKING:
     from dabbler.gui_main import MyApp
@@ -98,6 +104,7 @@ class SchemaSync(QtCore.QObject):
         db_data = get_db_data_new(self.db, self.app.file_search_path)
         extracted = time.perf_counter()
         changed = self.cache.save_snapshot(self.source_file, db_data)  # type: ignore
+        self.publish_database_files(db_data)
         elapsed = time.perf_counter() - start
         message = f"schema extract {extracted - start:.3f}s, save {time.perf_counter() - extracted:.3f}s, changed={changed}"
         if elapsed > 1:
@@ -105,6 +112,18 @@ class SchemaSync(QtCore.QObject):
         else:
             self.log.debug(message)
         return changed
+
+    def publish_database_files(self, db_data: dict) -> None:
+        """Saves the schema of each database file the session has open under the file's
+        path too. The language server can't open a file another process holds open
+        (`# dabbler use '<file>'`), so it uses these rows instead."""
+        try:
+            for catalog, path in file_databases(self.db):
+                self.cache.save_snapshot(
+                    path, database_file_db_data(db_data, catalog, path), kind="database", file_mtime=database_mtime(path)
+                )
+        except Exception:
+            self.log.exception("failed to save the schema of the session's database files")
 
     def sync_session_state(self) -> None:
         """Copies USE / search_path / file_search_path from the user's connection to dabbler's cursors."""

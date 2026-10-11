@@ -53,6 +53,14 @@ Intellisnse / autocomplete:
     #!%load_ext dabbler.ext
     ```
 
+- To get completions from a DuckDB database file without an IPython session, name it in a comment anywhere in the python file. Relative paths are relative to the python file's folder, and `~` works. Typing `# dabbler ` offers `use`, and after `use '` the files in the folder you type.
+    ```py
+    # dabbler use '~/data/sales.duckdb'
+    ```
+    - the language server reads the file read-only and closes it again right away, and reads it again when the file changes
+    - while another process has the file open for writing it can't be read (DuckDB locks it); if that process is an IPython session with dabbler loaded, it saves the schema of its database files to the schema cache, and those rows are used instead
+    - the comment gets a warning when the file doesn't exist or can't be read
+
 - In vscode you can set a keyboard shortcut to the dabbler command run the select node that your cursor is on in the GUI windown
   - press: `ctrl-shit-p` to bring up the command pallette
   - type in "keyboard" to find the open keyboard shortcuts command
@@ -67,6 +75,7 @@ Intellisnse / autocomplete:
     - the IPython extension checks for updates to the database each time cells are executed (the ipython pre_run_cell and post_run_cell events) and saves the schema for the file it is running as rows (`sources`, `objects`, `columns`, `paths` tables); only tables, views and functions that changed are rewritten
     - the language server queries those rows on each completion request instead of keeping a copy; DuckDB's built-in functions and system views are the only catalog it keeps in memory
     - the rows persist, so completions keep working after the IPython session ends; files without their own schema (e.g. helper modules) use the most recently updated one in the same workspace
+    - a file with a `# dabbler use '<file>'` comment uses that database file's schema instead, saved to the same tables under the database file's path
     - "send SQL to GUI" goes the other way through the same cache: the language server queues the query and the IPython extension picks it up
     - set `DABBLER_LSP_LOG` to a file path to get a debug log from the language server
 - The language server includes an SQL parser created from using lark package
@@ -113,8 +122,6 @@ Intellisnse / autocomplete:
         - linting settings (if implemented)
 - Language Server
     - Function signature helpers
-    - Ability to connect to database file directly
-        - could have the language server read a special comment line in python file that tells it what database to use for that file.
     - SQL Validation / Linting
     - Autocomplete for files
     - Add Notebook support

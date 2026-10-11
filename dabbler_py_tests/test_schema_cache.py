@@ -186,6 +186,34 @@ def test_resolve_does_not_match_sibling_folder_with_same_prefix(cache, tmp_path)
     assert cache.resolve_source(tmp_path / "ws" / "x.py", tmp_path / "ws") is None
 
 
+def test_database_files_only_apply_to_documents_that_name_them(cache, tmp_path):
+    cache.save_snapshot(tmp_path / "ws" / "data.duckdb", DB_DATA, kind="database", file_mtime=1.0)
+    assert cache.resolve_source(tmp_path / "ws" / "x.py", tmp_path / "ws") is None
+    assert cache.get_version(tmp_path / "ws" / "data.duckdb") == 1
+
+
+def test_database_file_mtime(cache, tmp_path):
+    db = tmp_path / "data.duckdb"
+    assert cache.file_mtime(db) is None
+    cache.save_snapshot(db, DB_DATA, kind="database", file_mtime=1.0)
+    assert cache.file_mtime(db) == 1.0
+    # read again after the file changed, but its schema didn't: no new version
+    assert cache.save_snapshot(db, DB_DATA, kind="database", file_mtime=2.0) is False
+    assert (cache.file_mtime(db), cache.get_version(db)) == (2.0, 1)
+
+
+def test_version_3_cache_is_rebuilt(tmp_path):
+    path = tmp_path / "v3.sqlite3"
+    with sqlite3.connect(path) as con:
+        con.execute("create table meta(key text primary key, value text)")
+        con.execute("insert into meta values ('schema_version', '3')")
+        con.execute("create table sources(source_file text primary key, kind text not null, version integer not null, "
+                    "updated_at real not null, current_schema text, cwd text, file_search_path text, extensions text not null)")
+    cache = SchemaCache(path)
+    cache.save_snapshot(tmp_path / "data.duckdb", DB_DATA, kind="database", file_mtime=3.0)
+    assert cache.file_mtime(tmp_path / "data.duckdb") == 3.0
+
+
 def test_commands_are_taken_once_in_order(cache, tmp_path):
     nb, other = tmp_path / "nb.py", tmp_path / "other.py"
     cache.push_command(nb, "run_sql", "select 1")

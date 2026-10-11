@@ -11,6 +11,7 @@ import shutil
 import sys
 import tempfile
 
+import duckdb
 import pytest
 import pytest_lsp
 from lsprotocol import types
@@ -171,6 +172,47 @@ async def diagnostics_for(client: LanguageClient, uri: str, done=lambda d: True,
             return client.diagnostics[uri]
         await asyncio.sleep(0.05)
     raise AssertionError(f"no matching diagnostics; last: {client.diagnostics.get(uri)}")
+
+
+@pytest.mark.asyncio
+async def test_use_directive_completes_from_the_database_file(client: LanguageClient):
+    data = client.workspace_path / "data"
+    data.mkdir()
+    con = duckdb.connect(str(data / "sales.duckdb"))
+    con.execute("create table invoices(invoice_id int, total double)")
+    con.close()
+
+    source = "# dabbler use 'data/sales.duckdb'\nq = '''--sql\nselect * from \n'''\n"
+    uri = open_doc(client, source)
+    labels = await complete(client, uri, position_of(source, "from "), trigger=" ")
+    assert "invoices" in labels
+    # no warning on the comment (the unfinished SQL is an error)
+    diags = await diagnostics_for(client, uri, lambda d: len(d) > 0)
+    assert [d.severity for d in diags] == [types.DiagnosticSeverity.Error]
+
+
+@pytest.mark.asyncio
+async def test_use_directive_comment_completes_files(client: LanguageClient):
+    (client.workspace_path / "data").mkdir()
+    (client.workspace_path / "data" / "sales.duckdb").write_bytes(b"")
+    source = "# dabbler \n"
+    uri = open_doc(client, source)
+    assert await complete(client, uri, position_of(source, "# dabbler "), trigger=" ") == ["use"]
+
+    source2 = "# dabbler use 'data/'\n"
+    uri2 = open_doc(client, source2, name="nb2.py")
+    labels = await complete(client, uri2, position_of(source2, "data/"), trigger="/")
+    assert labels == ["sales.duckdb"]
+
+
+@pytest.mark.asyncio
+async def test_use_directive_warns_about_a_missing_file(client: LanguageClient):
+    source = "# dabbler use 'missing.duckdb'\nq = db.sql('select 1')\n"
+    uri = open_doc(client, source)
+    diags = await diagnostics_for(client, uri, lambda d: len(d) == 1)
+    assert "not found" in diags[0].message
+    assert diags[0].severity == types.DiagnosticSeverity.Warning
+    assert (diags[0].range.start.character, diags[0].range.end.character) == (15, 29)
 
 
 @pytest.mark.asyncio

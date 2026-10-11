@@ -181,6 +181,36 @@ def get_db_data_new(db:duckdb.DuckDBPyConnection, file_search_path:Union[str,Non
 
 
 
+def file_databases(db: duckdb.DuckDBPyConnection) -> list[tuple[str, str]]:
+    """(catalog, path) of the DuckDB database files attached to a connection."""
+    return db.execute(
+        "select database_name, path from duckdb_databases() where path is not null and not internal and type = 'duckdb'"
+    ).fetchall()  # type: ignore
+
+
+def database_file_db_data(db_data: dict, catalog: str, path: str) -> dict:
+    """The part of a session's db_data in one attached database file, as if the
+    file had been opened on its own: the catalog renamed to the file's stem (the
+    name DuckDB gives it then) and its main schema current."""
+    name = PurePath(path).stem
+
+    def in_catalog(db_scm: str) -> bool:
+        return db_scm.partition(".")[0] == catalog
+
+    def rename(db_scm: str) -> str:
+        return name + "." + db_scm.partition(".")[2]
+
+    return {
+        **db_data,
+        "data": [(rename(r[0]), *r[1:]) for r in db_data.get("data") or [] if in_catalog(r[0])],
+        "functions": [(rename(r[0]), *r[1:]) for r in db_data.get("functions") or [] if in_catalog(r[0])],
+        "schemas": [rename(s) for s in db_data.get("schemas") or [] if in_catalog(s)],
+        "databases": [name],
+        "paths": [],
+        "current_schema": f"{name}.main",
+    }
+
+
 def get_default_db_data():
     db = duckdb.connect()
     db_data = get_db_data_new(db)

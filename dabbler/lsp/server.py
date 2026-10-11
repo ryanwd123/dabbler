@@ -5,8 +5,10 @@ from lsprotocol import types as lsp
 from lsprotocol.types import CompletionList
 
 from dabbler import __version__
+from dabbler.common import uri_to_path
 from dabbler.lsp.completion_utils import pathlib_completetions
 from dabbler.lsp.diagnostics import sql_errors
+from dabbler.lsp.directives import directive_completions
 from dabbler.lsp.formatting import FormatError, format_region
 from dabbler.lsp.parser import with_clause
 from dabbler.lsp.server_classes import InlineSqlLangServer
@@ -46,6 +48,9 @@ def completions(
     completer = ls.get_completer(params.text_document.uri)
 
     if not sql_rng:
+        directive = directive_completion_list(ls, document, params.position)
+        if directive is not None:
+            return directive
         try:
             path_completions = pathlib_completetions(current_line_txt[:params.position.character], completer.pathlib_paths, ls.log)
             if path_completions:
@@ -77,6 +82,24 @@ def completions(
     return CompletionList(is_incomplete=False, items=[])
 
 
+def directive_completion_list(ls: InlineSqlLangServer, document, position: lsp.Position) -> Optional[CompletionList]:
+    """Completions in a `# dabbler use '<file>'` comment."""
+    line_start = document.offset_at_position(lsp.Position(position.line, 0))
+    column = document.offset_at_position(position) - line_start
+    try:
+        document_path = str(uri_to_path(document.uri))
+    except ValueError:
+        document_path = None
+    found = directive_completions(document.lines[position.line], column, document_path)
+    if found is None:
+        return None
+    rng = lsp.Range(
+        document.client_position_at_offset(line_start + found.start),
+        document.client_position_at_offset(line_start + found.end),
+    )
+    for item in found.items:
+        item.text_edit = lsp.TextEdit(rng, item.insert_text or item.label)
+    return CompletionList(is_incomplete=False, items=found.items)
 
 
 @sql_server.thread()
@@ -139,11 +162,29 @@ def publish_sql_errors(ls: InlineSqlLangServer, uri: str):
             )
             for e in errors
         ]
+        diagnostics += directive_diagnostics(ls, uri)
         if ls.workspace.get_text_document(uri).version != version:
             return  # edited meanwhile; the newer check publishes
         ls.publish_diagnostics(uri, diagnostics, version)
     except Exception:
         ls.log.exception(f"failed to check SQL in {uri}")
+
+
+def directive_diagnostics(ls: InlineSqlLangServer, uri: str) -> list[lsp.Diagnostic]:
+    """A warning on a `# dabbler use` comment whose database file can't be read."""
+    found = ls.document_database(uri)
+    if found is None or not found.database.error:
+        return []
+    document = ls.workspace.get_text_document(uri)
+    return [lsp.Diagnostic(
+        range=lsp.Range(
+            start=document.client_position_at_offset(found.directive.start),
+            end=document.client_position_at_offset(found.directive.end),
+        ),
+        message=f"dabbler: {found.database.error}",
+        severity=lsp.DiagnosticSeverity.Warning,
+        source="dabbler",
+    )]
 
 
 def schedule_sql_errors(ls: InlineSqlLangServer, uri: str, delay: float):
@@ -211,7 +252,7 @@ def send_sql_to_gui(ls: InlineSqlLangServer, *args):
 
     pos_in_range = sql_rng.cur_idx - sql_rng.start
 
-    source = ls.snapshot_source(uri)
+    source = ls.session_source(uri)
     if source is None:
         ls.notify_user(
             "dabbler: no IPython session has shared its database for this file yet. "

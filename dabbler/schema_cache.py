@@ -2,7 +2,9 @@
 
 The IPython extension saves its DuckDB catalog (the `db_data` dict from
 `get_db_data_new`) for the file it is running, as rows in a SQLite file: one
-row per database, schema, table, view, function and column. The language server
+row per database, schema, table, view, function and column. The schema of a
+DuckDB database file named by a `# dabbler use '<file>'` comment is stored the
+same way, keyed by the database file's path. The language server
 queries those rows on every completion request instead of keeping its own copy,
 and the rows persist, so completions keep working after the IPython session
 ends or before it starts.
@@ -39,19 +41,21 @@ SESSION_TIMEOUT_SECONDS = 15
 # Commands nobody picked up in time are dropped instead of running much later.
 COMMAND_TIMEOUT_SECONDS = 30
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 _SCHEMA = """
 create table if not exists meta(key text primary key, value text);
 create table if not exists sources(
     source_file text primary key,
-    kind text not null,               -- 'session': an IPython session running this file
+    kind text not null,               -- 'session': an IPython session running this file;
+                                      -- 'database': a DuckDB database file
     version integer not null,         -- increases whenever anything below changes
     updated_at real not null,
     current_schema text,              -- 'catalog.schema'
     cwd text,
     file_search_path text,
-    extensions text not null          -- JSON list of loaded extensions
+    extensions text not null,         -- JSON list of loaded extensions
+    file_mtime real                   -- a database file's modification time when it was read
 );
 create table if not exists objects(
     source_file text not null,
@@ -112,6 +116,18 @@ def default_cache_path() -> Path:
 def normalize_path(path: Union[str, Path]) -> str:
     """One spelling per file: absolute, and on Windows lower case with backslashes."""
     return os.path.normcase(os.path.abspath(str(path)))
+
+
+def database_mtime(path: Union[str, Path]) -> Union[float, None]:
+    """When a DuckDB database file last changed, counting its write-ahead log; None if it doesn't exist."""
+    try:
+        mtime = os.stat(path).st_mtime
+    except OSError:
+        return None
+    try:
+        return max(mtime, os.stat(f"{path}.wal").st_mtime)
+    except OSError:
+        return mtime
 
 
 def _hash(value) -> str:
@@ -198,7 +214,8 @@ class SchemaCache:
             row = con.execute("select value from meta where key = 'schema_version'").fetchone()
             if row is None or int(row[0]) < SCHEMA_VERSION:
                 # Older layouts: version 1 kept one JSON blob per file, version 2 had no
-                # function parameters. It's all rebuilt on the next save from IPython.
+                # function parameters, version 3 no database files. It's all rebuilt on
+                # the next save from IPython.
                 for table in ("snapshots", "sources", "objects", "columns"):
                     con.execute(f"drop table if exists {table}")
             con.executescript(_SCHEMA)
@@ -231,10 +248,18 @@ class SchemaCache:
 
     # -- saving (IPython) --
 
-    def save_snapshot(self, source_file: Union[str, Path], db_data: dict) -> bool:
+    def save_snapshot(
+        self,
+        source_file: Union[str, Path],
+        db_data: dict,
+        kind: str = "session",
+        file_mtime: Union[float, None] = None,
+    ) -> bool:
         """Stores the schema in db_data for source_file. Returns False when nothing changed.
 
         Only objects whose name, kind, columns or definition changed are rewritten.
+        kind is 'session' for an IPython session's file, or 'database' for a DuckDB
+        database file, whose modification time when it was read goes in file_mtime.
         """
         source = normalize_path(source_file)
         new = {
@@ -255,16 +280,20 @@ class SchemaCache:
                 changed = self._write_objects(con, source, new)
                 changed |= self._write_paths(con, source, paths)
                 current = con.execute(
-                    "select version, current_schema, cwd, file_search_path, extensions from sources where source_file = ?",
+                    "select version, current_schema, cwd, file_search_path, extensions, kind, file_mtime "
+                    "from sources where source_file = ?",
                     (source,),
                 ).fetchone()
-                if current is None or changed or tuple(current[1:]) != meta:
+                if current is None or changed or tuple(current[1:6]) != (*meta, kind):
                     version = (current[0] + 1) if current else 1
                     con.execute(
-                        "insert or replace into sources values (?, 'session', ?, ?, ?, ?, ?, ?)",
-                        (source, version, time.time(), *meta),
+                        "insert or replace into sources values (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                        (source, kind, version, time.time(), *meta, file_mtime),
                     )
                     changed = True
+                elif current[6] != file_mtime:
+                    # the file was touched without a schema change: remember it was read
+                    con.execute("update sources set file_mtime = ? where source_file = ?", (file_mtime, source))
                 con.execute("commit")
             except BaseException:
                 con.execute("rollback")
@@ -314,6 +343,13 @@ class SchemaCache:
         return True
 
     # -- reading (language server) --
+
+    def file_mtime(self, source_file: Union[str, Path]) -> Union[float, None]:
+        """When a database file's schema was read: the file's modification time then."""
+        row = self._reader().execute(
+            "select file_mtime from sources where source_file = ?", (normalize_path(source_file),)
+        ).fetchone()
+        return row[0] if row else None
 
     def get_version(self, source_file: Union[str, Path]) -> Union[int, None]:
         row = self._reader().execute(
@@ -371,16 +407,19 @@ class SchemaCache:
     def resolve_source(
         self, document: Union[str, Path], workspace_root: Union[str, Path, None] = None
     ) -> Union[str, None]:
-        """The source whose schema applies to a document.
+        """The IPython session whose schema applies to a document.
 
         The document's own if it has one, otherwise the most recently updated one
         in the same workspace (or folder, without a workspace), so SQL in helper
-        modules gets the schema of the notebook that uses them.
+        modules gets the schema of the notebook that uses them. Database files
+        only apply to documents that name them (`# dabbler use`).
         """
         document = normalize_path(document)
         folder = normalize_path(workspace_root) if workspace_root else os.path.dirname(document)
         rows = self._reader().execute(
-            "select source_file from sources order by (source_file = ?) desc, updated_at desc", (document,)
+            "select source_file from sources where kind = 'session' "
+            "order by (source_file = ?) desc, updated_at desc",
+            (document,),
         ).fetchall()
         for (source,) in rows:
             if source == document or source.startswith(folder.rstrip(os.sep) + os.sep):
