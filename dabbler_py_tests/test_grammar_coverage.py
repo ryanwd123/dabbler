@@ -157,7 +157,7 @@ def function_examples():
     examples = sorted({e for (found,) in rows for e in found})
     statements = []
     for example in examples:
-        sql = example if re.match(r"(?i)\s*(select|from|with|pivot|describe)", example) else f"select {example}"
+        sql = example if re.match(r"(?i)\s*(select|from|with|pivot|describe)b", example) else f"select {example}"
         try:
             con.extract_statements(sql)
         except duckdb.Error:
