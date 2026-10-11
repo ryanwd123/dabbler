@@ -1,5 +1,7 @@
 import os
 import re
+import threading
+from collections import OrderedDict
 from dataclasses import dataclass, field
 from pathlib import Path
 from enum import Enum
@@ -506,6 +508,9 @@ class GetQueries(Visitor):
 
 
 incomplete_col_ref = re.compile(r'(\w+[.])([\n\s),])')
+remote_url = re.compile(r"\b[a-z][a-z0-9+]*://", re.IGNORECASE)
+DESCRIBE_TIMEOUT_SECONDS = 1.0
+DESCRIBE_CACHE_SIZE = 256
 non_space = re.compile(r'\S')
 quoted_text = re.compile(r"""'(?:[^']|'')*'|"[^"]*\"""")
 
@@ -648,14 +653,19 @@ class SqlParserNew:
         table_columns: Union[Callable[[str], Union[Columns, None]], None] = None,
         file_search_path: Union[str, None] = None,
         table_macro_sql: Union[Callable[[str], Union[str, None]], None] = None,
+        remote_files: bool = False,
     ) -> None:
         """engine: a plain DuckDB connection, used only to describe table functions.
         table_columns: columns of a table or view by name, from the schema snapshot.
-        table_macro_sql: the body of the session's table macro with that name, if any."""
+        table_macro_sql: the body of the session's table macro with that name, if any.
+        remote_files: whether to describe calls reading URLs (the session has httpfs)."""
         self.engine = engine
         self.table_columns = table_columns or (lambda name: None)
         self.table_macro_sql = table_macro_sql or (lambda name: None)
         self.projection_cache = {}
+        # columns of table function calls by their text, most recently used last
+        self.describe_cache: OrderedDict[str, Union[Columns, None]] = OrderedDict()
+        self.remote_files = remote_files
         self.file_search_path = file_search_path
         self.log = logging.getLogger('sql_parser')
         self.log_describe = logging.getLogger('sql_describe')
@@ -780,19 +790,31 @@ class SqlParserNew:
         The one place DuckDB runs: a file's columns need a real reader. Table
         macros from the session aren't known to the engine and give None.
         """
-        if sql in self.projection_cache:
-            return self.projection_cache[sql]
+        if sql in self.describe_cache:
+            self.describe_cache.move_to_end(sql)
+            return self.describe_cache[sql]
         if self.engine is None or incomplete_col_ref.search(f'{sql} '):
             return None
+        if remote_url.search(sql) and not self.remote_files:
+            return None  # reading it would fail without httpfs, after a network wait
+        # a cursor per call: completions run on several threads
+        cur = self.engine.cursor()
+        # a big or remote file mustn't hold up completions
+        timer = threading.Timer(DESCRIBE_TIMEOUT_SECONDS, cur.interrupt)
+        timer.start()
         try:
-            # a cursor per call: completions run on several threads
-            cur = self.engine.cursor()
             if self.file_search_path:
                 cur.execute(set_search_path_sql(self.file_search_path))
             data = [(r[0], r[1]) for r in cur.execute(f'describe (select * from {sql})').fetchall()]
-        except Exception:
+        except Exception as e:
+            self.log_describe.debug(['describe failed', sql, e])
             data = None
-        self.projection_cache[sql] = data
+        finally:
+            timer.cancel()
+            cur.close()
+        self.describe_cache[sql] = data
+        if len(self.describe_cache) > DESCRIBE_CACHE_SIZE:
+            self.describe_cache.popitem(last=False)
         return data
 
 

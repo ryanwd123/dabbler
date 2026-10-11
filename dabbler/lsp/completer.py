@@ -93,7 +93,11 @@ class SqlCompleter:
         # DuckDB is only used to describe table functions (reading files); the schema comes from the cache
         self.engine = make_engine(settings)
         self.parser2 = SqlParserNew(
-            self.engine, self.catalog.table_columns, self.file_search_path, self.catalog.table_macro_sql
+            self.engine,
+            self.catalog.table_columns,
+            self.file_search_path,
+            self.catalog.table_macro_sql,
+            remote_files="httpfs" in (info.extensions or []),
         )
 
     @property
