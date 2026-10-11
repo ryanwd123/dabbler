@@ -11,22 +11,24 @@ from lsprotocol.types import (
     CompletionItemLabelDetails
 )
 
-duckdb_types = [CompletionItem(label=f'{x[0]}') for x in 
-                duckdb.execute("select distinct logical_type from duckdb_types()").fetchall()]
+def _static_lists():
+    # a private connection: duckdb.execute() would use the process's default connection
+    con = duckdb.connect()
+    try:
+        def rows(sql):
+            return [x[0] for x in con.execute(sql).fetchall()]
+        return (
+            [CompletionItem(label=x) for x in rows("select distinct logical_type from duckdb_types()")],
+            [CompletionItem(label=f"'{x}'") for x in rows("select distinct extension_name from duckdb_extensions()")],
+            [CompletionItem(label=x) for x in rows("select distinct name from duckdb_settings()")],
+            [CompletionItem(label=x, sort_text="99")
+             for x in rows("select distinct function_name from duckdb_functions() where function_type = 'pragma'")],
+        )
+    finally:
+        con.close()
 
 
-duckdb_extensions = [CompletionItem(label=f"'{x[0]}'") for x in 
-                duckdb.execute("select distinct extension_name from duckdb_extensions()").fetchall()]
-
-
-duckdb_settings = [CompletionItem(label=f'{x[0]}') for x in 
-                duckdb.execute("select distinct name from duckdb_settings()").fetchall()]
-
-duckdb_kw_comp = [CompletionItem(label=f'{x[0]}',sort_text="99") for x in 
-                duckdb.execute("select upper(keyword_name) from duckdb_keywords() where keyword_category = 'reserved'").fetchall()]
-
-duckdb_pragmas = [CompletionItem(label=f'{x[0]}',sort_text="99") for x in 
-                duckdb.execute("select distinct function_name from duckdb_functions() where function_type ='pragma'").fetchall()]
+duckdb_types, duckdb_extensions, duckdb_settings, duckdb_pragmas = _static_lists()
 
 types_to_exclude = set(['.py','.ipynb'])
 # path characters in python code (pathlib completions); a bare "/-_" in a character

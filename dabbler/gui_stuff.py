@@ -70,58 +70,6 @@ QHeaderView{
     font-weight: bold;
 }"""
 
-"""
-QTableView {
-	font-family: Consolas;
-	font-size: 10pt;
-}
-
-DfView::item {
-	padding: 0px;
-}
-
-QTableView::item {
-	padding: 0px;
-}
-
-"""
-
-
-format_map = {
-        'STRING':'',
-        'INT':',.0f',
-        'NUMBER':',.2f',
-        'DATE':'%x',
-        'DATETIME':'%x',
-        'TIME':'%X',
-    }
-
-fmt_types = {
-    'BIGINT': 'INT',
-    'BIT': 'STRING',
-    'BOOLEAN': 'STRING',
-    'BLOB': 'STRING',
-    'DATE': 'DATE',
-    'DOUBLE': 'NUMBER',
-    'DECIMAL(s, p)': 'NUMBER',
-    'HUGEINT': 'INT',
-    'INTEGER': 'INT',
-    'INTERVAL': 'DATE',
-    'REAL': 'NUMBER',
-    'SMALLINT': 'INT',
-    'TIME': 'TIME',
-    'TIMESTAMP': 'DATETIME',
-    'TIMESTAMP WITH TIME ZONE': 'DATETIME',
-    'TINYINT': 'INT',
-    'UBIGINT': 'INT',
-    'UINTEGER': 'INT',
-    'USMALLINT': 'INT',
-    'UTINYINT': 'INT',
-    'UUID': 'STRING',
-    'VARCHAR': 'STRING'
-}
-
-
 def highlight(text):
     # Generated HTML contains unnecessary newline at the end
     # before </pre> closing tag.
@@ -139,9 +87,3 @@ def highlight(text):
     # unnecessary newline
     highlighted_text_no_last_newline = "".join(parts)
     return highlighted_text_no_last_newline
- 
-
-def apply_fmt(x,c,fmts):
-    if x is None:
-        return ''
-    return f'{x:{fmts[c]}}'

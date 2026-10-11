@@ -47,9 +47,9 @@ def parser_error_handler(e:UnexpectedToken):
 
 
 def get_parser():
-    sql_grammer = lark_file.read_text()
+    sql_grammar = lark_file.read_text()
     sql_parser = Lark(
-        sql_grammer,
+        sql_grammar,
         parser="lalr",
         cache=str(lark_cache),
         propagate_positions=True,

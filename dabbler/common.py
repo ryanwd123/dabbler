@@ -34,39 +34,36 @@ def get_datadir() -> Path:
     return data_dir
 
 
-def get_grammer_kw():
-    grammer_txt = lark_file.read_text()
-    # reg = re.compile(r'''([A-Z_]+)\s*:\s*"[A-Z_]+"i''')
+def get_grammar_kw():
+    """Keywords of the completion grammar (terminals like SELECT: "SELECT"i)."""
+    grammar_txt = lark_file.read_text()
     reg = re.compile(r'''([A-Z_]+(?:\.\d+)?)\s*:\s*"[A-Z_]+"i''')
-    return reg.findall(grammer_txt)
+    return reg.findall(grammar_txt)
 
 
-duckdb_keyworkds = set(x[0].upper() for x in duckdb.execute("select keyword_name from duckdb_keywords() where keyword_category = 'reserved'").fetchall())
-# duckdb_keyworkds_all = set(x[0].upper() for x in duckdb.execute("select keyword_name from duckdb_keywords()").fetchall())
-duckdb_keyworkds.update([
-    'DATE',
-    ])
+def _reserved_keywords() -> set[str]:
+    # a private connection: duckdb.execute() would use the default connection, which
+    # is also the one a notebook's duckdb.sql(...) uses
+    con = duckdb.connect()
+    try:
+        rows = con.execute("select keyword_name from duckdb_keywords() where keyword_category = 'reserved'").fetchall()
+    finally:
+        con.close()
+    return {x[0].upper() for x in rows} | {"DATE"}
 
 
+duckdb_keywords = _reserved_keywords()
+grammar_kw = get_grammar_kw()
 
 
-grammer_kw = get_grammer_kw()
-
-
-
-def check_name(col:str):
+def check_name(col: str):
+    """The name as written in SQL: quoted when it has spaces, dots, dashes or slashes, or is a reserved word."""
     if col:
         if (' ' in col or
             '-' in col or
             '/' in col or
             '.' in col or
-            col.upper() in duckdb_keyworkds):
+            col.upper() in duckdb_keywords):
             return f'"{col}"'
         return col
     return ''
-
-
-
-def make_table_sql(table_name:str, cols:list[str]):
-    col_txt = ",\n".join([f'"{c[0]}" {c[1]}' for c in cols])
-    return f'''CREATE TABLE "{table_name}"({col_txt});'''

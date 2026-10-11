@@ -1,6 +1,6 @@
 import logging
 import re
-from dabbler.common import grammer_kw
+from dabbler.common import grammar_kw
 from dabbler.lsp.parser import (
     CursorContext,
     FromRef,
@@ -164,7 +164,7 @@ class SqlCompleter:
             return []
         kw_comps = []
         for c in parsed.choices:
-            if c in grammer_kw:
+            if c in grammar_kw:
                 if c in kw_adds:
                     kw_comps.append(
                         CmpItem(kw_adds[c], CompletionItemKind.Keyword, None, "keyword", "3", "keyword")

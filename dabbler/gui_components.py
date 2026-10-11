@@ -15,8 +15,6 @@ from dabbler.schema_cache import SchemaCache
 if TYPE_CHECKING:
     from dabbler.gui_main import MyApp
 
-margins = 0
-
 class Shortcut:
     def __init__(self, Seq, Parent, target):
         if not isinstance(Seq, list):
@@ -30,7 +28,7 @@ class TreeItem(QtWidgets.QTreeWidgetItem):
     def __init__(self, *args, item_type=None):
         super().__init__(*args)
         self.item_type = item_type
-        
+
 
 
 class IPythonExecutionMonitor(object):

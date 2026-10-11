@@ -42,9 +42,8 @@ class TableSelectionArea(QtWidgets.QWidget):
         self.setLayout(self.lay_out)
         self.lay_out.setContentsMargins(0, 3, 0, 0)
         self.lay_out.setSpacing(5)
-        
 
-        self.db_size = QtWidgets.QLineEdit("Limit: ")
+
         self.limit_input_layout = QtWidgets.QHBoxLayout()
         self.limit_input_layout.setContentsMargins(0, 0, 0, 0)
         self.limit_input_layout.setSpacing(0)
@@ -82,11 +81,6 @@ class TableSelectionArea(QtWidgets.QWidget):
 
     def populate_table_list(self):
         self.table_selection.clear()
-        mem, mem_limit = self.db.execute(  
-            "select memory_usage, memory_limit from pragma_database_size()"
-        ).fetchone() # type: ignore
-
-        self.db_size.setText(f"DB Size: {mem}/{mem_limit}")
         self.current_schema = self.db.execute("select current_schema()").fetchone()[0] # type: ignore
         self.current_db = self.db.execute("select current_database()").fetchone()[0] # type: ignore
 
@@ -97,13 +91,13 @@ class TableSelectionArea(QtWidgets.QWidget):
                 union all
                 select "database_name", schema_name, view_name, 'view' as table_type from duckdb_views
                 union all
-                select 'system_info', schema_name, function_name || '()', 'table function' 
-                    from duckdb_functions() 
+                select 'system_info', schema_name, function_name || '()', 'table function'
+                    from duckdb_functions()
                     where function_type = 'table' and parameters = []
                     and function_name not in ('checkpoint','test_all_types','force_checkpoint','index_scan','seq_scan')
                 union all
-                select distinct 'system_info', "database_name" || '.' || schema_name, table_name, 'table' 
-                    from duckdb_columns() 
+                select distinct 'system_info', "database_name" || '.' || schema_name, table_name, 'table'
+                    from duckdb_columns()
                     where schema_name in ('information_schema', 'pg_catalog')
                     and database_name not in ('system','temp')            )
             select * from cte order by "database_name", schema_name, table_name
@@ -202,7 +196,7 @@ class mainWindow(QtWidgets.QMainWindow):
     ):
         super().__init__(parent)
         self.central_widget = QtWidgets.QWidget()
-        self.setCentralWidget(self.central_widget) 
+        self.setCentralWidget(self.central_widget)
         self.db = db
         self.id = id
         self.app = app
@@ -237,7 +231,7 @@ class mainWindow(QtWidgets.QMainWindow):
         self.bottom_layout = QtWidgets.QVBoxLayout(self.bottom_section)
         self.bottom_layout.setContentsMargins(0, 0, 0, 0)
         self.bottom_layout.setSpacing(0)
-        
+
 
 
         self.bottom_layout.addWidget(self.status)
@@ -297,7 +291,7 @@ class mainWindow(QtWidgets.QMainWindow):
         self.font_size += 1
         self.table.font_size = self.font_size
         self.set_font_size()
-    
+
     def decrease_font_size(self):
         self.font_size -= 1
         self.table.font_size = self.font_size
@@ -311,7 +305,7 @@ class mainWindow(QtWidgets.QMainWindow):
         self.setFont(font)
         self.table.set_font_size(self.font_size)
 
-        
+
 
     def set_inital_position(self):
         saved_pos = self.app.settings.value("pos", QtCore.QPoint(100, 100))
@@ -325,7 +319,7 @@ class mainWindow(QtWidgets.QMainWindow):
         else:
             self.move(saved_pos)  # type: ignore
             self.resize(saved_size)  # type: ignore
-    
+
     def save_geometry_settings(self):
         if self.id != 0:
             return

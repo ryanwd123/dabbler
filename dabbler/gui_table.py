@@ -623,45 +623,10 @@ class DfView(QtWidgets.QWidget):
         self.bottom_layout.addWidget(self.bottom_left_status)
         self.bottom_layout.addWidget(self.bottom_right_status)
 
-        self.set_up_popup()
         self.setLayout(self._layout)
         self.set_shortcuts()
         self.set_font_size(self.font_size)
         self.set_up_worker()
-
-    def set_up_popup(self):
-        # Child widget (initially hidden)
-        self.child_widget = QtWidgets.QWidget(self)
-        self.child_widget.setStyleSheet("background-color: white; border: 1px solid black;")
-        self.child_widget.hide()
-
-        # Text for the child widget
-        self.text_label = QtWidgets.QLabel(
-            "This is a paragraph of text that appears when you press 'F'.\n"
-            "It can contain multiple lines and will be displayed on top of the main content.\n"
-            "Press 'F' again to hide this text."
-        )
-        self.text_label.setWordWrap(True)
-        self.text_label.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
-
-        child_layout = QtWidgets.QVBoxLayout()
-        child_layout.addWidget(self.text_label)
-        self.child_widget.setLayout(child_layout)
-
-        # Set up the child widget size and position
-        self.update_child_widget_geometry()
-
-    def update_child_widget_geometry(self):
-        table_pos = self.table.geometry()
-        tablehheader_pos = self.table.horizontalHeader().geometry()
-        tablevheader_pos = self.table.verticalHeader().geometry()
-        self.child_widget.setGeometry(
-            table_pos.x() + tablevheader_pos.width(),
-            table_pos.y() + tablehheader_pos.height(),
-            table_pos.width() - tablevheader_pos.width() - self.table.verticalScrollBar().width(),
-            table_pos.height() - tablehheader_pos.height(),
-        )
-
 
     def set_up_worker(self):
         self.worker = TableWorker(pl.DataFrame())
@@ -866,15 +831,7 @@ class DfView(QtWidgets.QWidget):
             # create_shortcut("Ctrl+c", self.copy_values, self),
             # create_shortcut("Ctrl+Shift+c", lambda:self.copy_values(fmt=True), self),
             create_shortcut("Escape", self.search.clear, self),
-            # create_shortcut("f", self, self.show_child_widget),
         ]
-
-    def show_child_widget(self):
-        self.update_child_widget_geometry()
-        if self.child_widget.isHidden():
-            self.child_widget.show()
-        else:
-            self.child_widget.hide()
 
 #MARK: CopyValues
     def copy_values2(self, fmt=False):
@@ -990,5 +947,3 @@ class DfView(QtWidgets.QWidget):
         self._model.set_active_cell(index, shift)
         self.bottom_status_timer.start()
 
-    def table_sel_changed(self):
-        pass
