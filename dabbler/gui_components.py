@@ -77,6 +77,7 @@ class SchemaSync(QtCore.QObject):
         self.source_file = app.py_file
         self.log = logging.getLogger("dabbler_schema_sync")
         self.cache = SchemaCache()
+        self.recorded_databases: set[str] = set()
         self.publish()
 
         self.stopped = threading.Event()
@@ -122,6 +123,10 @@ class SchemaSync(QtCore.QObject):
                 self.cache.save_snapshot(
                     path, database_file_db_data(db_data, catalog, path), kind="database", file_mtime=database_mtime(path)
                 )
+                if path not in self.recorded_databases and self.source_file:
+                    # offered first in `# dabbler use '` completions
+                    self.cache.record_database_use(self.source_file, path)
+                    self.recorded_databases.add(path)
         except Exception:
             self.log.exception("failed to save the schema of the session's database files")
 

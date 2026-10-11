@@ -206,6 +206,33 @@ async def test_use_directive_comment_completes_files(client: LanguageClient):
 
 
 @pytest.mark.asyncio
+async def test_database_files_used_before_are_offered_first(client: LanguageClient):
+    db_path = client.workspace_path / "warehouse.duckdb"
+    con = duckdb.connect(str(db_path))
+    con.execute("create table stock(sku int)")
+    con.close()
+    source = "# dabbler use 'warehouse.duckdb'\nq = db.sql('select 1')\n"
+    open_doc(client, source)
+    await diagnostics_for(client, (client.workspace_path / "nb.py").as_uri())  # the file has been read
+
+    (client.workspace_path / "other").mkdir()
+    source2 = "# dabbler use '\n"
+    uri2 = open_doc(client, source2, name="other/nb2.py")
+    result = await client.text_document_completion_async(
+        types.CompletionParams(
+            text_document=types.TextDocumentIdentifier(uri=uri2),
+            position=position_of(source2, "use '"),
+            context=types.CompletionContext(
+                trigger_kind=types.CompletionTriggerKind.TriggerCharacter, trigger_character="'"
+            ),
+        )
+    )
+    first = result.items[0]
+    assert (first.label, first.detail) == (str(db_path), "1 table")
+    assert first.text_edit.new_text == str(db_path)
+
+
+@pytest.mark.asyncio
 async def test_use_directive_warns_about_a_missing_file(client: LanguageClient):
     source = "# dabbler use 'missing.duckdb'\nq = db.sql('select 1')\n"
     uri = open_doc(client, source)

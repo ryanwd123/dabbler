@@ -33,6 +33,8 @@ class InlineSqlLangServer(LanguageServer):
         self.log = logging.getLogger("dabbler_lsp")
         self.schema_cache = SchemaCache()
         self.database_files = DatabaseFiles(self.schema_cache)
+        # (document, database file) pairs already recorded as used by this server
+        self.recorded_uses: set[tuple[str, str]] = set()
         # source file -> (its version in the schema cache, completer for it)
         self.completers: dict[str, tuple[str, SqlCompleter]] = {}
         self.default_completer: Union[SqlCompleter, None] = None
@@ -97,7 +99,14 @@ class InlineSqlLangServer(LanguageServer):
         if path is None:
             message = "a relative path needs a saved file" if directive.path.strip() else "no database file given"
             return DocumentDatabase(directive, None, DatabaseSource(None, message))
-        return DocumentDatabase(directive, path, self.database_files.source(path, self.workspace_root()))
+        database = self.database_files.source(path, self.workspace_root())
+        if database.source and document_path and (document_path, path) not in self.recorded_uses:
+            self.recorded_uses.add((document_path, path))
+            try:
+                self.schema_cache.record_database_use(document_path, path)
+            except Exception:
+                self.log.exception(f"failed to remember that {document_path} uses {path}")
+        return DocumentDatabase(directive, path, database)
 
     def snapshot_source(self, uri: str) -> Union[str, None]:
         """The source whose schema applies to this document: the database file of its

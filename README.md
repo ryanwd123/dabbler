@@ -53,7 +53,7 @@ Intellisnse / autocomplete:
     #!%load_ext dabbler.ext
     ```
 
-- To get completions from a DuckDB database file without an IPython session, name it in a comment anywhere in the python file. Relative paths are relative to the python file's folder, and `~` works. Typing `# dabbler ` offers `use`, and after `use '` the files in the folder you type.
+- To get completions from a DuckDB database file without an IPython session, name it in a comment anywhere in the python file. Relative paths are relative to the python file's folder, and `~` works. Typing `# dabbler ` offers `use`; after `use '` come the database files used before (by `# dabbler use` comments or IPython sessions, most recent first), then the files in the folder you type.
     ```py
     # dabbler use '~/data/sales.duckdb'
     ```

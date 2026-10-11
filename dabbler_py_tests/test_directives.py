@@ -102,6 +102,7 @@ def test_recent_databases_come_first_until_a_folder_is_typed(project):
     found = directive_completions(line, len(line), str(project / "nb.py"), recent)
     assert [i.label for i in found.items] == ["C:\\x\\recent.duckdb", "/y/one.duckdb", "data/", "local.duckdb"]
     assert [i.detail for i in found.items[:2]] == ["3 tables", "1 table"]
+    assert [i.filter_text for i in found.items[:2]] == ["recent.duckdb", "one.duckdb"]
     assert sorted(found.items, key=lambda i: i.sort_text) == found.items
 
     line = "# dabbler use 'data/"

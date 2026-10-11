@@ -8,7 +8,7 @@ from dabbler import __version__
 from dabbler.common import uri_to_path
 from dabbler.lsp.completion_utils import pathlib_completetions
 from dabbler.lsp.diagnostics import sql_errors
-from dabbler.lsp.directives import directive_completions
+from dabbler.lsp.directives import directive_completions, is_typing_database_path
 from dabbler.lsp.formatting import FormatError, format_region
 from dabbler.lsp.parser import with_clause
 from dabbler.lsp.server_classes import InlineSqlLangServer
@@ -90,7 +90,9 @@ def directive_completion_list(ls: InlineSqlLangServer, document, position: lsp.P
         document_path = str(uri_to_path(document.uri))
     except ValueError:
         document_path = None
-    found = directive_completions(document.lines[position.line], column, document_path)
+    line = document.lines[position.line]
+    recent = ls.schema_cache.recent_databases() if is_typing_database_path(line[:column]) else []
+    found = directive_completions(line, column, document_path, recent)
     if found is None:
         return None
     rng = lsp.Range(

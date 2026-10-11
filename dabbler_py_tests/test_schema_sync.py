@@ -140,6 +140,7 @@ def test_database_files_of_the_session_are_saved_under_their_paths(setup, tmp_pa
     assert cache.source_info(db_path).current_schema == "lake.main"
     assert cache.file_mtime(db_path) is not None
     assert "events" in table_names(cache, app.py_file)  # the session's own schema still has everything
+    assert cache.recent_databases() == [(str(db_path), 1)]  # offered in `# dabbler use '` completions
 
 
 def test_pathlib_paths_from_the_namespace(tmp_path):

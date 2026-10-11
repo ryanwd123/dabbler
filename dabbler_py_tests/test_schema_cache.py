@@ -202,6 +202,31 @@ def test_database_file_mtime(cache, tmp_path):
     assert (cache.file_mtime(db), cache.get_version(db)) == (2.0, 1)
 
 
+def test_recent_databases(cache, tmp_path, monkeypatch):
+    a, b = tmp_path / "A.duckdb", tmp_path / "b.duckdb"
+    a.write_bytes(b"")
+    b.write_bytes(b"")
+    cache.save_snapshot(a, DB_DATA, kind="database")
+    clock = iter(range(100, 200))
+    monkeypatch.setattr(schema_cache.time, "time", lambda: float(next(clock)))
+    cache.record_database_use(tmp_path / "nb1.py", a)
+    cache.record_database_use(tmp_path / "nb2.py", b)
+    assert cache.recent_databases() == [(str(b), 0), (str(a), 3)]  # tables and views, not sequences
+    cache.record_database_use(tmp_path / "nb2.py", a)  # used again, by another document
+    assert cache.recent_databases() == [(str(a), 3), (str(b), 0)]
+    assert cache.recent_databases(limit=1) == [(str(a), 3)]
+
+
+def test_recent_databases_forget_missing_files(cache, tmp_path):
+    gone = tmp_path / "gone.duckdb"
+    gone.write_bytes(b"")
+    cache.record_database_use(tmp_path / "nb.py", gone)
+    gone.unlink()
+    assert cache.recent_databases() == []
+    with sqlite3.connect(cache.path) as con:
+        assert con.execute("select count(*) from database_uses").fetchone()[0] == 0
+
+
 def test_version_3_cache_is_rebuilt(tmp_path):
     path = tmp_path / "v3.sqlite3"
     with sqlite3.connect(path) as con:

@@ -102,6 +102,13 @@ create table if not exists commands(
     data text not null,
     created_at real not null
 );
+create table if not exists database_uses(
+    document text not null,           -- a python file with a `# dabbler use` comment, or an IPython session's file
+    database text not null,           -- the database file, normalized like source_file
+    path text not null,               -- the database file as it's shown
+    used_at real not null,
+    primary key (document, database)
+);
 """
 
 
@@ -425,6 +432,39 @@ class SchemaCache:
             if source == document or source.startswith(folder.rstrip(os.sep) + os.sep):
                 return source
         return None
+
+    # -- database files used before --
+
+    def record_database_use(self, document: Union[str, Path], database: Union[str, Path]) -> None:
+        """Remembers that a document used a database file, for `# dabbler use '` completions."""
+        with closing(self._connect()) as con:
+            con.execute(
+                "insert or replace into database_uses values (?, ?, ?, ?)",
+                (normalize_path(document), normalize_path(database), os.path.abspath(str(database)), time.time()),
+            )
+
+    def recent_databases(self, limit: int = 20) -> list[tuple[str, int]]:
+        """Database files used before, most recent first, with their number of tables and views.
+
+        Files that no longer exist are forgotten.
+        """
+        rows = self._reader().execute(
+            "select u.database, u.path, "
+            "  (select count(*) from objects o where o.source_file = u.database and o.kind in ('table', 'view')) "
+            "from database_uses u "
+            "where u.used_at = (select max(used_at) from database_uses v where v.database = u.database) "
+            "group by u.database order by max(u.used_at) desc"
+        ).fetchall()
+        recent, missing = [], []
+        for database, path, tables in rows:
+            if os.path.exists(path):
+                recent.append((path, tables))
+            else:
+                missing.append(database)
+        if missing:
+            with closing(self._connect()) as con:
+                con.executemany("delete from database_uses where database = ?", [(m,) for m in missing])
+        return recent[:limit]
 
     # -- sessions --
 

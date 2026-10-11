@@ -51,6 +51,11 @@ def resolve_database_path(path: str, document_path: Union[str, None]) -> Union[s
     return os.path.normpath(path)
 
 
+def is_typing_database_path(before_cursor: str) -> bool:
+    """True when the cursor is in the path of a `# dabbler use '...` comment."""
+    return re_typing_path.match(before_cursor) is not None
+
+
 @dataclass
 class DirectiveCompletion:
     items: list[CompletionItem]
@@ -103,6 +108,8 @@ def directive_completions(
                 kind=CompletionItemKind.File,
                 detail=f"{tables} table{'' if tables == 1 else 's'}",
                 sort_text=f"0{i:04d}",
+                # matched by file name while typing; the full path is what's inserted
+                filter_text=re.split(r"[/\\]", path)[-1],
             )
             for i, (path, tables) in enumerate(recent_databases)
         ]
