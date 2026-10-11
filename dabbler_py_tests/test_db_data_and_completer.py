@@ -270,8 +270,7 @@ def test_pathlib_paths_are_collected_from_the_ipython_namespace(monkeypatch, tmp
     namespace = {"data_dir": tmp_path, "name": "not a path"}
 
     class FakeShell:
-        def ev(self, expr):
-            return eval(expr, namespace)
+        user_ns = namespace
 
     monkeypatch.setattr(db_stuff, "get_ipython", lambda: FakeShell())
     assert db_stuff.get_pathlib_paths() == [("data_dir", str(tmp_path))]

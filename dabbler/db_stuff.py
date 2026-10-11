@@ -1,10 +1,17 @@
-#%%
-import duckdb
-import os
-from typing import Union
-from IPython.core.getipython import get_ipython
-from pathlib import Path
+import functools
 import logging
+import os
+import re
+import sys
+import sysconfig
+import types
+from dataclasses import dataclass
+from pathlib import PurePath
+from typing import Union
+
+import duckdb
+from IPython.core.getipython import get_ipython
+
 log = logging.getLogger(__name__)
 
 
@@ -20,43 +27,88 @@ def get_loaded_extensions(db:duckdb.DuckDBPyConnection):
 
 
 
-def get_pathlib_paths():
-    """pathlib.Path variables in the IPython namespace (and in the user's own modules),
-    for path completions in python code."""
+def _is_user_module(module) -> bool:
+    """A module of the user's own, not the standard library or an installed package."""
+    file = getattr(module, "__file__", None)
+    if not file:
+        return False
+    path = os.path.normcase(os.path.abspath(file))
+    return not any(path.startswith(prefix) for prefix in _library_prefixes())
+
+
+@functools.lru_cache(maxsize=1)
+def _library_prefixes() -> tuple[str, ...]:
+    paths = sysconfig.get_paths()
+    dirs = {paths[k] for k in ("stdlib", "platstdlib", "purelib", "platlib") if k in paths}
+    dirs |= {os.path.dirname(os.__file__), sys.prefix, sys.base_prefix}
+    return tuple(os.path.normcase(os.path.abspath(d)) + os.sep for d in dirs)
+
+
+def get_pathlib_paths(user_ns: Union[dict, None] = None):
+    """pathlib.Path variables in the IPython namespace (and one level into the user's
+    own modules), for path completions in python code.
+
+    Reads values directly; nothing is evaluated, so properties and lazy module
+    attributes aren't triggered.
+    """
+    if user_ns is None:
+        ipython = get_ipython()
+        if not ipython:
+            return []
+        user_ns = ipython.user_ns
     paths = []
-
-    ipython = get_ipython()
-    if not ipython:
-        return paths
-
-    for item in (ipython.ev('dir()')):
-        i_type = str(type(ipython.ev(item)))
-
-        if 'WindowsPath' in i_type or 'PosixPath' in i_type:
-            paths.append(
-                (item, str(ipython.ev(item)))
-            )
-
-        if i_type == "<class 'module'>":
-            if '__file__' not in ipython.ev(f'dir({item})'):
-                continue
-            if 'site-packages' in ipython.ev(item).__file__:
-                continue
-            if Path(ipython.ev(item).__file__).parent.name == 'Lib':
-                continue
-            if Path(ipython.ev(item).__file__).parent.parent.name == 'Lib':
-                continue
-
-            for item2 in ipython.ev(f'dir({item})'):
-                item_item2 = f'{item}.{item2}'
-                i_type2 = str(type(ipython.ev(item_item2)))
-
-                if 'WindowsPath' in i_type2 or 'PosixPath' in i_type2:
-                    paths.append(
-                        (item_item2, str(ipython.ev(item_item2)))
-                    )
-
+    for name, value in list(user_ns.items()):
+        if name.startswith("_"):
+            continue
+        if isinstance(value, PurePath):
+            paths.append((name, str(value)))
+        elif isinstance(value, types.ModuleType) and _is_user_module(value):
+            for attr, attr_value in list(vars(value).items()):
+                if not attr.startswith("_") and isinstance(attr_value, PurePath):
+                    paths.append((f"{name}.{attr}", str(attr_value)))
     return paths
+
+
+re_session_change = re.compile(
+    r"\buse\s|\bset\s+(?:session\s+|local\s+|global\s+)?(?:search_path|schema|file_search_path)\b", re.IGNORECASE
+)
+
+
+def quote_ident(name: str) -> str:
+    return '"' + name.replace('"', '""') + '"'
+
+
+def quote_literal(value: str) -> str:
+    return "'" + value.replace("'", "''") + "'"
+
+
+@dataclass
+class SessionState:
+    """Settings of the user's connection that a cursor doesn't share: the database and
+    schema chosen with USE, search_path and file_search_path."""
+
+    database: Union[str, None] = None
+    schema: Union[str, None] = None
+    search_path: Union[str, None] = None
+    file_search_path: Union[str, None] = None
+
+    @classmethod
+    def read(cls, con: duckdb.DuckDBPyConnection) -> "SessionState":
+        """Reads the state of a connection. On the user's own connection this drops an
+        unfetched result, so only do it right after a cell that changed the state."""
+        row = con.execute(
+            "select current_database(), current_schema(), current_setting('search_path'), "
+            "current_setting('file_search_path')"
+        ).fetchone()
+        return cls(*row) if row else cls()  # type: ignore
+
+    def apply(self, cur: duckdb.DuckDBPyConnection) -> None:
+        if self.database and self.schema:
+            cur.execute(f"use {quote_ident(self.database)}.{quote_ident(self.schema)}")
+        if self.search_path:
+            cur.execute(f"set search_path = {quote_literal(self.search_path)}")
+        if self.file_search_path:
+            cur.execute(f"set file_search_path = {quote_literal(self.file_search_path)}")
 
 
 def get_db_data_new(db:duckdb.DuckDBPyConnection, file_search_path:Union[str,None]=None, skip_ipython = False):
@@ -133,102 +185,3 @@ def get_default_db_data():
     db_data = get_db_data_new(db)
     db.close()
     return db_data
-
-
-
-
-
-
-
-# def get_db_data(db:duckdb.DuckDBPyConnection):
-#     records = db.execute(
-#         """
-#         select
-#             c.table_catalog,
-#             c.table_schema,
-#             c.table_name,
-#             t.table_type,
-#             list([column_name, data_type]),
-#             sql
-#         from duckdb_columns c
-#             join information_schema.tables t using (table_catalog, table_schema, table_name)
-#         group by all
-        
-#         union all
-        
-#         select distinct
-#             d.database_name,
-#             d.schema_name,
-#             d.function_name,
-#             'table_function',
-#             [],
-#             null
-#         from duckdb_functions() d
-#         where d.function_type in ('table','table_macro')
-#             --and d.function_name not in ('force_checkpoint')
-#         group by all
-        
-        
-#         """).fetchall()
-    
-#     functions = db.execute(
-#         """
-#         select distinct
-#             d.database_name,
-#             d.schema_name,
-#             d.function_name,
-#             d.function_type,
-#             [],
-#         from duckdb_functions() d
-#         where d.function_type in ('aggregate','macro','scalar')
-#             and d.function_name not similar to '.*\W.*'
-#             and not d.internal
-#             and database_name != 'system'
-#         group by all
-        
-#         union all
-        
-#         select distinct
-#             null,
-#             null,
-#             d.function_name,
-#             d.function_type,
-#             [],
-#         from duckdb_functions() d
-#         where d.function_type in ('aggregate','macro','scalar')
-#             and d.function_name not similar to '.*\W.*'
-#             and database_name = 'system'
-#         group by all
-#         """).fetchall()
-
-#     table_names = [x[2] for x in records]
-
-#     ipython = get_ipython()
-#     for item in (ipython.ev('dir()')):
-#         i_type = str(type(ipython.ev(item)))
-        
-#         if i_type in capture_types and item[0] != '_' and item not in table_names:
-#             locals().__setitem__(item,ipython.ev(item))
-#             cols = [[x[0],x[1]] for x in  db.sql("describe select * from df limit 1").fetchall()]
-#             records.append([None,None,item,'python',cols])
-
-#     current_schema = db.execute("select current_schema()").fetchone()[0]
-#     current_db = db.execute("select current_database()").fetchone()[0]
-#     sequences = db.execute("select database_name, schema_name, sequence_name, from duckdb_sequences()").fetchall()
-    
-#     db_data = {
-#         'tbl_col':records,
-#         'sequences':sequences,
-#         'functions':functions,
-#         'current_db':current_db,
-#         'current_schema':current_schema,
-#     }
-    
-#     return db_data
-
-
-
-
-
-
-#%%

@@ -1,4 +1,5 @@
 import logging
+import threading
 import time
 from typing import TYPE_CHECKING
 from dabbler.gui_qt import (
@@ -6,11 +7,9 @@ from dabbler.gui_qt import (
     QtCore,
     QtGui,
 )
-# from qtpy import QtWidgets, QtCore, QtGui
-# from qtpy.QtCore import Slot, Signal  # type: ignore
 from IPython.core.getipython import get_ipython
 import duckdb
-from dabbler.db_stuff import get_db_data_new
+from dabbler.db_stuff import SessionState, get_db_data_new, re_session_change
 from dabbler.schema_cache import SchemaCache
 
 if TYPE_CHECKING:
@@ -27,20 +26,6 @@ class Shortcut:
             sc.activated.connect(target)
 
 
-# class Hbox(QtWidgets.QHBoxLayout):
-#     def __init__(self, parent):
-#         super().__init__(parent)  
-#         self.setSpacing(margins)
-#         self.setContentsMargins(margins, margins, margins, margins)
-
-
-# class Vbox(QtWidgets.QVBoxLayout):
-#     def __init__(self, parent):
-#         super().__init__(parent)
-#         self.setSpacing(margins)
-#         self.setContentsMargins(margins, margins, margins, margins)
-
-
 class TreeItem(QtWidgets.QTreeWidgetItem):
     def __init__(self, *args, item_type=None):
         super().__init__(*args)
@@ -49,17 +34,21 @@ class TreeItem(QtWidgets.QTreeWidgetItem):
 
 
 class IPythonExecutionMonitor(object):
-    def __init__(self, ip, parent: "SchemaSync", timer: QtCore.QTimer):
-        self.shell = ip
-        self.parent = parent
+    """Schedules a schema check after every cell, and notes cells that change the
+    session's database, schema or search paths (USE, SET search_path, ...)."""
+
+    def __init__(self, timer: QtCore.QTimer):
         self.timer = timer
+        self.session_changed = False
 
     def pre_run_cell(self, info):
-        self.timer.start(1_000_000)
+        # hold off while the cell runs; Qt doesn't run timers then anyway
+        self.timer.stop()
+        if re_session_change.search(getattr(info, "raw_cell", "") or ""):
+            self.session_changed = True
 
     def post_run_cell(self, result):
-        if result.info.cell_id:
-            self.timer.start(200)
+        self.timer.start(200)
 
 
 class SchemaSync(QtCore.QObject):
@@ -68,6 +57,8 @@ class SchemaSync(QtCore.QObject):
     After each cell the schema is saved to the schema cache (only when it
     changed), where the language server picks it up for completions. Queries
     sent from the editor ("send SQL to GUI") come back through the same cache.
+    A heartbeat thread tells the language server the session is alive, also
+    while a long cell runs.
     """
 
     POLL_MS = 300
@@ -76,19 +67,24 @@ class SchemaSync(QtCore.QObject):
     def __init__(self, app: "MyApp", db: duckdb.DuckDBPyConnection):
         super().__init__(app)
         self.app = app
-        self.db = db.cursor()
+        self.user_db = db
+        make_cursor = getattr(app, "make_cursor", None)
+        self.db = make_cursor() if make_cursor else db.cursor()
         self.source_file = app.py_file
         self.log = logging.getLogger("dabbler_schema_sync")
         self.cache = SchemaCache()
-        self.last_heartbeat = 0.0
         self.publish()
-        self.heartbeat()
+
+        self.stopped = threading.Event()
+        self.cache.heartbeat(self.source_file)  # type: ignore
+        self.heartbeat_thread = threading.Thread(target=self.heartbeat_loop, name="dabbler-heartbeat", daemon=True)
+        self.heartbeat_thread.start()
 
         self.ip = get_ipython()
         self.ipython_cell_timer = QtCore.QTimer()
         self.ipython_cell_timer.setSingleShot(True)
         self.ipython_cell_timer.timeout.connect(self.check_for_update)
-        self.monitor_ip = IPythonExecutionMonitor(self.ip, self, self.ipython_cell_timer)
+        self.monitor_ip = IPythonExecutionMonitor(self.ipython_cell_timer)
         if self.ip:
             self.ip.events.register("pre_run_cell", self.monitor_ip.pre_run_cell)
             self.ip.events.register("post_run_cell", self.monitor_ip.post_run_cell)
@@ -104,13 +100,27 @@ class SchemaSync(QtCore.QObject):
         db_data = get_db_data_new(self.db, self.app.file_search_path)
         extracted = time.perf_counter()
         changed = self.cache.save_snapshot(self.source_file, db_data)  # type: ignore
-        self.log.debug(
-            f"schema extract {extracted - start:.3f}s, save {time.perf_counter() - extracted:.3f}s, changed={changed}"
-        )
+        elapsed = time.perf_counter() - start
+        message = f"schema extract {extracted - start:.3f}s, save {time.perf_counter() - extracted:.3f}s, changed={changed}"
+        if elapsed > 1:
+            self.log.warning(f"slow schema snapshot: {message}")
+        else:
+            self.log.debug(message)
         return changed
+
+    def sync_session_state(self) -> None:
+        """Copies USE / search_path / file_search_path from the user's connection to dabbler's cursors."""
+        state = SessionState.read(self.user_db)
+        state.apply(self.db)
+        if hasattr(self.app, "session"):
+            self.app.session = state
+        self.app.file_search_path = state.file_search_path or None
 
     def check_for_update(self):
         try:
+            if self.monitor_ip.session_changed:
+                self.monitor_ip.session_changed = False
+                self.sync_session_state()
             changed = self.publish()
         except Exception:
             self.log.exception("failed to save schema for completions")
@@ -118,14 +128,15 @@ class SchemaSync(QtCore.QObject):
         if changed:
             self.app.update_tables()
 
-    def heartbeat(self):
-        self.cache.heartbeat(self.source_file)  # type: ignore
-        self.last_heartbeat = time.time()
+    def heartbeat_loop(self):
+        while not self.stopped.wait(self.HEARTBEAT_SECONDS):
+            try:
+                self.cache.heartbeat(self.source_file)  # type: ignore
+            except Exception:
+                self.log.exception("failed to write the session heartbeat")
 
     def poll(self):
         try:
-            if time.time() - self.last_heartbeat > self.HEARTBEAT_SECONDS:
-                self.heartbeat()
             for command in self.cache.take_commands(self.source_file):  # type: ignore
                 if command.cmd == "run_sql":
                     self.app.msg_routing(command.data)
@@ -134,6 +145,7 @@ class SchemaSync(QtCore.QObject):
 
     def stop(self):
         """Stops listening to cells and the editor, and tells the language server the session ended."""
+        self.stopped.set()
         self.poll_timer.stop()
         self.ipython_cell_timer.stop()
         if self.ip:

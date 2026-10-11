@@ -23,6 +23,7 @@ from dabbler.gui_stuff import (
     dataframes_in,
     highlight,
 )
+from dabbler.db_stuff import SessionState
 from dabbler.gui_components import Shortcut, TreeItem, SchemaSync
 from dabbler.gui_table import DfView
 
@@ -421,6 +422,8 @@ class MyApp(QtCore.QObject):
         self.windows: list[mainWindow] = []
         self.file_search_path = file_search_path
         self.py_file = Path(file) if file else None
+        # USE / search_path / file_search_path of the user's connection, applied to dabbler's cursors
+        self.session = SessionState(file_search_path=file_search_path)
         self.debug = debug
         self.log = logging.getLogger("dabbler_gui")
         if self.debug:
@@ -432,6 +435,15 @@ class MyApp(QtCore.QObject):
         self.qapp.aboutToQuit.connect(self.close)  # type: ignore
         self.win_id = 0
         self.new_window()
+
+    def make_cursor(self) -> duckdb.DuckDBPyConnection:
+        """A cursor on the user's connection, with its USE / search path settings."""
+        cur = self.db.cursor()
+        try:
+            self.session.apply(cur)
+        except duckdb.Error:
+            self.log.exception("failed to apply the session's settings to a cursor")
+        return cur
 
     def msg_routing(self, sql: str):
         """Runs a query sent from the editor in the most recently used window."""

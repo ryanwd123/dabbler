@@ -420,10 +420,11 @@ class SchemaCache:
         """Removes and returns the pending commands for source_file, oldest first."""
         source = normalize_path(source_file)
         cutoff = time.time() - COMMAND_TIMEOUT_SECONDS
+        # IPython polls this several times a second: check on a reused connection, and
+        # only open one for writing and take the write lock when there's work
+        if not self._reader().execute("select 1 from commands where source_file = ? limit 1", (source,)).fetchone():
+            return []
         with closing(self._connect()) as con:
-            # IPython polls this several times a second; only take the write lock when there's work
-            if not con.execute("select 1 from commands where source_file = ? limit 1", (source,)).fetchone():
-                return []
             con.execute("begin immediate")
             rows = con.execute(
                 "select cmd, data from commands where source_file = ? and created_at >= ? order by id",

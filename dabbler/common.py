@@ -1,3 +1,4 @@
+import os
 import sys
 from pathlib import Path
 import logging
@@ -20,37 +21,17 @@ def uri_to_path(uri:str):
         raise ValueError(f"Unsupported scheme: {parsed.scheme}")
 
 
-def get_datadir():
-
+def get_datadir() -> Path:
+    """dabbler's data folder (%APPDATA%\\dabbler, ~/.local/share/dabbler, ~/Library/Application Support/dabbler)."""
     home = Path.home()
-    if not home.is_dir():
-        log.error("Could not find home directory")
-
-    data_dir = None
-
     if sys.platform == "win32":
-        data_dir = home / "AppData/Roaming/dabbler"
-    if sys.platform == "linux":
-        data_dir = home / ".local/share/dabbler"
+        data_dir = Path(os.environ.get("APPDATA") or home / "AppData/Roaming") / "dabbler"
     elif sys.platform == "darwin":
         data_dir = home / "Library/Application Support/dabbler"
-
-    if data_dir:
-        if not data_dir.is_dir():
-            data_dir.mkdir()
-        return data_dir
-
-    log.error(f"Could not find data directory for {sys.platform=}")
-
-
-
-
-
-
-
-
-
-
+    else:
+        data_dir = Path(os.environ.get("XDG_DATA_HOME") or home / ".local/share") / "dabbler"
+    data_dir.mkdir(parents=True, exist_ok=True)
+    return data_dir
 
 
 def get_grammer_kw():
