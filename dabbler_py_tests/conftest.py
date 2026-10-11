@@ -1,3 +1,5 @@
+import gc
+import sys
 from pathlib import Path
 from typing import Union
 
@@ -6,6 +8,29 @@ import pytest
 
 from dabbler.db_stuff import get_db_data_new
 from dabbler.lsp.completer import SqlCompleter
+
+
+@pytest.fixture(scope="session", autouse=True)
+def delete_qt_objects_on_the_gui_thread():
+    """After the tests, stops table worker threads and deletes Qt widgets on this thread.
+
+    Left to Python's garbage collector, a widget can be freed from whatever thread
+    triggers a collection (a query or heartbeat thread), and on Linux Qt then aborts
+    the process ("Timers cannot be stopped from another thread").
+    """
+    yield
+    qt = sys.modules.get("dabbler.gui_qt")
+    app = qt.QtWidgets.QApplication.instance() if qt else None
+    if app is None:
+        return
+    for widget in app.allWidgets():
+        if hasattr(widget, "stop_worker"):
+            widget.stop_worker()
+    for widget in app.topLevelWidgets():
+        widget.close()
+        widget.deleteLater()
+    app.sendPostedEvents(None, qt.QtCore.QEvent.Type.DeferredDelete)
+    gc.collect()
 
 # Must match the trigger_characters registered in dabbler/lsp/server.py.
 # VS Code only sends a trigger character for these; when the user types an

@@ -1,5 +1,6 @@
 """File path completions: paths in SQL strings, and pathlib objects in python code."""
 import logging
+import sys
 
 import duckdb
 import pytest
@@ -87,7 +88,9 @@ def awkward_dir(data_dir):
         pytest.param("select * from read_csv('sa|", ["sales.csv"], id="read_function_argument"),
         pytest.param("copy orders to 'sa|", ["sales.csv"], id="copy_to"),
         pytest.param("select * from 'sub/|", ["deeper/", "orders.parquet"], id="folders_first"),
-        pytest.param("select * from 'sub\\|", ["deeper/", "orders.parquet"], id="backslash"),
+        # a backslash only separates folders on Windows; elsewhere it's part of a file name
+        pytest.param("select * from 'sub\\|", ["deeper/", "orders.parquet"], id="backslash",
+                     marks=pytest.mark.skipif(sys.platform != "win32", reason="Windows paths")),
         pytest.param("select * from './sub/../sa|", ["sales.csv"], id="dot_dot"),
         pytest.param("select * from 'my f|", ["my file (1).csv"], id="space_and_parens"),
         pytest.param("select * from 'a&|", ["a&b #2.csv"], id="ampersand_and_hash"),

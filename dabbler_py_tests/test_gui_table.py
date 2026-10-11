@@ -9,7 +9,7 @@ from datetime import date
 import polars as pl
 import pytest
 
-from dabbler.gui_qt import QtWidgets
+from dabbler.gui_qt import QtCore, QtWidgets
 from dabbler.gui_table import DfView, TableWorker
 
 
@@ -72,6 +72,14 @@ def view(qapp):
     v = DfView()
     yield v
     v.stop_worker()
+    delete_now(v)
+
+
+def delete_now(widget):
+    """Deletes a widget on the GUI thread. Left to Python's garbage collector, it can be
+    freed from whatever thread triggers a collection, which aborts the process on Linux."""
+    widget.deleteLater()
+    QtWidgets.QApplication.sendPostedEvents(None, QtCore.QEvent.Type.DeferredDelete)
 
 
 def test_search_keeps_the_sort(view):
