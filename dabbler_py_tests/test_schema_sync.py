@@ -36,7 +36,7 @@ def qapp():
 
 @pytest.fixture
 def setup(qapp, tmp_path, monkeypatch):
-    from dabbler.gui_compenents import SchemaSync
+    from dabbler.gui_components import SchemaSync
 
     monkeypatch.setenv(CACHE_PATH_ENV, str(tmp_path / "cache.sqlite3"))
     db = duckdb.connect()

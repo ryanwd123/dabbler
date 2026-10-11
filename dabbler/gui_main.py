@@ -22,7 +22,7 @@ from dabbler.gui_stuff import (
     check_dataframe_type,
     highlight,
 )
-from dabbler.gui_compenents import Shortcut, TreeItem, SchemaSync
+from dabbler.gui_components import Shortcut, TreeItem, SchemaSync
 from dabbler.gui_table import DfView
 
 def check_dtype(dt:str):
