@@ -53,6 +53,26 @@ change. Now the schema is stored as rows in `schema_cache.sqlite3`:
   read live.
 - Old version-1 cache files (JSON snapshots) are upgraded in place on first open.
 
+## Done: IPython extension and GUI (2026-10-11)
+
+- `%load_ext dabbler.ext` picks the only connection or one named db/con/conn,
+  and otherwise asks for `%dabbler <name>`. `%dabbler refresh` re-reads the
+  schema. `%unload_ext` / `%reload_ext` clean up: windows, worker threads, cell
+  events and the session. An existing QApplication (matplotlib) is reused.
+- The schema is checked after every cell (not only VS Code cells). `USE` /
+  `SET search_path` / `file_search_path` in a cell are copied to dabbler's
+  cursors. The heartbeat is a thread, so long cells don't end the session.
+- GUI queries run on a worker thread with Cancel (Ctrl+.). The row limit is
+  applied with `rel.limit()`, DDL is reported, and export writes
+  CSV/Parquet/Excel.
+- Result table: search before the first query, `>5`/`<5`, `-text` on
+  categoricals, sort kept when searching, and stale worker answers are all
+  fixed. String column widths are measured again.
+- Known limitation: dabbler's cursors can't see the user's TEMP tables (DuckDB
+  keeps those per connection). Reading the user's connection directly would
+  drop an unfetched `db.execute()` result, so it's only done after cells that
+  change the session state.
+
 ## Done: completion features
 
 - Function docs come from `duckdb_functions()` (`lsp/functions.py`), not
@@ -82,17 +102,13 @@ change. Now the schema is stored as rows in `schema_cache.sqlite3`:
 - The format command uses sqlglot's DuckDB dialect on the whole SQL string,
   keeps its indentation, and refuses f-strings and escaped strings.
 
-## 1. Remove DataFrame completions
+## 1. DataFrames
 
-Done: the IPython side no longer looks for DataFrames (`get_pathlib_paths` in
-`db_stuff.py` keeps only the `pathlib.Path` scan), and the language server ignores
-them. On Python 3.13 the old detection logged a traceback after every cell, because
-its `locals().__setitem__` trick no longer works (PEP 667).
-
-Still open: the GUI's table list shows DataFrames, and `gui_main.query_db` makes
-them queryable by name with the same `locals()` trick. On Python 3.13 querying a
-DataFrame from the GUI fails ("Exception executing query"). Either remove the
-DataFrame entries from the GUI, or switch `query_db` to `cursor.register(name, df)`.
+Done: completions don't look for DataFrames (the old detection broke on Python
+3.13, PEP 667). The GUI lists pandas/polars/arrow DataFrames and DuckDB relations
+from `user_ns` (`gui_stuff.dataframe_kind`, matched by package and class name,
+since pandas 3 and DuckDB 1.5 moved their classes), and `gui_query` registers
+the ones a query names on its cursor (relations become temp views).
 
 ## 2. Grammar coverage
 
@@ -184,5 +200,3 @@ literals in python code (only `Path` variables complete today).
 
 - `Pipfile` still lists the empty `zmq` placeholder package (the pyproject
   dependency was removed); re-lock when convenient.
-- The schema only refreshes after cells that have a `cell_id` (VS Code sets one,
-  terminal IPython doesn't). Decide whether terminal sessions should refresh too.
