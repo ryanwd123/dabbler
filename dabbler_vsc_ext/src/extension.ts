@@ -1,49 +1,30 @@
 /* -------------------------------------------------------------------------
+ * Based on the pygls VS Code client example.
  * Original work Copyright (c) Microsoft Corporation. All rights reserved.
  * Original work licensed under the MIT License.
- * See ThirdPartyNotices.txt in the project root for license information.
  * All modifications Copyright (c) Open Law Library. All rights reserved.
- *
- * Licensed under the Apache License, Version 2.0 (the "License")
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *     http: // www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Licensed under the Apache License, Version 2.0.
  * ----------------------------------------------------------------------- */
 "use strict";
 
-import * as path from "path";
+import { execFile } from "child_process";
 import * as vscode from "vscode";
 import * as semver from "semver";
-// import * as zmq from 'zeromq';
 
 import { PythonExtension } from "@vscode/python-extension";
 import { LanguageClient, LanguageClientOptions, ServerOptions, State } from "vscode-languageclient/node";
 
-const MIN_PYTHON = semver.parse("3.7.9")
+// dabbler finds SQL in f-strings with the tokenizer of Python 3.12+
+const MIN_PYTHON = semver.parse("3.12.0")
 
-// Some other nice to haves.
-// TODO: Check selected env satisfies dabbler' requirements - if not offer to run the select env command.
-// TODO: Start a debug session for the currently configured server.
-// TODO: TCP Transport
-// TODO: WS Transport
-// TODO: Web Extension support (requires WASM-WASI!)
-
-let client: LanguageClient;
+let client: LanguageClient | undefined;
 let clientStarting = false
-let python: PythonExtension;
+let python: PythonExtension | undefined;
 let logger: vscode.LogOutputChannel
 
 
 /**
- * This is the main entry point.
- * Called when vscode first activates the extension
+ * Called when VS Code activates the extension (when a python file is opened).
  */
 export async function activate(context: vscode.ExtensionContext) {
     logger = vscode.window.createOutputChannel('dabbler', { log: true })
@@ -54,7 +35,6 @@ export async function activate(context: vscode.ExtensionContext) {
         return
     }
 
-    // Restart language server command
     context.subscriptions.push(
         vscode.commands.registerCommand("dabbler.server.restart", async () => {
             logger.info('restarting server...')
@@ -62,21 +42,18 @@ export async function activate(context: vscode.ExtensionContext) {
         })
     )
 
-    // Execute command... command
     context.subscriptions.push(
         vscode.commands.registerCommand("dabbler.server.sendSqltoDbDabblerCommand", async () => {
-            await executeRunSql()
+            await runServerCommandAtCursor('sendSqlToDbDabbler')
         })
     )
 
     context.subscriptions.push(
         vscode.commands.registerCommand("dabbler.server.dbDabblerFormatCurrentStatement", async () => {
-            await formatSqlStatement()
+            await runServerCommandAtCursor('dbDabblerFormatCurrentStatement')
         })
     )
 
-
-    // Execute command... command
     context.subscriptions.push(
         vscode.commands.registerCommand("dabbler.server.executeCommand", async () => {
             await executeServerCommand()
@@ -101,39 +78,9 @@ export async function activate(context: vscode.ExtensionContext) {
         })
     )
 
-    // Start the language server once the user opens the first text document...
-    context.subscriptions.push(
-        vscode.workspace.onDidOpenTextDocument(
-            async () => {
-                if (!client) {
-                    await startLangServer()
-                }
-            }
-        )
-    )
-
-    // ...or notebook.
-    context.subscriptions.push(
-        vscode.workspace.onDidOpenNotebookDocument(
-            async () => {
-                if (!client) {
-                    await startLangServer()
-                }
-            }
-        )
-    )
-
-    // Restart the server if the user modifies it.
-    context.subscriptions.push(
-        vscode.workspace.onDidSaveTextDocument(async (document: vscode.TextDocument) => {
-            const expectedUri = vscode.Uri.file(path.join(getCwd(), getServerPath()))
-
-            if (expectedUri.toString() === document.uri.toString()) {
-                logger.info('server modified, restarting...')
-                await startLangServer()
-            }
-        })
-    )
+    // Start now: activation happens because a python file is open (including
+    // editors restored when VS Code starts, which fire no open events).
+    await startLangServer()
 }
 
 export function deactivate(): Thenable<void> {
@@ -142,49 +89,41 @@ export function deactivate(): Thenable<void> {
 
 /**
  * Start (or restart) the language server.
- *
- * @param command The executable to run
- * @param args Arguments to pass to the executable
- * @param cwd The working directory in which to run the executable
- * @returns
  */
 async function startLangServer() {
-
     // Don't interfere if we are already in the process of launching the server.
     if (clientStarting) {
         return
     }
-
     clientStarting = true
-    if (client) {
-        await stopLangServer()
-    }
-
-    
-    const pythonPath = await getPythonPath()
-
-
-    if (!pythonPath) {
-        clientStarting = false
-        return
-    }
-
-
-    logger.info(`launching server: '${pythonPath}' -m dabbler.lsp`)
-
-    const serverOptions: ServerOptions = {
-        command: pythonPath,
-        args: ["-m","dabbler.lsp"],
-        // options: { cwd },
-    };
-
-    client = new LanguageClient('dabbler', serverOptions, getClientOptions());
     try {
+        if (client) {
+            await stopLangServer()
+        }
+
+        const pythonPath = await getPythonPath()
+        if (!pythonPath) {
+            return
+        }
+        if (!await dabblerIsInstalled(pythonPath)) {
+            await offerToInstall(pythonPath)
+            return
+        }
+
+        logger.info(`launching server: '${pythonPath}' -m dabbler.lsp`)
+        const serverOptions: ServerOptions = {
+            command: pythonPath,
+            args: ["-m", "dabbler.lsp"],
+        };
+        client = new LanguageClient('dabbler', serverOptions, getClientOptions());
         await client.start()
-        clientStarting = false
+        const info = client.initializeResult?.serverInfo
+        logger.info(`server started: ${info?.name ?? 'dabbler'} ${info?.version ?? ''}`)
     } catch (err) {
-        clientStarting = false
         logger.error(`Unable to start server: ${err}`)
+        vscode.window.showErrorMessage(`dabbler: the language server didn't start (${err}). See the dabbler output for details.`)
+    } finally {
+        clientStarting = false
     }
 }
 
@@ -192,13 +131,15 @@ async function stopLangServer(): Promise<void> {
     if (!client) {
         return
     }
-
-    if (client.state === State.Running) {
-        await client.stop()
-    }
-
-    client.dispose()
+    const stopping = client
     client = undefined
+    try {
+        if (stopping.state === State.Running) {
+            await stopping.stop()
+        }
+    } finally {
+        await stopping.dispose()
+    }
 }
 
 function getClientOptions(): LanguageClientOptions {
@@ -207,11 +148,44 @@ function getClientOptions(): LanguageClientOptions {
         documentSelector: config.get<any>('documentSelector'),
         outputChannel: logger,
         connectionOptions: {
-            maxRestartCount: 0 // don't restart on server failure.
+            maxRestartCount: 2, // restart after a crash, but not forever
         },
     };
     logger.info(`client options: ${JSON.stringify(options, undefined, 2)}`)
     return options
+}
+
+/**
+ * True if `python -c "import dabbler.lsp"` works in the chosen environment.
+ */
+function dabblerIsInstalled(pythonPath: string): Promise<boolean> {
+    return new Promise((resolve) => {
+        execFile(pythonPath, ["-c", "import dabbler.lsp"], { timeout: 60000 }, (error, _stdout, stderr) => {
+            if (error) {
+                logger.warn(`dabbler isn't importable with ${pythonPath}: ${stderr || error.message}`)
+            }
+            resolve(!error)
+        })
+    })
+}
+
+async function offerToInstall(pythonPath: string) {
+    const install = "Install dabbler"
+    const choose = "Select Interpreter"
+    const answer = await vscode.window.showWarningMessage(
+        `dabbler isn't installed in the selected Python environment (${pythonPath}).`,
+        install, choose,
+    )
+    if (answer === install) {
+        const terminal = vscode.window.createTerminal("dabbler install")
+        terminal.show()
+        // PowerShell (VS Code's default on Windows) needs & to run a quoted path
+        const run = process.platform === "win32" ? `& "${pythonPath}"` : `"${pythonPath}"`
+        terminal.sendText(`${run} -m pip install "dabbler[gui]"`)
+        vscode.window.showInformationMessage("Restart the dabbler language server once the install finishes (command: dabbler: Restart Language Server).")
+    } else if (answer === choose) {
+        await vscode.commands.executeCommand('python.setInterpreter')
+    }
 }
 
 /**
@@ -223,9 +197,9 @@ async function executeServerCommand() {
         return
     }
 
-    const knownCommands = client.initializeResult.capabilities.executeCommandProvider?.commands
+    const knownCommands = client.initializeResult?.capabilities.executeCommandProvider?.commands
     if (!knownCommands || knownCommands.length === 0) {
-        const info = client.initializeResult.serverInfo
+        const info = client.initializeResult?.serverInfo
         const name = info?.name || "Server"
         const version = info?.version || ""
 
@@ -239,100 +213,37 @@ async function executeServerCommand() {
     }
     logger.info(`executing command: '${commandName}'`)
 
-    const result = await vscode.commands.executeCommand(commandName /* if your command accepts arguments you can pass them here */)
+    const result = await vscode.commands.executeCommand(commandName)
     logger.info(`${commandName} result: ${JSON.stringify(result, undefined, 2)}`)
 }
 
-async function executeRunSql() {
+/**
+ * Runs a server command with the active editor's document and cursor position.
+ */
+async function runServerCommandAtCursor(commandName: string) {
     if (!client || client.state !== State.Running) {
         await vscode.window.showErrorMessage("There is no language server running.")
         return
     }
-
-    const commandName = 'sendSqlToDbDabbler'
-    logger.info(`executing command: '${commandName}'`)
-
     const editor = vscode.window.activeTextEditor;
-    if (editor) {
-        const cursorPosition = editor.selection.active;
-        logger.info(`Cursor Position: Line ${cursorPosition.line + 1}, Column ${cursorPosition.character + 1}`);
-
-        const documentUri = editor.document.uri;
-        logger.info(`Document URI: ${documentUri.toString()}`);
-
-        const result = await vscode.commands.executeCommand(commandName,documentUri,cursorPosition /* if your command accepts arguments you can pass them here */)
-        logger.info(`${commandName} result: ${JSON.stringify(result, undefined, 2)}`)
-    }
-}
-
-async function formatSqlStatement() {
-    if (!client || client.state !== State.Running) {
-        await vscode.window.showErrorMessage("There is no language server running.")
+    if (!editor) {
         return
     }
-
-    const commandName = 'dbDabblerFormatCurrentStatement'
-    logger.info(`executing command: '${commandName}'`)
-
-    const editor = vscode.window.activeTextEditor;
-    if (editor) {
-        const cursorPosition = editor.selection.active;
-        logger.info(`Cursor Position: Line ${cursorPosition.line + 1}, Column ${cursorPosition.character + 1}`);
-
-        const documentUri = editor.document.uri;
-        logger.info(`Document URI: ${documentUri.toString()}`);
-
-        const result = await vscode.commands.executeCommand(commandName,documentUri,cursorPosition /* if your command accepts arguments you can pass them here */)
-        logger.info(`${commandName} result: ${JSON.stringify(result, undefined, 2)}`)
-    }
+    const cursorPosition = editor.selection.active;
+    const documentUri = editor.document.uri;
+    logger.info(`executing command: '${commandName}' at ${documentUri.toString()} ${cursorPosition.line + 1}:${cursorPosition.character + 1}`)
+    const result = await vscode.commands.executeCommand(commandName, documentUri, cursorPosition)
+    logger.info(`${commandName} result: ${JSON.stringify(result, undefined, 2)}`)
 }
 
-
-
-/**
- * If the user has explicitly provided a src directory use that.
- * Otherwise, fallback to the examples/servers directory.
- *
- * @returns The working directory from which to launch the server
- */
-function getCwd(): string {
+function getDefaultPyEnv(): string | undefined {
     const config = vscode.workspace.getConfiguration("dabbler.server")
-    const cwd = config.get<string>('cwd')
-    if (cwd) {
-        return cwd
-    }
-
-    const serverDir = path.resolve(
-        path.join(__dirname, "..", "..","..","src")
-    )
-    return serverDir
+    return config.get<string>('default_py_env') || undefined
 }
 
 /**
- *
- * @returns The python script to launch the server with
- */
-function getServerPath(): string {
-    const config = vscode.workspace.getConfiguration("dabbler.server")
-    const server = config.get<string>('launchScript')
-    return server
-}
-
-function getDefaultPyEnv(): string {
-    const config = vscode.workspace.getConfiguration("dabbler.server")
-    const env = config.get<string>('default_py_env')
-    return env
-}
-
-
-
-
-
-/**
- * This uses the official python extension to grab the user's currently
- * configured environment.
- *
- * @returns The python interpreter to use to launch the server
+ * The python interpreter to launch the server with: the dabbler.server.default_py_env
+ * setting, or the environment selected in the Python extension.
  */
 async function getPythonPath(): Promise<string | undefined> {
     if (!python) {
@@ -343,36 +254,28 @@ async function getPythonPath(): Promise<string | undefined> {
     if (defaultPyEnv) {
         logger.info(`Using default environment: ${defaultPyEnv}`)
         return defaultPyEnv
-    } else {
-        logger.info(`No default environment configured`)
     }
-    // Use whichever python interpreter the user has configured.
+
     const activeEnvPath = python.environments.getActiveEnvironmentPath()
     logger.info(`Using environment: ${activeEnvPath.id}: ${activeEnvPath.path}`)
 
     const activeEnv = await python.environments.resolveEnvironment(activeEnvPath)
     if (!activeEnv) {
-        logger.error(`Unable to resolve envrionment: ${activeEnvPath}`)
+        logger.error(`Unable to resolve environment: ${activeEnvPath.path}`)
         return
     }
 
     const v = activeEnv.version
-    const pythonVersion = semver.parse(`${v.major}.${v.minor}.${v.micro}`)
-
-    // Check to see if the environment satisfies the min Python version.
-    if (semver.lt(pythonVersion, MIN_PYTHON)) {
-        const message = [
-            `Your currently configured environment provides Python v${pythonVersion} `,
-            `but dabbler requires v${MIN_PYTHON}.\n\nPlease choose another environment.`
-        ].join('')
-
-        const response = await vscode.window.showErrorMessage(message, "Change Environment")
-        if (!response) {
-            return
-        } else {
+    const pythonVersion = v ? semver.parse(`${v.major}.${v.minor}.${v.micro}`) : null
+    if (pythonVersion && MIN_PYTHON && semver.lt(pythonVersion, MIN_PYTHON)) {
+        const response = await vscode.window.showErrorMessage(
+            `The selected Python is ${pythonVersion}, but dabbler needs ${MIN_PYTHON} or newer.`,
+            "Change Environment",
+        )
+        if (response) {
             await vscode.commands.executeCommand('python.setInterpreter')
-            return
         }
+        return
     }
 
     const pythonUri = activeEnv.executable.uri

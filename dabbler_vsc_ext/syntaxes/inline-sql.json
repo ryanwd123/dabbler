@@ -1,129 +1,289 @@
 {
     "scopeName": "inline-sql.injection",
-    "fileTypes": [
-        "py"
-    ],
-    "injectionSelector": [
-        "text.html.php",
-        "L:source -comment -string"
-    ],
+    "comment": "SQL highlighting in the python strings the dabbler language server treats as SQL (dabbler/lsp/sql_regions.py): the first argument of .sql(, .execute( or .executemany(, and strings that start with --sql. Triple-quoted forms come first so they win over the single-quoted ones.",
+    "injectionSelector": "L:source.python -comment -string",
     "patterns": [
         {
-            "comment": "Rust multi-line raw strings",
-            "begin": "(b?r)(#*)(\")(--\\s*sql)",
+            "include": "#call-triple-double"
+        },
+        {
+            "include": "#call-triple-single"
+        },
+        {
+            "include": "#marker-triple-double"
+        },
+        {
+            "include": "#marker-triple-single"
+        },
+        {
+            "include": "#call-double"
+        },
+        {
+            "include": "#call-single"
+        },
+        {
+            "include": "#marker-double"
+        },
+        {
+            "include": "#marker-single"
+        }
+    ],
+    "repository": {
+        "call-triple-double": {
+            "begin": "(\\.)(sql|execute|executemany)\\s*(\\()\\s*(?:(query)\\s*(=)\\s*)?([rRfFuU]{0,2})(\"\"\")",
             "beginCaptures": {
                 "1": {
-                    "name": "string.quoted.byte.raw.rust"
+                    "name": "punctuation.separator.period.python"
                 },
                 "2": {
-                    "name": "string.raw.rust"
+                    "name": "entity.name.function.python"
                 },
                 "3": {
-                    "name": "string.rust"
+                    "name": "punctuation.definition.arguments.begin.python"
                 },
                 "4": {
-                    "name": "comment.sql"
+                    "name": "variable.parameter.function-call.python"
+                },
+                "5": {
+                    "name": "keyword.operator.assignment.python"
+                },
+                "6": {
+                    "name": "storage.type.string.python"
+                },
+                "7": {
+                    "name": "string.quoted.multi.python"
                 }
             },
-            "end": "(\")(\\2)",
+            "end": "(\"\"\")",
             "endCaptures": {
                 "1": {
-                    "name": "string.rust"
+                    "name": "string.quoted.multi.python"
+                }
+            },
+            "contentName": "meta.embedded.sql",
+            "patterns": [
+                {
+                    "include": "source.sql"
+                }
+            ]
+        },
+        "call-triple-single": {
+            "begin": "(\\.)(sql|execute|executemany)\\s*(\\()\\s*(?:(query)\\s*(=)\\s*)?([rRfFuU]{0,2})(''')",
+            "beginCaptures": {
+                "1": {
+                    "name": "punctuation.separator.period.python"
                 },
                 "2": {
-                    "name": "string.raw.rust"
+                    "name": "entity.name.function.python"
+                },
+                "3": {
+                    "name": "punctuation.definition.arguments.begin.python"
+                },
+                "4": {
+                    "name": "variable.parameter.function-call.python"
+                },
+                "5": {
+                    "name": "keyword.operator.assignment.python"
+                },
+                "6": {
+                    "name": "storage.type.string.python"
+                },
+                "7": {
+                    "name": "string.quoted.multi.python"
                 }
             },
+            "end": "(''')",
+            "endCaptures": {
+                "1": {
+                    "name": "string.quoted.multi.python"
+                }
+            },
+            "contentName": "meta.embedded.sql",
             "patterns": [
                 {
                     "include": "source.sql"
                 }
             ]
         },
-        {
-            "begin": "(\")(--\\s*sql)",
+        "marker-triple-double": {
+            "begin": "([rRfFuU]{0,2})(\"\"\")(--\\s*sql\\b.*$)",
             "beginCaptures": {
+                "1": {
+                    "name": "storage.type.string.python"
+                },
                 "2": {
-                    "name": "comment.sql"
-                }
-            },
-            "end": "(\")",
-            "patterns": [
-                {
-                    "include": "source.sql"
-                }
-            ]
-        },
-        {
-            "begin": "(?i)(\")(SELECT |INSERT INTO |DELETE |UPDATE |CREATE TABLE |CREATE INDEX |FROM |CREATE OR REPLACE |CREATE VIEW )",
-            "beginCaptures": {
-                "2": {
-                    "name": "keyword.sql"
-                }
-            },
-            "end": "(\")",
-            "patterns": [
-                {
-                    "include": "source.sql"
-                }
-            ]
-        },
-        {
-            "begin": "(`)(--\\s*sql)",
-            "beginCaptures": {
-                "2": {
-                    "name": "comment.sql"
-                }
-            },
-            "end": "(`)",
-            "patterns": [
-                {
-                    "include": "source.sql"
-                }
-            ]
-        },
-        {
-            "begin": "(?i)(`)(SELECT |INSERT INTO |DELETE |UPDATE |CREATE TABLE |CREATE INDEX |FROM |CREATE OR REPLACE |CREATE VIEW )",
-            "beginCaptures": {
-                "2": {
-                    "name": "keyword.sql"
-                }
-            },
-            "end": "(`)",
-            "patterns": [
-                {
-                    "include": "source.sql"
-                }
-            ]
-        },
-        {
-            "comment": "Python multi-line strings",
-            "begin": "f?(\"\"\")(--\\s*sql)",
-            "beginCaptures": {
-                "2": {
-                    "name": "comment.sql"
+                    "name": "string.quoted.multi.python"
+                },
+                "3": {
+                    "name": "comment.line.double-dash.sql"
                 }
             },
             "end": "(\"\"\")",
+            "endCaptures": {
+                "1": {
+                    "name": "string.quoted.multi.python"
+                }
+            },
+            "contentName": "meta.embedded.sql",
             "patterns": [
                 {
                     "include": "source.sql"
                 }
             ]
         },
-        {
-            "begin": "(?i)(\"\"\")(SELECT |INSERT INTO |DELETE |UPDATE |CREATE TABLE |CREATE INDEX |FROM |CREATE OR REPLACE |CREATE VIEW )",
+        "marker-triple-single": {
+            "begin": "([rRfFuU]{0,2})(''')(--\\s*sql\\b.*$)",
             "beginCaptures": {
+                "1": {
+                    "name": "storage.type.string.python"
+                },
                 "2": {
-                    "name": "keyword.sql"
+                    "name": "string.quoted.multi.python"
+                },
+                "3": {
+                    "name": "comment.line.double-dash.sql"
                 }
             },
-            "end": "(\"\"\")",
+            "end": "(''')",
+            "endCaptures": {
+                "1": {
+                    "name": "string.quoted.multi.python"
+                }
+            },
+            "contentName": "meta.embedded.sql",
+            "patterns": [
+                {
+                    "include": "source.sql"
+                }
+            ]
+        },
+        "call-double": {
+            "begin": "(\\.)(sql|execute|executemany)\\s*(\\()\\s*(?:(query)\\s*(=)\\s*)?([rRfFuU]{0,2})(\")",
+            "beginCaptures": {
+                "1": {
+                    "name": "punctuation.separator.period.python"
+                },
+                "2": {
+                    "name": "entity.name.function.python"
+                },
+                "3": {
+                    "name": "punctuation.definition.arguments.begin.python"
+                },
+                "4": {
+                    "name": "variable.parameter.function-call.python"
+                },
+                "5": {
+                    "name": "keyword.operator.assignment.python"
+                },
+                "6": {
+                    "name": "storage.type.string.python"
+                },
+                "7": {
+                    "name": "string.quoted.single.python"
+                }
+            },
+            "end": "((?<!\\\\)\")|$",
+            "endCaptures": {
+                "1": {
+                    "name": "string.quoted.single.python"
+                }
+            },
+            "contentName": "meta.embedded.sql",
+            "patterns": [
+                {
+                    "include": "source.sql"
+                }
+            ]
+        },
+        "call-single": {
+            "begin": "(\\.)(sql|execute|executemany)\\s*(\\()\\s*(?:(query)\\s*(=)\\s*)?([rRfFuU]{0,2})(')",
+            "beginCaptures": {
+                "1": {
+                    "name": "punctuation.separator.period.python"
+                },
+                "2": {
+                    "name": "entity.name.function.python"
+                },
+                "3": {
+                    "name": "punctuation.definition.arguments.begin.python"
+                },
+                "4": {
+                    "name": "variable.parameter.function-call.python"
+                },
+                "5": {
+                    "name": "keyword.operator.assignment.python"
+                },
+                "6": {
+                    "name": "storage.type.string.python"
+                },
+                "7": {
+                    "name": "string.quoted.single.python"
+                }
+            },
+            "end": "((?<!\\\\)')|$",
+            "endCaptures": {
+                "1": {
+                    "name": "string.quoted.single.python"
+                }
+            },
+            "contentName": "meta.embedded.sql",
+            "patterns": [
+                {
+                    "include": "source.sql"
+                }
+            ]
+        },
+        "marker-double": {
+            "begin": "([rRfFuU]{0,2})(\")(--\\s*sql\\b)",
+            "beginCaptures": {
+                "1": {
+                    "name": "storage.type.string.python"
+                },
+                "2": {
+                    "name": "string.quoted.single.python"
+                },
+                "3": {
+                    "name": "comment.line.double-dash.sql"
+                }
+            },
+            "end": "((?<!\\\\)\")|$",
+            "endCaptures": {
+                "1": {
+                    "name": "string.quoted.single.python"
+                }
+            },
+            "contentName": "meta.embedded.sql",
+            "patterns": [
+                {
+                    "include": "source.sql"
+                }
+            ]
+        },
+        "marker-single": {
+            "begin": "([rRfFuU]{0,2})(')(--\\s*sql\\b)",
+            "beginCaptures": {
+                "1": {
+                    "name": "storage.type.string.python"
+                },
+                "2": {
+                    "name": "string.quoted.single.python"
+                },
+                "3": {
+                    "name": "comment.line.double-dash.sql"
+                }
+            },
+            "end": "((?<!\\\\)')|$",
+            "endCaptures": {
+                "1": {
+                    "name": "string.quoted.single.python"
+                }
+            },
+            "contentName": "meta.embedded.sql",
             "patterns": [
                 {
                     "include": "source.sql"
                 }
             ]
         }
-    ]
+    }
 }

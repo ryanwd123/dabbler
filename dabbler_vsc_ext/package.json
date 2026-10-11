@@ -1,6 +1,6 @@
 {
   "name": "dabbler",
-  "description": "language server for working with DuckDB sql within python files, requires dabbler python package",
+  "description": "Completions, hover, signature help and syntax errors for DuckDB SQL in python files; requires the dabbler python package",
   "author": "Ryan DeWitt",
   "repository": "https://github.com/ryanwd123/dabbler",
   "license": "MIT",
@@ -17,7 +17,7 @@
     "Programming Languages"
   ],
   "activationEvents": [
-    "onStartupFinished"
+    "onLanguage:python"
   ],
   "contributes": {
     "commands": [
@@ -59,23 +59,11 @@
         "type": "object",
         "title": "Server Configuration",
         "properties": {
-          "dabbler.server.cwd": {
-            "scope": "window",
-            "type": "string",
-            "description": "The working directory from which to launch the server.",
-            "markdownDescription": "The working directory from which to launch the server.\nIf blank, this will default to the `examples/servers` directory."
-          },
-          "dabbler.server.launchScript": {
-            "scope": "window",
-            "type": "string",
-            "default": "dabbler.lsp",
-            "description": "The python script to run when launching the server."
-          },
           "dabbler.server.default_py_env": {
             "scope": "window",
             "type": "string",
             "default": "",
-            "description": "The python environment to use when launching the server. If blank, this will default to the current python environment."
+            "description": "Path of the python interpreter to run the language server with. If blank, the interpreter selected in the Python extension is used. dabbler must be installed there (pip install \"dabbler[gui]\")."
           },
           "dabbler.trace.server": {
             "scope": "window",
@@ -83,12 +71,14 @@
             "default": "off",
             "enum": [
               "off",
+              "messages",
               "verbose"
             ],
             "description": "Controls if LSP messages send to/from the server should be logged.",
             "enumDescriptions": [
-              "do not log any lsp messages",
-              "log all lsp messages sent to/from the server"
+              "do not log LSP messages",
+              "log the names of LSP messages",
+              "log LSP messages with their contents"
             ]
           }
         }
