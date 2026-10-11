@@ -4,6 +4,7 @@ from typing import Optional
 from lsprotocol import types as lsp
 from lsprotocol.types import CompletionList
 
+from dabbler.lsp.completer import word_span
 from dabbler.lsp.completion_utils import pathlib_completetions
 from dabbler.lsp.diagnostics import sql_errors
 from dabbler.lsp.formatting import FormatError, format_region
@@ -58,8 +59,18 @@ def completions(
 
     pos_in_range = sql_rng.cur_idx - sql_rng.start
 
-    comps = completer.route_completion2(pos_in_range, sql_rng.txt, trigger)
+    comps = completer.route_completion2(pos_in_range, sql_rng.txt, trigger, snippets=ls.snippet_support())
     if comps:
+        start, end = word_span(sql_rng.txt, pos_in_range)
+        if sql_rng.txt[start:start + 1] == '"':
+            # the editor's word range leaves out the quote, so replace the whole quoted name
+            rng = lsp.Range(
+                document.client_position_at_offset(sql_rng.start + start),
+                document.client_position_at_offset(sql_rng.start + end),
+            )
+            for item in comps.items:
+                item.text_edit = lsp.TextEdit(rng, item.insert_text or item.label)
+                item.filter_text = '"' + item.label.strip('"')
         return comps
     return CompletionList(is_incomplete=False, items=[])
 

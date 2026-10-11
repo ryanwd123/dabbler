@@ -41,6 +41,12 @@ class InlineSqlLangServer(LanguageServer):
             lsp.PublishDiagnosticsParams(uri=uri, diagnostics=diagnostics, version=version)
         )
 
+    def snippet_support(self) -> bool:
+        try:
+            return bool(self.client_capabilities.text_document.completion.completion_item.snippet_support)  # type: ignore
+        except AttributeError:
+            return False
+
     def workspace_root(self) -> Union[str, None]:
         try:
             return self.workspace.root_path

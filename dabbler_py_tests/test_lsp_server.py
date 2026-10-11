@@ -361,3 +361,22 @@ async def test_hover_over_function(client: LanguageClient):
     assert "Truncate to specified precision" in result.contents.value
     start = source.index("date_trunc")
     assert (result.range.start.character, result.range.end.character) == (start, start + len("date_trunc"))
+
+
+@pytest.mark.asyncio
+async def test_quoted_name_completion_replaces_the_quote(client: LanguageClient):
+    source = 'db.sql(\'select * from "Order Li\')\n'
+    uri = open_doc(client, source)
+    db = make_completion_db()
+    SchemaCache(CACHE_PATH).save_snapshot(client.workspace_path / "nb.py", get_db_data_new(db, skip_ipython=True))
+    result = await client.text_document_completion_async(
+        types.CompletionParams(
+            text_document=types.TextDocumentIdentifier(uri=uri),
+            position=position_of(source, '"Order Li'),
+            context=types.CompletionContext(trigger_kind=types.CompletionTriggerKind.Invoked),
+        )
+    )
+    (item,) = [x for x in result.items if x.label == '"Order Lines"']
+    start = source.index('"Order Li')
+    assert (item.text_edit.range.start.character, item.text_edit.range.end.character) == (start, start + 9)
+    assert item.text_edit.new_text == '"Order Lines"'

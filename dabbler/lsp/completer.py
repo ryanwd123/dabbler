@@ -30,6 +30,7 @@ from lsprotocol.types import (
     CompletionItem,
     CompletionList,
     CompletionItemKind,
+    InsertTextFormat,
     MarkupContent,
     MarkupKind,
     ParameterInformation,
@@ -60,6 +61,34 @@ re_word_at_end = re.compile(r"\w+$")
 def column_items(projection) -> list[CmpItem]:
     """Completion items for (name, type) columns; unnamed expressions are skipped."""
     return [CmpItem(name, CompletionItemKind.Field, None, typ, "1", "column") for name, typ in projection if name]
+
+
+re_open_quoted = re.compile(r'"[^"\n]*$')
+re_word_after = re.compile(r'\w*"?')
+
+
+def word_span(sql: str, pos: int) -> tuple[int, int]:
+    """Span of the name being completed at pos: the word around it, or an open
+    quoted identifier like `"Order Li` (with its closing quote if one follows)."""
+    left = sql[:pos]
+    quoted = re_open_quoted.search(left)
+    if quoted and left.count('"') % 2 == 1:
+        return quoted.start(), pos + len(re_word_after.match(sql, pos).group(0))  # type: ignore
+    start = pos
+    while start > 0 and (sql[start - 1].isalnum() or sql[start - 1] == "_"):
+        start -= 1
+    end = pos
+    while end < len(sql) and (sql[end].isalnum() or sql[end] == "_"):
+        end += 1
+    return start, end
+
+
+def is_callable(item: CompletionItem) -> bool:
+    """Functions, and table functions and table macros (which go in FROM)."""
+    description = item.label_details.description if item.label_details else None
+    return item.kind == CompletionItemKind.Function or (
+        item.kind == CompletionItemKind.File and description in ("function", "table_macro")
+    )
 
 
 def unique_by_label(items: list[CmpItem]) -> list[CmpItem]:
@@ -262,12 +291,24 @@ class SqlCompleter:
         cursor_pos: int,
         txt: str,
         trigger: Union[str,None],
+        snippets: bool = False,
     ):
+        """Completions at cursor_pos. With snippets, functions insert `name($0)`
+        unless a "(" already follows the cursor."""
         # one consistent read of the schema cache per request, even if IPython saves meanwhile
         with self.catalog.request():
-            return self._route_completion(cursor_pos, txt, trigger)
+            result = self._route_completion(cursor_pos, txt, trigger)
+        if snippets and result and not txt[cursor_pos:].lstrip(" \t").startswith("(") and word_span(txt, cursor_pos)[1] == cursor_pos:
+            for item in result.items:
+                if is_callable(item):
+                    item.insert_text = f"{item.label}($0)"
+                    item.insert_text_format = InsertTextFormat.Snippet
+        return result
 
     def _route_completion(self, cursor_pos: int, txt: str, trigger: Union[str, None]):
+        start, end = word_span(txt, cursor_pos)
+        if txt[start:start + 1] == '"':
+            return self._complete_quoted(start, end, cursor_pos, txt)
         sql_left_of_cur = strip_sql_whitespace(txt[:cursor_pos])
 
         # contexts the grammar doesn't model
@@ -311,6 +352,15 @@ class SqlCompleter:
         if context.kind == "unknown":
             return self.route_by_regex(sql_left_of_cur, trigger, parsed_items)
         return self.route_by_context(context, txt[:cursor_pos], trigger, parsed_items)
+
+    def _complete_quoted(self, start: int, end: int, cursor_pos: int, txt: str):
+        """A half-typed quoted name like `"Order Li`: what fits where the name
+        starts, filtered by the text typed after the quote."""
+        typed = txt[start + 1:cursor_pos].lower()
+        trigger = "." if txt[start - 1:start] == "." else None
+        found = self._route_completion(start, txt[:start] + txt[end:], trigger)
+        items = [x for x in (found.items if found else []) if x.label.strip('"').lower().startswith(typed)]
+        return CompletionList(is_incomplete=True, items=items)
 
     def route_by_context(self, context: CursorContext, left: str, trigger: Union[str, None], parsed_items):
         """Completions for what the parser expects at the cursor."""
