@@ -120,3 +120,18 @@ def test_query_from_the_editor_shows_in_the_window(shell):
         time.sleep(0.01)
     assert window.table._model.df["total"].to_list() == [6]
     assert "frame" in window.selection_area.df_list
+
+
+def test_closing_a_window_deletes_it(shell):
+    shell.user_ns["db"] = duckdb.connect()
+    ext.load_ipython_extension(shell)
+    app = ext._magics.app
+    window = app.windows[0]
+    destroyed = []
+    window.destroyed.connect(lambda *_: destroyed.append(True))
+    window.close()
+    # Qt deletes it on this thread, through the event loop, not the garbage collector
+    QtWidgets.QApplication.sendPostedEvents(None, QtCore.QEvent.Type.DeferredDelete)
+    assert destroyed and app.windows == []
+    shell.run_line_magic("dabbler", "")
+    assert len(app.windows) == 1 and app.windows[0].isVisible()

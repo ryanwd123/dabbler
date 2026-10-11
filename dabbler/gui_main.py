@@ -471,20 +471,24 @@ class MyApp(QtCore.QObject):
     def new_window(self) -> "mainWindow":
         window = mainWindow(self.db, self, id=self.win_id)
         self.win_id += 1
+        # Qt deletes a closed window on this thread. Left to Python's garbage collector,
+        # it could be freed from the heartbeat or a query thread, which aborts on Linux.
+        window.setAttribute(QtCore.Qt.WidgetAttribute.WA_DeleteOnClose)
+        key = id(window)  # not the window itself, which would keep it alive
+        window.destroyed.connect(lambda *_: self.forget_window(key))
         window.show()
-        for w in self.windows:
-            if not w.isVisible():
-                w.deleteLater()
         self.windows = [w for w in self.windows if w.isVisible()] + [window]
         window.status.setText(f"windows open: {len(self.windows)}")
         return window
+
+    def forget_window(self, key: int):
+        self.windows = [w for w in self.windows if id(w) != key]
 
     def close(self):
         """Stops sharing the schema and closes the windows (on %unload_ext, or when Qt quits)."""
         if self.schema_sync is not None:
             self.schema_sync.stop()
             self.schema_sync = None
-        for w in self.windows:
-            w.close()
-            w.deleteLater()
+        for w in list(self.windows):
+            w.close()  # deletes it (WA_DeleteOnClose)
         self.windows = []
