@@ -51,6 +51,10 @@ kw_adds = {
     'ORDER': 'ORDER BY ALL',
 }
 
+# a setting's name being typed: SET threads, RESET GLOBAL threads (not SET VARIABLE)
+re_setting_name = re.compile(
+    r"(?:^|;)\s*(?:set|reset)\s+(?:(?P<scope>local|session|global)\s+)?(?!variable\s)\w*$", flags=re.IGNORECASE
+)
 re_cast_as = re.compile(r"(^|\W)(try_)?cast\s*\(([^()]|\([^()]*\))*\s+as $", flags=re.IGNORECASE)
 
 
@@ -336,19 +340,10 @@ class SqlCompleter:
         if re.match(r"(^| )(pragma )$", sql_left_of_cur, flags=re.IGNORECASE):
             return CompletionList(is_incomplete=False, items=duckdb_pragmas)
 
-        if re.match(r"(^| )(set |reset )$", sql_left_of_cur, flags=re.IGNORECASE):
-            return CompletionList(
-                is_incomplete=False,
-                items=duckdb_settings
-                + [CompletionItem(label=c) for c in ["LOCAL", "SESSION", "GLOBAL"]],
-            )
-
-        if re.match(
-            r"(^| )(set |reset )(local | session | global )$",
-            sql_left_of_cur,
-            flags=re.IGNORECASE,
-        ):
-            return CompletionList(is_incomplete=False, items=duckdb_settings)
+        setting = re_setting_name.search(sql_left_of_cur)
+        if setting:
+            scopes = [] if setting.group("scope") else [CompletionItem(label=c) for c in ["LOCAL", "SESSION", "GLOBAL"]]
+            return CompletionList(is_incomplete=False, items=duckdb_settings + scopes)
 
         try:
             parsed_items, parsed = self.parse_sql2(cursor_pos, txt)

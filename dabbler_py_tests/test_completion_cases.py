@@ -167,6 +167,12 @@ SPECIAL_CONTEXT_CASES = [
     case("load |", ["'httpfs'"], id="load"),
     case("pragma |", ["version", "database_size"], id="pragma"),
     case("set |", ["max_memory", "threads", "SESSION"], id="set"),
+    case("set global |", ["max_memory", "threads"], ["SESSION", "GLOBAL"], id="set_global"),
+    case("SET Session |", ["threads"], id="set_session"),
+    case("reset local |", ["threads"], id="reset_local"),
+    case("set thr|", ["threads"], id="set_partial"),
+    case("select 1;\nset global |", ["threads"], id="set_after_statement"),
+    case("set variable |", [], ["threads"], id="set_variable_isnt_a_setting"),
     case("select amount::| from orders", ["DOUBLE", "VARCHAR", "DATE"], id="cast_operator"),
     case(
         "select cast(amount as |) from orders", ["DOUBLE"], id="cast_function",
