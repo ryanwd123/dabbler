@@ -60,10 +60,8 @@ update_statment: UPDATE table_name [[_AS] table_name] SET column_update ("," col
 column_update: _col_ref "=" (expression|query)
 
 
-create_type: CREATE TYPE IDENT _AS existing_types
-        | CREATE TYPE IDENT _AS ENUM "(" (STRING ("," STRING)* | query) ")"
-        | CREATE TYPE IDENT _AS STRUCT "(" IDENT existing_types ("," IDENT existing_types)* ")"
-        | CREATE TYPE IDENT _AS UNION  "(" IDENT existing_types ("," IDENT existing_types)* ")"
+create_type: CREATE TYPE IDENT _AS type
+        | CREATE TYPE IDENT _AS ENUM "(" query ")"
 
 
 create_macro: CREATE [OR REPLACE] [TEMP|TEMPORARY] (MACRO|FUNCTION) [IDENT "."] IDENT macro_params _AS (TABLE query|expression) 
@@ -171,7 +169,7 @@ create_table_statement: create_or_replace TABLE [IF NOT EXISTS] table_name (_AS 
 
 col_defintions: "(" col_defintion ("," col_defintion)* [","] [table_constraints]  ")" 
 
-col_defintion: IDENT type ["(" NUMBER ")"] [col_constraint]
+col_defintion: IDENT type [col_constraint]
         | IDENT generated_col
 
 generated_col: [type] [GENERATED ALWAYS] _AS "(" expression ")" [(VIRTUAL|STORED)]
@@ -180,7 +178,7 @@ col_constraint: PRIMARY KEY
         |[NOT] NULL
         |UNIQUE
         |CHECK "(" expression ")"
-        |DEFAULT ("(" expression ")"|expression)
+        |DEFAULT expression
         |REFERENCES table_name col_names
         |COLLATE IDENT
 
@@ -198,7 +196,7 @@ alter_table_cmd: ADD [COLUMN] [IF NOT EXISTS] IDENT type [col_constraint]
         | RENAME [COLUMN] alter_col_name TO IDENT
         | RENAME TO IDENT
 
-alter_col_options: [SET [DATA]] TYPE (type|IDENT) [COLLATE IDENT] [USING expression]
+alter_col_options: [SET [DATA]] TYPE type [COLLATE IDENT] [USING expression]
                 |SET DEFAULT expression
                 |DROP DEFAULT
 
@@ -295,8 +293,8 @@ sample_method: SYSTEM
 
 
 
-table_func: [[IDENT "."] IDENT "."] IDENT "(" [expression ("," expression)*] ")"
-        |[[IDENT "."] IDENT "."] GLOB "(" [expression ("," expression)*] ")"
+table_func: [[IDENT "."] IDENT "."] IDENT "(" [args] ")"
+        |[[IDENT "."] IDENT "."] GLOB "(" [args] ")"
         |STRING          //e.g. select * from 'my_file.csv'
 
 subquery.5: "(" query ")" 
@@ -337,52 +335,99 @@ replace: REPLACE "(" [[(col_replace ",")*] col_replace] [","]")"
 
 
 
-// col_ref:[IDENT "." [IDENT "." [IDENT "."]]] IDENT  -> col_ref
+// Expressions, loosest binding first. Each level is inlined (?rule) when it has a
+// single child, so a plain column reference is still just a col_ref node.
+?expression: or_expr
 
-// expression.3: [IDENT "."] IDENT  -> col_ref
-expression.3: _col_ref  -> col_ref
-        // |[IDENT "."] IDENT "." -> z9_incomplete_col_ref
-        |_z9_incomplete_col_ref -> z9_incomplete_col_ref
-        |STRING -> string
-        |NUMBER -> number
-        |SIGNED_NUMBER -> number
-        |TRUE -> true
-        |FALSE -> false
-        // |negative_number -> number
-        // |DATE STRING -> date
-        |_date -> date
-        | [IDENT "."] IDENT "("[DISTINCT] [(expression ",")*] expression [order_by] ")" [filter] [window_form]  -> function
-        | [IDENT "."] IDENT "(" ["*"] [order_by] ")" [filter] [window_form]  -> function
-        | expression math expression -> operation
-        | expression comp expression -> comparison
-        | between
-        | combine
-        | expression [NOT] IN "(" (expression [("," expression)*]) ")" -> in
-        | expression [NOT] IN subquery -> in
+?or_expr: and_expr
+        | or_expr OR and_expr -> combine
+
+?and_expr: not_expr
+        | and_expr AND not_expr -> combine
+
+?not_expr: predicate
+        | NOT not_expr -> not
+
+// comparisons, BETWEEN, IN, LIKE and IS; their operands bind tighter, so
+// "a BETWEEN 1 + 1 AND 3" and "a = 1 AND b = 2" group the way SQL means
+?predicate: op_expr
+        | predicate comp op_expr -> comparison
+        | predicate comp (ANY|SOME) "(" query ")" -> comparison
+        | predicate [NOT] BETWEEN op_expr AND op_expr -> between
+        | predicate [NOT] IN op_expr -> in
+        | predicate [NOT] like_op op_expr [ESCAPE op_expr] -> like
+        | predicate IS [NOT] (NULL|TRUE|FALSE) -> is_null
+        | predicate (ISNULL|NOTNULL) -> is_null
+        | predicate NOT NULL -> is_null
+        | predicate IS [NOT] DISTINCT FROM op_expr -> is_distinct_from
+
+like_op: LIKE | ILIKE | SIMILAR TO | GLOB | LIKE_SIGN | NOT_LIKE_SIGN | GLOB_SIGN | SIMILAR_TO_SIGN
+        | NOT_SIMILAR_TO_SIGN | NOT_ILIKE_SIGN | ILIKE_SIGN
+
+// ||, JSON arrows, bitwise and other operators; x -> x + 1 lambdas parse here too
+?op_expr: add_expr
+        | op_expr other_op add_expr -> operation
+
+other_op: CONCAT | ARROW | DOUBLE_ARROW | BIT_AND | BIT_OR | SHIFT_LEFT | SHIFT_RIGHT | CONTAINS_OP | CONTAINED_OP | AND_OP
+
+?add_expr: mul_expr
+        | add_expr (PLUS|MINUS) mul_expr -> operation
+
+?mul_expr: pow_expr
+        | mul_expr (STAR|DIVIDE|INT_DIVIDE|MODULO) pow_expr -> operation
+
+?pow_expr: unary
+        | pow_expr POWER unary -> operation
+
+?unary: postfix
+        | (MINUS|PLUS|BITWISE_NOT) unary -> unary_op
+
+?postfix: primary
+        | postfix CAST_OP type -> cast
+        | postfix "[" slice_args "]" -> slice
+        | postfix "." IDENT "(" [DISTINCT] [args] ")" [window_form] -> dot_function
+        | postfix "." IDENT -> field
+
+?primary: _col_ref -> col_ref
+        | _z9_incomplete_col_ref -> z9_incomplete_col_ref
+        | STRING -> string
+        | NUMBER -> number
+        | TRUE -> true
+        | FALSE -> false
+        | NULL -> null
+        | IDENT STRING -> typed_literal
+        | INTERVAL (STRING|NUMBER|"(" expression ")") [IDENT] -> interval
+        | [IDENT "."] IDENT "(" [DISTINCT] [args] [order_by] ")" [WITHIN GROUP "(" order_by ")"] [filter] [window_form] -> function
+        | [IDENT "."] IDENT "(" STAR ")" [filter] [window_form] -> function
         | CASE [expression] (WHEN expression THEN expression)+ [ELSE expression] END -> case
-        | expression [NOT] (LIKE|ILIKE|SIMILAR TO|GLOB|LIKE_SIGN|NOT_LIKE_SIGN|GLOB_SIGN|SIMILAR_TO_SIGN|NOT_SIMILAR_TO_SIGN|NOT_ILIKE_SIGN|ILIKE_SIGN) expression -> like
-        | expression IS [NOT] DISTINCT FROM expression -> is_distinct_from
+        | (CAST|TRY_CAST) "(" expression _AS type ")" -> cast
         | "(" expression ")" -> parenthesized_expression
-        | expression CAST_OP type -> cast
-        | CAST"(" expression _AS type ")" -> cast
+        | "(" expression ("," expression)+ [","] ")" -> row
         | "(" query ")" -> subquery
-        | NULL -> null   
-        | expression [IS | NOT | IS NOT] NULL -> is_null
-        | [NOT] EXISTS "(" query ")" -> exists
+        | EXISTS "(" query ")" -> exists
         | COALESCE "(" expression ("," expression)* ")" -> coalesce
-        | EXTRACT "("IDENT FROM expression")" -> extract
-        | INTERVAL expression IDENT -> interval
-        | expression "[" slice_args "]" -> slice
-        | expression "." IDENT "("[DISTINCT] [[(expression ",")*] expression] ")" [window_form]  -> dot_function
+        | EXTRACT "(" IDENT FROM expression ")" -> extract
+        | TRIM "(" (BOTH|LEADING|TRAILING) [expression] FROM expression ")" -> trim
+        | TRIM "(" expression FROM expression ")" -> trim
+        | TRIM "(" expression ["," expression] ")" -> trim
+        | SUBSTRING "(" expression FROM expression [FOR expression] ")" -> substring
+        | SUBSTRING "(" expression ("," expression)* ")" -> substring
+        | LAMBDA IDENT ("," IDENT)* ":" expression -> lambda
         | parameter
-        |"[" [expression] ("," expression)* [","] "]" -> list
-        | "{" STRING ":" expression ("," STRING ":" expression)* [","] "}" -> struct
-        | MAP "{" expression ":" expression ("," expression ":" expression)* [","] "}" -> map
-        // | SUBSTRING "(" expression FROM expression [FOR expression] ")" -> substring
-        // | "EXTRACT"i "(" IDENT FROM expression ")" -> extract
-        // | expression (IS [NOT] NULL|"ISNULL"i|"NOTNULL"i) -> is_null
+        | "[" [expression ("," expression)* [","]] "]" -> list
+        | "[" expression FOR IDENT IN expression [IF expression] "]" -> list_comprehension
+        | "{" struct_key ":" expression ("," struct_key ":" expression)* [","] "}" -> struct
+        | "{" "}" -> struct
+        | MAP "{" [expression ":" expression ("," expression ":" expression)* [","]] "}" -> map
 
-slice_args: expression ":" expression
+// function arguments: values, and named arguments like header := true
+args: arg ("," arg)*
+arg: expression
+        | IDENT ":=" expression -> named_arg
+
+struct_key: STRING | IDENT
+
+slice_args: expression ":" expression [":" expression]
         | expression ":"
         | ":"
         | ":" expression
@@ -392,127 +437,54 @@ parameter: "?"
         | "$" NUMBER
         | "$" IDENT
 
-
-
 _col_ref: [IDENT "."] IDENT
 
-
-
-
 _z9_incomplete_col_ref: [IDENT "."] IDENT "."
-_date: DATE STRING
 
-filter: FILTER "(" WHERE expression ")" -> filter
+filter: FILTER "(" [WHERE] expression ")" -> filter
 
-between.6: expression [NOT] BETWEEN expression AND expression
-combine.5: expression (AND|OR) expression -> combine
+window_form: OVER (IDENT | "(" window_spec ")")
 
-window_form: OVER "(" [PARTITION BY (partition_by ",")* partition_by] [order_by [ row_range_clause ] ] ")"
+window_spec: [IDENT] [PARTITION BY (partition_by ",")* partition_by] [order_by [row_range_clause]]
 
-order_by.3: ORDER BY ALL [(ASC|DESC)] [NULLS(FIRST|LAST)]
-        // |ORDER BY [(order ",")*] order
-        | ORDER BY expression [(ASC|DESC)] [NULLS(FIRST|LAST)] ("," expression [(ASC|DESC)] [NULLS(FIRST|LAST)])* 
+order_by.3: ORDER BY ALL [(ASC|DESC)] [NULLS (FIRST|LAST)]
+        | ORDER BY expression [(ASC|DESC)] [NULLS (FIRST|LAST)] ("," expression [(ASC|DESC)] [NULLS (FIRST|LAST)])*
 
-// order: expression [(ASC|DESC)] [NULLS (FIRST|LAST)]
 partition_by: expression
-//row_number() OVER (PARTITION BY ci.pl_placeid ORDER BY s.score DESC NULLS LAST, s.person1id, s.person2id) _AS rn
 
-// negative_number.1: MINUS NUMBER -> negative_number
-
-row_range_clause: ( ROWS | RANGE ) frame_extent
+row_range_clause: (ROWS | RANGE | GROUPS) frame_extent [EXCLUDE (CURRENT ROW | GROUP | TIES | NO OTHERS)]
 frame_extent: frame_between | frame_preceding
 frame_between: BETWEEN frame_bound AND frame_bound
 frame_bound: frame_preceding | frame_following | CURRENT ROW
-frame_preceding: UNBOUNDED PRECEDING | expression PRECEDING
-frame_following: UNBOUNDED FOLLOWING | expression FOLLOWING
-
-
-
-
-math: STAR
-        | DIVIDE
-        | PLUS
-        | MINUS
-        | CONCAT
-        | MODULO
-        | INT_DIVIDE
-        | POWER
-        | BIT_AND
-        | BIT_OR
-        | SHIFT_LEFT
-        | SHIFT_RIGHT
-
+frame_preceding: UNBOUNDED PRECEDING | op_expr PRECEDING
+frame_following: UNBOUNDED FOLLOWING | op_expr FOLLOWING
 
 comp: GREATER_THAN
         | LESS_THAN
         | LESS_THAN_OR_EQUAL
         | GREATER_THAN_OR_EQUAL
         | EQUAL
+        | DOUBLE_EQUAL
         | NOT_EQUALS
 
-existing_types: DOUBLE
-       | TIME
-       | DATE
-       | BIT
-       | BOOLEAN
-       | UUID
-       | NULL
-       | FLOAT
-       | TIMESTAMP
-       | TIMESTAMP_MS
-       | TIMESTAMP_NS
-       | TIMESTAMP_S
-       | TIMESTAMP WITH TIME ZONE
-       | TIME WITH TIME ZONE
-       | INTERVAL
-       | VARCHAR
-       | BLOB
-       | HUGEINT
-       | BIGINT
-       | UBIGINT
-       | INTEGER
-       | UINTEGER
-       | SMALLINT
-       | USMALLINT
-       | TINYINT
-       | UTINYINT
-       | DECIMAL "(" NUMBER "," NUMBER ")" 
+// Types: a name (built-in, or the session's own like an ENUM) with optional
+// parameters, e.g. VARCHAR(10), DECIMAL(10, 2), STRUCT(a INT, b VARCHAR), INT[].
+type: type_name ["(" type_params ")"] array_suffix*
+        | type_name WITH TIME ZONE array_suffix*
 
+type_name: IDENT
+        | STRUCT | UNION | MAP | ENUM | INTERVAL | NULL
 
+type_params: NUMBER ["," NUMBER]
+        | type_field ("," type_field)*
+        | type ("," type)*
+        | STRING ("," STRING)*
 
+type_field: IDENT type
 
-type:  DOUBLE
-       | TIME
-       | DATE
-       | BIT
-       | BOOLEAN
-       | UUID
-       | ENUM
-       | NULL
-       | FLOAT
-       | STRUCT
-       | TIMESTAMP
-       | TIMESTAMP_MS
-       | TIMESTAMP_NS
-       | TIMESTAMP_S
-       | TIMESTAMP WITH TIME ZONE
-       | TIME WITH TIME ZONE
-       | INTERVAL
-       | VARCHAR
-       | BLOB
-       | HUGEINT
-       | BIGINT
-       | UBIGINT
-       | INTEGER
-       | UINTEGER
-       | SMALLINT
-       | USMALLINT
-       | TINYINT
-       | UTINYINT
-       | UNION
-       | DECIMAL "(" NUMBER "," NUMBER ")" 
+array_suffix: "[" [NUMBER] "]"
 
-
+existing_types: type
 
 
 FILTER: "FILTER"i
@@ -539,6 +511,11 @@ NOT_EQUALS: "<>" | "!="
 CONCAT: "||"
 AND_OP: "&&"
 EQUAL: "="
+DOUBLE_EQUAL: "=="
+ARROW: "->"
+DOUBLE_ARROW: "->>"
+CONTAINS_OP: "@>"
+CONTAINED_OP: "<@"
 CAST_OP: "::"
 FACTORIAL:   "!"
 BITWISE_NOT:   "~"
@@ -867,11 +844,17 @@ IMPORT: "IMPORT"i
 VACUUM: "VACUUM"i
 COMMENT: "COMMENT"i
 TABLES: "TABLES"i
+LAMBDA: "LAMBDA"i
+WITHIN: "WITHIN"i
+GROUPS: "GROUPS"i
+TIES: "TIES"i
+OTHERS: "OTHERS"i
 
 SQL_COMMENT: /--.*/ |  /\/\*[\s\S]*?\*\//
 IDENT: CNAME | ESCAPED_STRING
 CNAME: /\b(?!QUALIFY\b|AUTHORIZATION\b|DO\b|CAST\b|ISNULL\b|LIKE\b|REFERENCES\b|ASC\b|ILIKE\b|ALL\b|WINDOW\b|FOR\b|INNER\b|GRANT\b|INITIALLY\b|OR\b|LEFT\b|ANALYZE\b|COLLATE\b|CASE\b|FETCH\b|IN\b|CONCURRENTLY\b|SEMI\b|UNPIVOT\b|BINARY\b|FROM\b|VARIADIC\b|ARRAY\b|IS\b|ANALYSE\b|AND\b|HAVING\b|UNION\b|COLUMN\b|ON\b|GLOB\b|SOME\b|AS\b|VERBOSE\b|TRAILING\b|END\b|ANY\b|TABLESAMPLE\b|INTERSECT\b|NATURAL\b|CREATE\b|OFFSET\b|CROSS\b|ELSE\b|FULL\b|SELECT\b|USING\b|CONSTRAINT\b|FOREIGN\b|OVERLAPS\b|ORDER\b|INTO\b|NOT\b|TABLE\b|ANTI\b|CHECK\b|ASYMMETRIC\b|LATERAL\b|DEFERRABLE\b|BOTH\b|RIGHT\b|COLLATION\b|UNIQUE\b|SYMMETRIC\b|TO\b|RETURNING\b|SIMILAR\b|NOTNULL\b|LIMIT\b|ASOF\b|JOIN\b|THEN\b|ONLY\b|FREEZE\b|WITH\b|DESC\b|WHERE\b|OUTER\b|WHEN\b|DISTINCT\b|LEADING\b|EXCEPT\b)([a-zA-Z_]\w*|\d+[a-zA-Z_]+\w*)\b/i
-STRING: /'([^']|\s)+'|''/
+// 'it''s', E'escaped', and $$dollar quoted$$
+STRING: /[eE]?'(?:[^']|'')*'/ | /\$\$[\s\S]*?\$\$/
 SIGNED_NUMBER.-1: ["+"|"-"] NUMBER
 
 %import common.ESCAPED_STRING

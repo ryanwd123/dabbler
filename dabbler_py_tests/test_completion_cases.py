@@ -186,6 +186,13 @@ PARSER_CONTEXT_CASES = [
     case("update |", ["orders", "customers"], id="update_table"),
     case("update orders set am|", ["amount"], id="update_set_column"),
     case("select * from orders o where o.amount = cu|", ["customer_id"], id="after_comparison"),
+    case("select case when am| from orders", ["amount"], id="unfinished_case_when"),
+    case("select case when amount > 1 then am| from orders", ["amount"], id="unfinished_case_then"),
+    case("select * from orders where amount between 1 + 1 and am|", ["amount"], id="between_arithmetic"),
+    case("select [x + 1 for x in [1, 2] if x > am|] from orders", ["amount"], id="list_comprehension"),
+    case("select list_transform([1], lambda x: x + am|) from orders", ["amount"], id="lambda_body"),
+    case("select o.amount::| from orders o", ["INTEGER", "VARCHAR"], ["orders"], id="cast_type"),
+    case("select * from read_csv('x.csv', header := true) r where r.| ", [], ["orders"], id="named_arg_table_function"),
 ]
 
 SCOPE_CASES = [

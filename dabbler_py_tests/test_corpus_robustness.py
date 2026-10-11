@@ -12,9 +12,7 @@ from conftest import SQL_CORPUS_DIR
 from dabbler.lsp.parser import sql_parser
 
 CORPUS = sorted(SQL_CORPUS_DIR.glob("*.sql"))
-GRAMMAR_GAPS = {
-    "21.sql": "(CASE ... END) BETWEEN 2.000/3.000 AND 3.000/2.000 fails to parse",
-}
+GRAMMAR_GAPS: dict[str, str] = {}
 # Generous: typical completions take ~5-10ms, the slowest seen is ~60ms.
 MAX_SECONDS_PER_COMPLETION = 1.0
 

@@ -531,6 +531,7 @@ DESCRIBE_TIMEOUT_SECONDS = 1.0
 DESCRIBE_CACHE_SIZE = 256
 non_space = re.compile(r'\S')
 quoted_text = re.compile(r"""'(?:[^']|'')*'|"[^"]*\"""")
+re_sql_word = re.compile(r"\w+")
 
 # Stands in for the word being typed when half-typed SQL needs repairing to parse.
 CURSOR_PLACEHOLDER = "dabbler_cursor_zz"
@@ -547,6 +548,10 @@ def repair_candidates(sql: str, pos: int):
     candidates = [CURSOR_PLACEHOLDER]
     if closing:
         candidates += [closing, CURSOR_PLACEHOLDER + closing]
+    words = [w.lower() for w in re_sql_word.findall(left)]
+    if words.count("case") > words.count("end"):
+        # "case when a|" and "case when a then b|" need the rest of the CASE
+        candidates += [CURSOR_PLACEHOLDER + " then null end", CURSOR_PLACEHOLDER + " end"]
     for insert in candidates:
         yield sql[:pos] + insert + sql[pos:]
 
@@ -1001,8 +1006,13 @@ def interactive_parse(sql: str, pos: int, parser=sql_parser, keep_cursor_parser=
 
 
 TABLE_RULES = frozenset(["table_name", "table_ref", "from_ref", "table_func"])
-TYPE_RULES = frozenset(["type", "existing_types"])
-EXPRESSION_RULES = frozenset(["expression", "col_exp", "col_exps", "_col_ref", "column_update"])
+TYPE_RULES = frozenset(["type", "type_name", "existing_types"])
+EXPRESSION_RULES = frozenset([
+    "expression", "col_exp", "col_exps", "_col_ref", "column_update", "args", "arg",
+    # the precedence levels of expressions in duckdb.lark, e.g. after "a + " a mul_expr is expected
+    "or_expr", "and_expr", "not_expr", "predicate", "op_expr", "add_expr", "mul_expr", "pow_expr",
+    "unary", "postfix", "primary",
+])
 # Some states only list terminals, e.g. after "a = ". A name right after an
 # operator is a value; a name after a word or ")" may be an alias or a keyword.
 operator_token = re.compile(r"^[^\w\s\"')\]}]+$")
