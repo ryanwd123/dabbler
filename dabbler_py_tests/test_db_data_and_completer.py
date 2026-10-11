@@ -1,9 +1,7 @@
 #%%
 import pytest
-import logging
 from dabbler.db_stuff import get_db_data_new
 from dabbler.lsp.db_data import make_completion_map
-from dabbler.lsp.completer import SqlCompleter
 from pathlib import Path
 import duckdb
 #set logging to print debug messages

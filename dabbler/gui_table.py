@@ -1,6 +1,5 @@
 import logging
 import re
-import threading
 import sys
 from dabbler.gui_qt import (
     QtWidgets,
@@ -23,7 +22,6 @@ from typing import Union
 
 # from dabbler.gui_compenents import Shortcut
 import polars as pl
-import time
 
 
 log = logging.getLogger("dabbler_gui")
@@ -379,10 +377,6 @@ class Table(QtWidgets.QTableView):
     def keyPressEvent(self, event: QtGui.QKeyEvent) -> None:
 
 
-        shift = (
-            QtWidgets.QApplication.keyboardModifiers()
-            == QtCore.Qt.KeyboardModifier.ShiftModifier
-        )
         ctrl = (
             QtWidgets.QApplication.keyboardModifiers()
             == QtCore.Qt.KeyboardModifier.ControlModifier
@@ -835,7 +829,6 @@ class DfView(QtWidgets.QWidget):
 
 #MARK: CopyValues
     def copy_values2(self, fmt=False):
-        start = time.time()
         if (self._model.start_col is None
             or self._model.end_col is None
             or self._model.start_row is None
@@ -912,7 +905,6 @@ class DfView(QtWidgets.QWidget):
         self._model.set_active_cell(index, shift)
 
     def sort_df(self, index:int):
-        start = time.time()
         if index in self.sort:
             self.sort[index] = not self.sort[index]
         else:
@@ -920,7 +912,7 @@ class DfView(QtWidgets.QWidget):
         col = self._model.columns[index]
         dt = self._model.df.dtypes[index]
         if dt.base_type() == pl.List:
-            self.status_info.setText(f'Cannot sort list columns')
+            self.status_info.setText('Cannot sort list columns')
             self.clear_status_info.start()
             return
 

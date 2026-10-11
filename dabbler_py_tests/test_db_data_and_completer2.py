@@ -1,9 +1,7 @@
 #%%
 import pytest
-import logging
 from dabbler.db_stuff import get_db_data_new
 from dabbler.lsp.completer import SqlCompleter
-from pathlib import Path
 import duckdb
 #set logging to print debug messages
 
@@ -15,7 +13,7 @@ def make_test_db():
     db.install_extension('autocomplete')
     db.load_extension('autocomplete')
     db.sql(
-    f"""--sql,
+    """--sql,
     attach ':memory:' as attached_db;
     create SCHEMA test_schema;
     create SCHEMA attached_db.attached_schema;

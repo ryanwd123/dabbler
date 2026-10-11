@@ -10,7 +10,6 @@ from dabbler.lsp.parser import (
     SqlParserNew,
     cursor_context,
     lookup,
-    norm_name,
     rename_columns,
 )
 from dabbler.lsp.catalog import Catalog

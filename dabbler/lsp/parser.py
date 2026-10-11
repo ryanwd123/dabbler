@@ -1,4 +1,3 @@
-import os
 import re
 import threading
 from collections import OrderedDict
@@ -879,7 +878,7 @@ def find_end(p:InteractiveParser,cur_token:Union[Token,None]=None, max_fillers=6
     if '$END' in choices:
         try:
             return p.feed_eof()
-        except Exception as e:
+        except Exception:
             pass
 
 
