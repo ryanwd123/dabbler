@@ -18,6 +18,7 @@ statement: query -> select_statement
         |insert_statement -> insert_statement
         |alter_table -> alter_table
         |update_statment -> update_statment
+        |merge_statement -> merge_statement
         |CALL IDENT "(" [expression ("," expression)*] ")" -> call_statement
         |USE IDENT ["." IDENT] -> use_statement
         |create_schema -> create_schema
@@ -42,6 +43,17 @@ statement: query -> select_statement
         |COMMENT ON comment_target table_name IS (STRING|NULL) -> comment_statement
 
 delete_statement: DELETE FROM table_name [[_AS] alias] [USING from_ref ("," from_ref)*] [where] [returning_clause]
+
+// MERGE INTO target USING source ON ... WHEN [NOT] MATCHED ... THEN ...
+merge_statement: [cte] MERGE INTO table_name [[_AS] alias] USING table_ref (ON expression | USING "(" IDENT ("," IDENT)* ")") merge_when+ [returning_clause]
+
+merge_when: WHEN [NOT] MATCHED [BY (SOURCE|TARGET)] [AND expression] THEN merge_action
+
+merge_action: UPDATE [SET (STAR | column_update ("," column_update)*)] -> merge_update
+        | DELETE -> merge_delete
+        | INSERT [col_names] [(VALUES value | STAR | DEFAULT VALUES)] -> merge_insert
+        | DO NOTHING -> merge_do_nothing
+        | ERROR [expression] -> merge_error
 
 create_index: CREATE [UNIQUE] INDEX [IF NOT EXISTS] IDENT ON table_name "(" expression ("," expression)* ")"
 
@@ -166,28 +178,32 @@ returning_clause: RETURNING ["*"] [col_exps]
 insert_statement: begin_insert (values|query|DEFAULT VALUES) [on_conflict_clause] [returning_clause]
 
 
-create_table_statement: create_or_replace TABLE [IF NOT EXISTS] table_name (_AS query|col_defintions)
+create_table_statement: create_or_replace TABLE [IF NOT EXISTS] table_name ([col_names] _AS query [WITH [NO] DATA]|col_defintions)
 
 col_defintions: "(" col_defintion ("," col_defintion)* [","] [table_constraints]  ")" 
 
-col_defintion: IDENT type [col_constraint]
-        | IDENT generated_col
+col_defintion: IDENT type col_constraint*
+        | IDENT generated_col col_constraint*
 
 generated_col: [type] [GENERATED ALWAYS] _AS "(" expression ")" [(VIRTUAL|STORED)]
 
-col_constraint: PRIMARY KEY
+col_constraint: [CONSTRAINT IDENT] _col_constraint
+
+_col_constraint: PRIMARY KEY
         |[NOT] NULL
         |UNIQUE
         |CHECK "(" expression ")"
         |DEFAULT expression
-        |REFERENCES table_name col_names
+        |REFERENCES table_name [col_names]
         |COLLATE IDENT
 
 table_constraints: table_constraint ("," table_constraint)* [","]
 
-table_constraint: (PRIMARY KEY|UNIQUE) col_names
+table_constraint: [CONSTRAINT IDENT] _table_constraint
+
+_table_constraint: (PRIMARY KEY|UNIQUE) col_names
         |CHECK "(" expression ")"
-        |FOREIGN KEY col_names REFERENCES table_name col_names
+        |FOREIGN KEY col_names REFERENCES table_name [col_names]
 
 alter_table: ALTER TABLE table_name alter_table_cmd
 
@@ -231,9 +247,20 @@ _select_node: [cte] _select_from _optional_clauses
         | [cte] from_clause 
         | cte
 
-pivot_clause: (PIVOT|PIVOT_WIDER) (table_name|subquery|table_func) ON expression ("," expression)* USING col_exp ("," col_exp)*
+pivot_clause: (PIVOT|PIVOT_WIDER) (table_name|subquery|table_func) ON expression ("," expression)* [USING col_exp ("," col_exp)*]
 
-unpivot_clause: (UNPIVOT|PIVOT_LONGER) (table_name|subquery|table_func) ON (star_options|expression ("," expression)*) INTO NAME alias VALUE col_exp ("," col_exp)*
+unpivot_clause: (UNPIVOT|PIVOT_LONGER) (table_name|subquery|table_func) ON (star_options|unpivot_on ("," unpivot_on)*) INTO NAME alias VALUE col_exp ("," col_exp)*
+
+unpivot_on: expression [[_AS] alias]
+
+// the SQL standard form, after a table: FROM t PIVOT (sum(b) FOR a IN ('x', 'y'))
+pivot_std: col_exp ("," col_exp)* FOR pivot_in+ [group_by]
+pivot_in: _pivot_cols IN "(" pivot_value ("," pivot_value)* ")"
+_pivot_cols: _col_ref | "(" _col_ref ("," _col_ref)* ")"
+pivot_value: expression [[_AS] alias]
+
+unpivot_std: (IDENT | "(" IDENT ("," IDENT)* ")") FOR IDENT IN "(" unpivot_value ("," unpivot_value)* ")"
+unpivot_value: (_col_ref | "(" _col_ref ("," _col_ref)* ")") [[_AS] (alias|STRING)]
 
 
 
@@ -290,6 +317,8 @@ table_ref.2: table_name [[_AS] alias [col_alias]] [sample_clause] -> db_table
         |table_func [[_AS] alias [col_alias]] [sample_clause]-> table_function
         // |STRING [[_AS] alias [col_alias]] [sample_clause]-> table_function
         |"(" values ")" [[_AS] alias [col_alias]] -> values
+        |table_ref PIVOT "(" pivot_std ")" [[_AS] alias [col_alias]] -> pivot_table
+        |table_ref UNPIVOT [(INCLUDE|EXCLUDE) NULLS] "(" unpivot_std ")" [[_AS] alias [col_alias]] -> unpivot_table
 
 // "USING SAMPLE" is one token so a bare USING after a table alias means JOIN ... USING (...).
 // As two tokens the parser has to choose with one token of lookahead and always picked SAMPLE.
@@ -331,7 +360,7 @@ col_exps: col_exp [("," col_exp)*] [","]
 col_exp: expression [[_AS] alias]
         | star_options
 
-star_options.9: [IDENT "."] STAR [exclude] [replace] [(LIKE|ILIKE|GLOB|SIMILAR TO) STRING]
+star_options.9: [IDENT "."] STAR [exclude] [replace] [rename] [(LIKE|ILIKE|GLOB|SIMILAR TO) STRING]
         |columns_exp
 
 columns_exp: COLUMNS "(" star_options ")"
@@ -341,9 +370,12 @@ columns_exp: COLUMNS "(" star_options ")"
 lambda_exp: "(" IDENT ("," IDENT)* ")" "->" expression
 
 col_replace: expression _AS IDENT
-col_exclude: IDENT
+col_exclude: [IDENT "."] IDENT
+col_rename: [IDENT "."] IDENT _AS IDENT
 exclude: EXCLUDE "(" [[(col_exclude ",")*] col_exclude] [","] ")"
+        | EXCLUDE col_exclude
 replace: REPLACE "(" [[(col_replace ",")*] col_replace] [","]")"
+rename: RENAME "(" col_rename ("," col_rename)* [","] ")"
 
 
 
@@ -364,7 +396,7 @@ replace: REPLACE "(" [[(col_replace ",")*] col_replace] [","]")"
 // "a BETWEEN 1 + 1 AND 3" and "a = 1 AND b = 2" group the way SQL means
 ?predicate: op_expr
         | predicate comp op_expr -> comparison
-        | predicate comp (ANY|SOME) "(" query ")" -> comparison
+        | predicate comp (ANY|SOME|ALL) op_expr -> comparison
         | predicate [NOT] BETWEEN op_expr AND op_expr -> between
         | predicate [NOT] IN op_expr -> in
         | predicate [NOT] like_op op_expr [ESCAPE op_expr] -> like
@@ -429,6 +461,7 @@ other_op: CONCAT | ARROW | DOUBLE_ARROW | BIT_AND | BIT_OR | SHIFT_LEFT | SHIFT_
         | SUBSTRING "(" expression ("," expression)* ")" -> substring
         | LAMBDA IDENT ("," IDENT)* ":" expression -> lambda
         | parameter
+        | STAR columns_exp -> unpacked_columns
         | "[" [expression ("," expression)* [","]] "]" -> list
         | "[" expression FOR IDENT IN expression [IF expression] "]" -> list_comprehension
         | "{" struct_key ":" expression ("," struct_key ":" expression)* [","] "}" -> struct
@@ -485,7 +518,7 @@ comp: GREATER_THAN
 // Types: a name (built-in, or the session's own like an ENUM) with optional
 // parameters, e.g. VARCHAR(10), DECIMAL(10, 2), STRUCT(a INT, b VARCHAR), INT[].
 type: type_name ["(" type_params ")"] array_suffix*
-        | type_name WITH TIME ZONE array_suffix*
+        | type_name WITH_TIME_ZONE array_suffix*
 
 type_name: IDENT
         | STRUCT | UNION | MAP | ENUM | INTERVAL | NULL
@@ -610,6 +643,8 @@ FULL: "FULL"i
 SELECT: "SELECT"i
 USING: "USING"i
 USING_SAMPLE.2: /USING\s+SAMPLE\b/i
+// one token, so a type followed by WITH NO DATA isn't read as the start of WITH TIME ZONE
+WITH_TIME_ZONE.2: /WITH\s+TIME\s+ZONE\b/i
 CONSTRAINT: "CONSTRAINT"i
 FOREIGN: "FOREIGN"i
 OVERLAPS: "OVERLAPS"i
@@ -865,6 +900,12 @@ WITHIN: "WITHIN"i
 GROUPS: "GROUPS"i
 TIES: "TIES"i
 OTHERS: "OTHERS"i
+MERGE: "MERGE"i
+MATCHED: "MATCHED"i
+SOURCE: "SOURCE"i
+TARGET: "TARGET"i
+ERROR: "ERROR"i
+INCLUDE: "INCLUDE"i
 
 SQL_COMMENT: /--.*/ |  /\/\*[\s\S]*?\*\//
 IDENT: CNAME | ESCAPED_STRING

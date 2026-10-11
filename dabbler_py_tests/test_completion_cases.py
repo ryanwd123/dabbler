@@ -252,6 +252,12 @@ RESOLVER_CASES = [
          ["customer_id"], ["order_id", "amount"], id="columns_regex_anchored"),
     case("with x as (select columns(* exclude (amount)) from orders) select x.| from x",
          ["order_id"], ["amount"], id="columns_star_exclude"),
+    case("with x as (select * rename (amount as total) from orders) select x.| from x",
+         ["order_id", "total"], ["amount"], id="star_rename"),
+    case("with x as (select o.* exclude (o.amount) from orders o) select x.| from x",
+         ["order_id"], ["amount"], id="star_exclude_qualified"),
+    case("with x as (select * exclude amount from orders) select x.| from x",
+         ["order_id"], ["amount"], id="star_exclude_no_parens"),
     case("with x as (select order_id as id from orders union all select customer_id from customers) select x.| from x",
          ["id"], ["customer_id"], id="union_takes_first_branch_names"),
     case("with recursive r(n) as (select 1 union all select n + 1 from r where n < 3) select r.| from r",
@@ -325,6 +331,15 @@ def test_invoked_completion_with_nothing_typed(completer, sql, includes):
         pytest.param("delete from orders o where o.|", ORDERS_COLS, id="delete_alias"),
         pytest.param("delete from orders where cu|", ["customer_id"], id="delete_where"),
         pytest.param("delete from orders o using customers c where c.|", CUSTOMERS_COLS, id="delete_using"),
+        pytest.param("merge into orders o using customers c on o.| when matched then delete", ORDERS_COLS, id="merge_on_target"),
+        pytest.param("merge into orders o using customers c on o.customer_id = c.| when matched then delete",
+                     CUSTOMERS_COLS, id="merge_on_source"),
+        pytest.param("merge into orders o using customers c on o.customer_id = c.customer_id "
+                     "when matched then update set amount = c.|", CUSTOMERS_COLS, id="merge_update_set"),
+        pytest.param("with s as (select customer_id as cid from customers) "
+                     "merge into orders o using s on o.customer_id = s.| when matched then delete", ["cid"], id="merge_cte_source"),
+        pytest.param("merge into orders using (select customer_id as cid from customers) s "
+                     "on orders.customer_id = s.| when matched then delete", ["cid"], id="merge_subquery_source"),
         pytest.param("explain select o.| from orders o", ORDERS_COLS, id="explain"),
         pytest.param("describe select o.| from orders o", ORDERS_COLS, id="describe_query"),
     ],

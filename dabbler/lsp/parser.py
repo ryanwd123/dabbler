@@ -127,6 +127,8 @@ class SelectItem:
     """t in t.*"""
     exclude: list[str] = field(default_factory=list)
     replace: list[str] = field(default_factory=list)
+    rename: dict[str, str] = field(default_factory=dict)
+    """column -> new name, from * RENAME (a AS b)"""
     regex: Union[str, None] = None
     """COLUMNS('regex')"""
     aliased: bool = False
@@ -140,9 +142,14 @@ def _star_item(star: Tree, regex: Union[str, None] = None) -> SelectItem:
         if isinstance(child, Token) and child.type == "IDENT":
             item.qualifier = child.value
         elif isinstance(child, Tree) and child.data == "exclude":
-            item.exclude = [c.children[0].value for c in child.children if isinstance(c, Tree)]
+            # EXCLUDE (a, t.b): the column is the last name
+            item.exclude = [c.children[-1].value for c in child.children if isinstance(c, Tree)]
         elif isinstance(child, Tree) and child.data == "replace":
             item.replace = [c.children[-1].value for c in child.children if isinstance(c, Tree)]
+        elif isinstance(child, Tree) and child.data == "rename":
+            item.rename = {
+                c.children[-2].value: c.children[-1].value for c in child.children if isinstance(c, Tree)
+            }
         elif isinstance(child, Tree) and child.data == "columns_exp":
             return _columns_item(child)
     return item
@@ -225,6 +232,8 @@ class Query:
         return []
 
 
+# what a table_ref becomes, by its alternative
+TABLE_REF_KINDS = ("db_table", "subquery", "lateral_subquery", "table_function", "values", "pivot_table", "unpivot_table")
 QUERY_CLAUSES = ("select_clause", "from_clause", "where", "group_by", "having", "qualify", "order_by", "limit")
 ALIAS_CLAUSES = ("where", "group_by", "having", "qualify", "order_by")
 
@@ -496,10 +505,25 @@ class GetQueries(Visitor):
             from_refs.update(self.get_from_tables(x))
       self.add_statement_scope(tree, from_refs)
 
-   def add_statement_scope(self, tree: Tree, from_refs: dict):
-      """Registers an UPDATE or DELETE as a query whose FROM items are from_refs."""
+   def merge_statement(self, tree: Tree):
+      """MERGE INTO target [AS alias] USING source ...: both are in scope in ON and WHEN."""
+      names = [c for c in tree.children if isinstance(c, Tree) and c.data == "table_name"]
+      if not names:
+         return
+      name = ".".join(t.value for t in names[0].children if isinstance(t, Token))
+      aliases = [c for c in tree.children if isinstance(c, Tree) and c.data == "alias"]
+      alias = aliases[0].children[0].value if aliases else name
+      from_refs = {alias: FromRef(kind=FromRefKind.table, alias=alias, name=name)}
+      for x in tree.children:
+         if isinstance(x, Tree) and x.data in TABLE_REF_KINDS:
+            from_refs.update(self.get_from_tables(Tree("from_ref", [x])))
+      cte = tree.children[0] if isinstance(tree.children[0], Tree) and tree.children[0].data == "cte" else None
+      self.add_statement_scope(tree, from_refs, self.get_ctes(cte) if cte else None)
+
+   def add_statement_scope(self, tree: Tree, from_refs: dict, ctes: Union[Ctes, None] = None):
+      """Registers an UPDATE, DELETE or MERGE as a query whose FROM items are from_refs."""
       q = Query(
-         ctes=None,
+         ctes=ctes,
          sql=self.sql[tree.meta.start_pos : tree.meta.end_pos],
          projection=[],
          from_refs=from_refs,
@@ -642,6 +666,7 @@ class ProjectionResolver:
     def expand_star(self, item: SelectItem, q: Query) -> Columns:
         exclude = {norm_name(x) for x in item.exclude}
         replace = {norm_name(x) for x in item.replace}
+        rename = {norm_name(old): new for old, new in item.rename.items()}
         pattern = None
         if item.regex is not None:
             try:
@@ -656,7 +681,7 @@ class ProjectionResolver:
                     continue
                 if pattern is not None and not (name and pattern.search(name.strip('"'))):
                     continue
-                out.append((name, None if key in replace else typ))
+                out.append((rename.get(key, name), None if key in replace else typ))  # type: ignore
         return out
 
     def source_type(self, item: SelectItem, q: Query) -> Union[str, None]:
@@ -866,12 +891,19 @@ def find_end(p:InteractiveParser,cur_token:Union[Token,None]=None, max_fillers=6
     for _ in range(max_fillers):
         if '$END' in choices:
             break
-        filler = next((Token(t, v) for t, v in END_FILLERS if t in choices), None)
-        if filler is None:
-            return None
-        try:
-            p.feed_token(filler)
-        except Exception:
+        # LALR merges states, so choices() can list a terminal the parser then
+        # rejects (after "SET a" it lists ")" from PIVOT's "IN (a)"): try each
+        for t, v in END_FILLERS:
+            if t not in choices:
+                continue
+            attempt = p.copy()
+            try:
+                attempt.feed_token(Token(t, v))
+            except Exception:
+                continue
+            p = attempt
+            break
+        else:
             return None
         choices = list(p.choices().keys())
 

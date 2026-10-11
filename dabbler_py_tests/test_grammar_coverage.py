@@ -2,7 +2,7 @@
 
 Completions work best where the grammar parses; elsewhere the completer falls back to
 regexes. Known gaps are strict xfails: when a construct is added to duckdb.lark, its
-case starts passing and must be taken off KNOWN_GAPS (plan.md, section 2).
+case starts passing and must be taken off KNOWN_GAPS.
 """
 import re
 
@@ -129,6 +129,51 @@ CASES = {
     'int_cast': 'select a::int, a::varchar(10), a::decimal(10, 2) from t',
     'between_arithmetic': 'select * from t where a between 2.000/3.000 and 3.000/2.000',
     'and_or_arithmetic': 'select * from t where a = 1 + 2 and b = 3 * 4 or c',
+    'merge_basic': 'merge into t using u on t.id = u.id when matched then update set a = u.a when not matched then insert values (u.id, u.a)',
+    'merge_delete': 'merge into t as tt using (select * from u) s on tt.id = s.id when matched and s.flag then delete when matched then update set a = s.a',
+    'merge_by_source': 'merge into t using u on t.id = u.id when not matched by source then delete when not matched by target then insert (id, a) values (u.id, u.a)',
+    'merge_star': 'merge into t using u on t.id = u.id when matched then update set * when not matched then insert *',
+    'merge_using_cols': 'merge into t using u using (id) when matched then update when not matched then insert',
+    'merge_do_nothing': 'merge into t using u on t.id = u.id when matched then do nothing',
+    'merge_returning': 'merge into t using u on t.id = u.id when matched then delete returning *',
+    'merge_with_cte': 'with s as (select 1 as id) merge into t using s on t.id = s.id when matched then delete',
+    'pivot_std': "select * from t pivot (sum(b) for a in ('x', 'y'))",
+    'pivot_std_group': "select * from t pivot (sum(b) as total, count(*) for a in ('x' as ex, 'y') group by c)",
+    'pivot_std_multi': "select * from t pivot (sum(b) for a in ('x', 'y') c in (1, 2))",
+    'unpivot_std': 'select * from t unpivot (val for name in (c1, c2))',
+    'unpivot_std_nulls': 'select * from t unpivot include nulls (val for name in (c1, c2))',
+    'unpivot_std_multi': 'select * from t unpivot ((v1, v2) for name in ((a1, a2) as one, (b1, b2) as two))',
+    'pivot_on_in': "pivot t on a in ('x', 'y') using sum(b)",
+    'pivot_using_alias': 'pivot t on a using sum(b) as total, max(c) as top group by d',
+    'pivot_no_using': 'pivot t on a',
+    'pivot_in_cte': 'with p as (pivot t on a using sum(b)) select * from p',
+    'pivot_subquery_from': 'select * from (pivot t on a using sum(b))',
+    'pivot_on_concat': 'pivot t on a || b using sum(c)',
+    'unpivot_columns_star': 'unpivot t on columns(* exclude (id)) into name n value v',
+    'unpivot_on_list': 'unpivot t on (a, b) as ab, (c, d) as cd into name n value v1, v2',
+    'create_table_constraints': 'create table t (id int primary key, b int not null default 0 check (b > 0), c varchar unique)',
+    'create_table_named_constraint': 'create table t (id int, b int, constraint pk primary key (id, b), constraint ck check (b > 0))',
+    'create_table_fk': 'create table t (id int references u (id), c int, foreign key (c) references u (id))',
+    'create_table_fk_no_cols': 'create table t (id int references u)',
+    'create_table_collate': 'create table t (a varchar collate nocase not null)',
+    'create_table_default_func': "create table t (id int default nextval('seq') primary key, ts timestamp default current_timestamp)",
+    'create_table_generated_typed': 'create table t (a int, b int generated always as (a + 1) virtual not null)',
+    'create_table_as_no_data': 'create table t as select * from u with no data',
+    'create_table_as_cols': 'create table t (a, b) as select 1, 2',
+    'create_table_struct': 'create table t (s struct(a int, b varchar), m map(varchar, int), l int[3])',
+    'create_table_qualified_ine': 'create table if not exists db.s.t (a int)',
+    'create_table_constraint_first': 'create table t (primary key (a), a int)',
+    'rename_star': 'select * rename (a as b) from t',
+    'rename_star_qualified': 'select t.* rename (t.a as b) from t',
+    'exclude_no_parens': 'select * exclude a from t',
+    'exclude_qualified': 'select * exclude (t.a) from t',
+    'replace_and_rename': 'select * exclude (c) replace (a + 1 as a) rename (b as bb) from t',
+    'all_subquery': 'select * from t where a > all (select b from u)',
+    'some_subquery': 'select * from t where a <> some (select b from u)',
+    'any_list': 'select 1 = any ([1, 2])',
+    'all_list': 'select 1 < all ([2, 3])',
+    'columns_lambda': "select columns(c -> c like 'a%') from t",
+    'star_columns_unpacked': 'select coalesce(*columns(*)) from t',
 }
 
 KNOWN_GAPS: set[str] = set()
