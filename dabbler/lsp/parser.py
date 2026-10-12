@@ -98,9 +98,32 @@ None for unaliased expressions: they don't get completions, but they keep their
 position so column alias lists like t(a, b) line up."""
 
 
+def norm_part(part: str) -> str:
+    """One identifier, normalized: DuckDB matches them case-insensitively, and quoting doesn't change the name."""
+    if part.startswith('"'):
+        part = part[1:-1] if len(part) > 1 and part.endswith('"') else part[1:]
+        part = part.replace('""', '"')
+    return part.lower()
+
+
+def split_name(name: str) -> list[str]:
+    """The normalized parts of a dotted name; a dot inside quotes, as in s."a.b", stays in its part."""
+    parts, current, quoted = [], "", False
+    for ch in name:
+        if ch == '"':
+            quoted = not quoted  # an escaped "" flips twice
+        elif ch == "." and not quoted:
+            parts.append(current)
+            current = ""
+            continue
+        current += ch
+    parts.append(current)
+    return [norm_part(p) for p in parts]
+
+
 def norm_name(name: str) -> str:
-    """DuckDB matches identifiers case-insensitively, and quoting doesn't change the name."""
-    return ".".join(part.strip('"') for part in name.split(".")).lower()
+    """A dotted name, normalized for comparing; a part that contains a dot stays quoted."""
+    return ".".join(f'"{p}"' if "." in p else p for p in split_name(name))
 
 
 def lookup(mapping: dict, name: str):

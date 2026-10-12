@@ -68,6 +68,7 @@ def make_completion_db():
         create macro v.my_table_macro_in_v() as table select 1;
         create view test_view as select * from orders;
         create view test_schema.test_view2 as select * from orders;
+        create view test_schema."org.category/dotted_view" as select * from customers;
         create view v.test_view3 as select * from orders;
         """
     )

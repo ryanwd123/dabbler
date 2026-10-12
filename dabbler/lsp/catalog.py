@@ -15,7 +15,7 @@ import duckdb
 from dabbler.common import check_name
 from dabbler.lsp.db_data import CompletionItemKind, MarkupContent, MarkupKind, builtin_records, make_completion_map
 from dabbler.lsp.functions import FunctionInfo, builtin_functions, user_function_info
-from dabbler.lsp.parser import Columns, norm_name
+from dabbler.lsp.parser import Columns, norm_name, split_name
 from dabbler.lsp.sql_utils import CmpItem
 from dabbler.schema_cache import ObjectRow, SchemaCache
 
@@ -151,7 +151,7 @@ class Catalog:
     def members(self, qualifier: str) -> Union[list[CmpItem], None]:
         """What can follow "qualifier.": a table's columns, a schema's objects, or a database's schemas."""
         def compute():
-            user = self._user_members(norm_name(qualifier).split(".")) or []
+            user = self._user_members(split_name(qualifier)) or []
             if not user and self.document_tables:
                 user = self.document_tables.members(qualifier) or []
             key = self.builtin_keys.get(norm_name(qualifier))
@@ -162,7 +162,7 @@ class Catalog:
     def table_columns(self, name: str) -> Union[Columns, None]:
         """Columns of a table or view, for working out CTE and subquery columns."""
         def compute():
-            columns = self._user_columns(norm_name(name).split("."))
+            columns = self._user_columns(split_name(name))
             if columns:
                 return columns
             if self.document_tables:
@@ -176,7 +176,7 @@ class Catalog:
 
     def table_macro_sql(self, name: str) -> Union[str, None]:
         def compute():
-            rows = self.cache.objects(self.source, name=norm_name(name).split(".")[-1], kinds=["table_macro"])
+            rows = self.cache.objects(self.source, name=split_name(name)[-1], kinds=["table_macro"])
             rows.sort(key=lambda r: (r.catalog, r.schema) != (self.current_catalog, self.current_schema))
             return next((r.definition for r in rows if r.definition), None)
         return self._memoized(("macro", norm_name(name)), compute)
@@ -184,7 +184,7 @@ class Catalog:
     def function_info(self, name: str) -> Union[FunctionInfo, None]:
         """Signatures and docs of a function: the session's own first, then DuckDB's."""
         def compute():
-            last = norm_name(name).split(".")[-1]
+            last = split_name(name)[-1]
             rows = self.cache.objects(self.source, name=last, kinds=["function", "table_macro"])
             rows.sort(key=lambda r: (r.catalog, r.schema) != (self.current_catalog, self.current_schema))
             if rows:

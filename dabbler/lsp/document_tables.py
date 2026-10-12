@@ -21,7 +21,7 @@ from lark import Token, Tree
 
 from dabbler.common import check_name
 from dabbler.lsp.db_data import CompletionItemKind
-from dabbler.lsp.parser import Columns, norm_name, rename_columns, sql_parser
+from dabbler.lsp.parser import Columns, norm_name, norm_part, rename_columns, split_name, sql_parser
 from dabbler.lsp.sql_regions import sql_regions
 from dabbler.lsp.sql_utils import CmpItem
 
@@ -57,12 +57,12 @@ class DocumentTables:
 
     def _matches(self, table: DocumentTable, parts: list[str]) -> bool:
         # t, s.t and db.s.t all name a table created as s.t: one ends with the other
-        names = [norm_name(p) for p in table.parts]
+        names = [norm_part(p) for p in table.parts]
         shorter, longer = sorted((names, parts), key=len)
         return longer[-len(shorter):] == shorter
 
     def columns(self, name: str) -> Optional[Columns]:
-        parts = norm_name(name).split(".")
+        parts = split_name(name)
         return next((t.columns for t in self.tables if self._matches(t, parts)), None)
 
     def root_items(self) -> list[CmpItem]:
@@ -74,10 +74,10 @@ class DocumentTables:
         columns = self.columns(qualifier)
         if columns is not None:
             return [CmpItem(n, CompletionItemKind.Field, None, t, "1", "column") for n, t in columns if n]
-        parts = norm_name(qualifier).split(".")
+        parts = split_name(qualifier)
         in_schema = [
             table_item(t) for t in self.tables
-            if len(t.parts) > 1 and [norm_name(p) for p in t.parts[:-1]][-len(parts):] == parts
+            if len(t.parts) > 1 and [norm_part(p) for p in t.parts[:-1]][-len(parts):] == parts
         ]
         return in_schema or None
 

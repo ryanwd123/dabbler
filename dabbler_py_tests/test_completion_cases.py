@@ -43,6 +43,15 @@ COLUMN_CASES = [
     case("select * from orders; select c.| from customers c", CUSTOMERS_COLS, id="second_of_two_statements"),
     case("select * from test_view t where t.|", ORDERS_COLS, id="view_alias"),
     case("select * from test_schema.schema_table s where s.|", ["column1", "column2"], id="schema_qualified_alias"),
+    case(
+        'select * from test_schema."org.category/dotted_view" v where v.|',
+        CUSTOMERS_COLS, ["amount"], id="dot_inside_quoted_view_name",
+    ),
+    case('select reg| from test_schema."org.category/dotted_view"', ["region"], id="prefix_dot_inside_quoted_view_name"),
+    case(
+        'select test_schema."org.category/dotted_view".| from test_schema."org.category/dotted_view"',
+        CUSTOMERS_COLS, id="qualified_dot_inside_quoted_view_name",
+    ),
     case("select am| from orders", ["amount"], ["name"], id="prefix_in_select"),
     case("select * from orders where am|", ["amount"], id="prefix_in_where"),
     case(
