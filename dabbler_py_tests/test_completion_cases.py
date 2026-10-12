@@ -52,6 +52,16 @@ COLUMN_CASES = [
         'select test_schema."org.category/dotted_view".| from test_schema."org.category/dotted_view"',
         CUSTOMERS_COLS, id="qualified_dot_inside_quoted_view_name",
     ),
+    case("select schema_table.| from test_schema.schema_table", ["column1", "column2"], id="unaliased_table_by_bare_name"),
+    case(
+        "select * from test_schema.schema_table where test_schema.schema_table.|",
+        ["column1", "column2"], id="unaliased_table_by_qualified_name",
+    ),
+    case(
+        'select "org.category/dotted_view".| from test_schema."org.category/dotted_view"',
+        CUSTOMERS_COLS, id="unaliased_dotted_view_by_bare_name",
+    ),
+    case("delete from test_schema.schema_table where schema_table.|", ["column1", "column2"], id="delete_target_by_bare_name"),
     case("select am| from orders", ["amount"], ["name"], id="prefix_in_select"),
     case("select * from orders where am|", ["amount"], id="prefix_in_where"),
     case(

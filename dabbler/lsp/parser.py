@@ -108,6 +108,11 @@ def norm_part(part: str) -> str:
 
 def split_name(name: str) -> list[str]:
     """The normalized parts of a dotted name; a dot inside quotes, as in s."a.b", stays in its part."""
+    return [norm_part(p) for p in name_parts(name)]
+
+
+def name_parts(name: str) -> list[str]:
+    """The parts of a dotted name as written, quotes included."""
     parts, current, quoted = [], "", False
     for ch in name:
         if ch == '"':
@@ -118,7 +123,23 @@ def split_name(name: str) -> list[str]:
             continue
         current += ch
     parts.append(current)
-    return [norm_part(p) for p in parts]
+    return parts
+
+
+def table_alias(name: str) -> str:
+    """What an unaliased table is referred to by: s.t binds as t, as in DuckDB."""
+    return name_parts(name)[-1]
+
+
+def names_table(qualifier: str, ref: 'FromRef') -> bool:
+    """Whether qualifier refers to ref: its alias, or for an unaliased s.t, also s.t or db.s.t."""
+    if norm_name(qualifier) == norm_name(ref.alias):
+        return True
+    if not ref.name:
+        return False
+    full, parts = split_name(ref.name), split_name(qualifier)
+    unaliased = norm_part(ref.alias) == full[-1]
+    return unaliased and len(parts) <= len(full) and full[-len(parts):] == parts
 
 
 def norm_name(name: str) -> str:
@@ -294,10 +315,7 @@ class TransformFromClause(Transformer):
         self.map = {}
 
     def db_table(self, value):
-        if value[1]:
-            alias = value[1]
-        else:
-            alias = value[0]
+        alias = value[1] or table_alias(value[0])
 
         self.map[alias] = FromRef(kind=FromRefKind.table, alias=alias, name=value[0], col_aliases=col_alias_names(value[2]))
         # return {alias:FromRef(kind=FromRefKind.table,alias=alias,name=value[0])}
@@ -513,7 +531,7 @@ class GetQueries(Visitor):
       if not names:
          return
       name = ".".join(t.value for t in names[0].children if isinstance(t, Token))
-      alias = ".".join(t.value for t in names[1].children if isinstance(t, Token)) if len(names) > 1 else name
+      alias = ".".join(t.value for t in names[1].children if isinstance(t, Token)) if len(names) > 1 else table_alias(name)
       from_refs = {alias: FromRef(kind=FromRefKind.table, alias=alias, name=name)}
       for x in tree.children:
          if isinstance(x, Tree) and x.data == "from_clause":
@@ -527,7 +545,7 @@ class GetQueries(Visitor):
          return
       name = ".".join(t.value for t in names[0].children if isinstance(t, Token))
       aliases = [c for c in tree.children if isinstance(c, Tree) and c.data == "alias"]
-      alias = aliases[0].children[0].value if aliases else name
+      alias = aliases[0].children[0].value if aliases else table_alias(name)
       from_refs = {alias: FromRef(kind=FromRefKind.table, alias=alias, name=name)}
       for x in tree.children:
          if isinstance(x, Tree) and x.data == "from_ref":
@@ -541,7 +559,7 @@ class GetQueries(Visitor):
          return
       name = ".".join(t.value for t in names[0].children if isinstance(t, Token))
       aliases = [c for c in tree.children if isinstance(c, Tree) and c.data == "alias"]
-      alias = aliases[0].children[0].value if aliases else name
+      alias = aliases[0].children[0].value if aliases else table_alias(name)
       from_refs = {alias: FromRef(kind=FromRefKind.table, alias=alias, name=name)}
       for x in tree.children:
          if isinstance(x, Tree) and x.data in TABLE_REF_KINDS:
@@ -699,7 +717,7 @@ class ProjectionResolver:
     def refs_for(self, q: Query, qualifier: Union[str, None]):
         refs = list(q.from_refs.values())
         if qualifier:
-            refs = [r for a, r in q.from_refs.items() if norm_name(a) == norm_name(qualifier)]
+            refs = [r for r in q.from_refs.values() if names_table(qualifier, r)]
         return refs
 
     def expand_star(self, item: SelectItem, q: Query) -> Columns:
