@@ -59,6 +59,7 @@ def make_completion_db():
         create table orders(order_id int, customer_id int, amount double, "order date" date);
         create table customers(customer_id int, name varchar, region varchar);
         create table "Order Lines"(line_id int, qty int);
+        create table odd_names("a.b" int, "1st" int, "x""y" int, "a'b" int, "a(b)" int, "$x" int, x$ int, "café" int, Mixed int);
         create table test_schema.schema_table(column1 varchar, column2 integer);
         create table attached_db.attached_schema.db_table(column1 varchar, column2 integer);
         create function addition(a, b) as a + b;

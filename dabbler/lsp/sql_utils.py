@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 import re as regex
-from dabbler.common import check_name
+from dabbler.common import check_name, unquote_name
 from dabbler.lsp.sql_regions import position_to_offset, region_at
 from typing import Union
 
@@ -45,7 +45,7 @@ class CmpItem:
         if self.kind == CompletionItemKind.Keyword:
             label = self.label
         else:
-            label = label=check_name(self.label.strip('"'))
+            label = check_name(unquote_name(self.label))
 
         if self.typ and self.typ.startswith('ENUM('):
             description = 'ENUM'

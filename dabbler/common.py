@@ -42,14 +42,21 @@ duckdb_keywords = _reserved_keywords()
 grammar_kw = get_grammar_kw()
 
 
+# what DuckDB's lexer reads as an unquoted identifier; any non-ASCII character counts as a letter
+plain_identifier = re.compile(r'[A-Za-z_-􏿿][A-Za-z0-9_$-􏿿]*')
+
+
 def check_name(col: str):
-    """The name as written in SQL: quoted when it has spaces, dots, dashes or slashes, or is a reserved word."""
-    if col:
-        if (' ' in col or
-            '-' in col or
-            '/' in col or
-            '.' in col or
-            col.upper() in duckdb_keywords):
-            return f'"{col}"'
+    """The name as written in SQL: quoted unless it's a plain identifier that isn't a reserved word."""
+    if not col:
+        return ''
+    if plain_identifier.fullmatch(col) and col.upper() not in duckdb_keywords:
         return col
-    return ''
+    return '"' + col.replace('"', '""') + '"'
+
+
+def unquote_name(name: str):
+    """The name an identifier stands for: "x""y" is x"y, and an unquoted name is itself."""
+    if len(name) >= 2 and name.startswith('"') and name.endswith('"'):
+        return name[1:-1].replace('""', '"')
+    return name

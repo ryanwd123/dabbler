@@ -19,6 +19,17 @@ def test_half_typed_quoted_names(completer, sql, expected):
     assert complete(completer, sql) == expected
 
 
+def test_column_names_are_quoted_when_duckdb_needs_it(completer):
+    assert complete(completer, "select t.| from odd_names t") == [
+        '"a.b"', '"1st"', '"x""y"', "\"a'b\"", '"a(b)"', '"$x"', "x$", "café", "Mixed",
+    ]
+
+
+def test_quoted_names_from_the_sql_are_requoted_once(completer):
+    sql = 'with c as (select 1 as "x""y", 2 as "a.b", 3 as "Mixed") select c.| from c'
+    assert complete(completer, sql) == ['"x""y"', '"a.b"', "Mixed"]
+
+
 @pytest.mark.parametrize(
     "sql, span",
     [
