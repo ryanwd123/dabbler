@@ -10,7 +10,7 @@ from datetime import date
 import polars as pl
 import pytest
 
-from dabbler.gui_qt import QtCore, QtWidgets
+from dabbler.gui_qt import QtCore, QtGui, QtWidgets
 from dabbler.gui_table import DfView, TableWorker
 
 
@@ -91,6 +91,16 @@ def test_search_keeps_the_sort(view):
     assert wait_for(lambda: view._model.df.height < 5)
     numbers = view._model.df["n"].to_list()
     assert numbers == sorted(numbers, reverse=True)
+
+
+def test_comma_toggles_thousands_separator(view):
+    view.set_df(DF, ["BIGINT", "VARCHAR", "ENUM", "DATE", "BIGINT[]"])
+    view._model.active_cell = (0, 0)
+    comma = QtGui.QKeyEvent(QtCore.QEvent.Type.KeyPress, QtCore.Qt.Key.Key_Comma, QtCore.Qt.KeyboardModifier.NoModifier)
+    view.table.keyPressEvent(comma)
+    assert view._model.formats[0] == ","
+    view.table.keyPressEvent(comma)
+    assert view._model.formats[0] == ""
 
 
 def test_late_answers_for_an_earlier_result_are_ignored(view):

@@ -407,7 +407,6 @@ class Table(QtWidgets.QTableView):
                     else:
                         fmt = ',' + fmt
 
-                    self.p.formats[model.active_cell[1]] = fmt
                     model.formats[col] = fmt
                     model.layoutChanged.emit()
 
