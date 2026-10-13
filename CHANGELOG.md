@@ -1,5 +1,23 @@
 # Changelog
 
+## dabbler 0.9.1
+
+### New
+- **Hover docs for SQL statements.** Hovering a statement's keywords, like
+  `CREATE SEQUENCE`, `COPY`, `ATTACH`, `PIVOT` or `INSERT ... ON CONFLICT`, shows
+  its syntax, options and examples, condensed from DuckDB's documentation, with a
+  link to the full page. Every statement in DuckDB's SQL statements docs is
+  covered.
+
+### Fixes
+- Completed names are quoted whenever DuckDB needs it (`1st`, `a(b)`, `a'b`,
+  `$x`), embedded quotes are doubled, and names already quoted in the SQL aren't
+  quoted twice.
+- `select t.x from s.t` completes the columns of `t`: an unaliased
+  schema-qualified table can be referred to by its own name.
+- Tables whose quoted name contains a dot, like `s."org.category/view"`, complete
+  their columns.
+
 ## dabbler 0.9.0 and VS Code extension 0.0.9
 
 A large update to completions, a new way to get them without an IPython
