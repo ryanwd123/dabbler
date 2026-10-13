@@ -11,9 +11,10 @@ from contextlib import contextmanager
 from typing import TYPE_CHECKING, Union
 
 import duckdb
+from lsprotocol.types import MarkupContent, MarkupKind
 
 from dabbler.common import check_name
-from dabbler.lsp.db_data import CompletionItemKind, MarkupContent, MarkupKind, builtin_records, make_completion_map
+from dabbler.lsp.db_data import CompletionItemKind, builtin_records, make_completion_map
 from dabbler.lsp.functions import FunctionInfo, builtin_functions, user_function_info
 from dabbler.lsp.parser import Columns, norm_name, split_name
 from dabbler.lsp.sql_utils import CmpItem
@@ -198,7 +199,7 @@ class Catalog:
 
     # -- name resolution against the saved rows --
 
-    def _user_columns(self, parts: list[str]) -> Union[Columns, None]:
+    def _user_columns(self, parts: list[str]) -> Union[list[tuple[str, Union[str, None]]], None]:
         """parts: table, schema.table or catalog.schema.table, normalized."""
         cc, cs = self.current_catalog, self.current_schema
         if len(parts) == 1:

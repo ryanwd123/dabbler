@@ -9,7 +9,7 @@ folder. The first such comment in a file applies.
 import os
 import re
 from dataclasses import dataclass
-from typing import Union
+from typing import Sequence, Union
 
 from lsprotocol.types import Command, CompletionItem, CompletionItemKind
 
@@ -64,7 +64,7 @@ class DirectiveCompletion:
 
 
 def directive_completions(
-    line: str, column: int, document_path: Union[str, None], recent_databases: list[tuple[str, int]] = ()
+    line: str, column: int, document_path: Union[str, None], recent_databases: Sequence[tuple[str, int]] = ()
 ) -> Union[DirectiveCompletion, None]:
     """Completions in a `# dabbler ...` comment: the directive name after `# dabbler `,
     and after `use '` the database files used before (recent_databases: (path, table

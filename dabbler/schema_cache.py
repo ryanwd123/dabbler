@@ -397,7 +397,10 @@ class SchemaCache:
             f"where {' and '.join(where)} order by catalog, schema, name",
             args,
         ).fetchall()
-        return [ObjectRow(*r[:6], None if r[6] is None else tuple(json.loads(r[6]))) for r in rows]
+        return [
+            ObjectRow(catalog, schema, name, kind, detail, definition, None if params is None else tuple(json.loads(params)))
+            for catalog, schema, name, kind, detail, definition, params in rows
+        ]
 
     def columns(self, source_file: str, catalog: str, schema: str, table: str) -> list[tuple[str, Union[str, None]]]:
         return self._reader().execute(

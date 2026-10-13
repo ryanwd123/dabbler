@@ -112,7 +112,7 @@ class SessionState:
             cur.execute(f"set file_search_path = {quote_literal(self.file_search_path)}")
 
 
-def get_db_data_new(db:duckdb.DuckDBPyConnection, file_search_path:Union[str,None]=None, skip_ipython = False):
+def get_db_data_new(db:duckdb.DuckDBPyConnection, file_search_path:Union[str,None]=None, skip_ipython = False) -> dict:
     """gets the data to send to the language server"""
     db_items = db.execute("""--sql
             with

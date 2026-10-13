@@ -21,7 +21,7 @@ from lark import Token, Tree
 
 from dabbler.common import check_name
 from dabbler.lsp.db_data import CompletionItemKind
-from dabbler.lsp.parser import Columns, norm_part, rename_columns, split_name, sql_parser
+from dabbler.lsp.parser import Columns, norm_part, rename_columns, split_name, sql_parser, token_value
 from dabbler.lsp.sql_regions import sql_regions
 from dabbler.lsp.sql_utils import CmpItem
 
@@ -107,7 +107,7 @@ def _statement(sql: str, node: Tree) -> Optional[CreateStatement]:
             if not isinstance(col, Tree) or col.data != "col_defintion":
                 continue
             typ = next((c for c in col.children if isinstance(c, Tree) and c.data == "type"), None)
-            columns.append((col.children[0].value, _text(sql, typ).upper() if typ is not None else None))
+            columns.append((token_value(col.children[0]), _text(sql, typ).upper() if typ is not None else None))
         return CreateStatement(_name_parts(name), kind, columns=tuple(columns))
     query = next((c for c in children if c.data in QUERY_NODES), None)
     if query is None:
@@ -152,9 +152,10 @@ def document_tables(
     tables = DocumentTables()
     for region in sql_regions(source):
         for statement in create_statements(region.text):
+            columns: Columns = []
             if statement.columns is not None:
-                columns: Columns = list(statement.columns)
-            else:
+                columns = list(statement.columns)
+            elif statement.query is not None:
                 columns = rename_columns(query_columns(statement.query, tables), list(statement.column_names) or None) or []
             tables.tables.append(DocumentTable(statement.parts, statement.kind, columns))
     return tables

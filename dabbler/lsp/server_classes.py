@@ -37,7 +37,7 @@ class InlineSqlLangServer(LanguageServer):
         # (document, database file) pairs already recorded as used by this server
         self.recorded_uses: set[tuple[str, str]] = set()
         # source file -> (its version in the schema cache, completer for it)
-        self.completers: dict[str, tuple[str, SqlCompleter]] = {}
+        self.completers: dict[str, tuple[int, SqlCompleter]] = {}
         self.default_completer: Union[SqlCompleter, None] = None
         self.completer_lock = threading.Lock()
         # uri -> tables the document creates in its own SQL, updated when typing pauses
