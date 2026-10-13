@@ -72,7 +72,7 @@ class QueryRunner(QtCore.QObject):
         self.namespace = namespace
         self.generation = 0
         self.cursor: Union[duckdb.DuckDBPyConnection, None] = None
-        self.thread: Union[threading.Thread, None] = None
+        self.query_thread: Union[threading.Thread, None] = None
         self._done.connect(self._deliver)
 
     @property
@@ -85,15 +85,15 @@ class QueryRunner(QtCore.QObject):
         cur = self.make_cursor()
         self.cursor = cur
         registered = register_dataframes(cur, sql, self.namespace())
-        self.thread = threading.Thread(
+        self.query_thread = threading.Thread(
             target=self._run, args=(self.generation, cur, sql, limit, registered), name="dabbler-query", daemon=True
         )
-        self.thread.start()
+        self.query_thread.start()
 
     def cancel(self) -> None:
         """Stops the running query. DuckDB's interrupt() only stops a query that has
         started executing, so it's repeated until the query's thread is done."""
-        cur, thread = self.cursor, self.thread
+        cur, thread = self.cursor, self.query_thread
         if cur is None or thread is None or not thread.is_alive():
             return
         threading.Thread(target=self._interrupt_until_done, args=(cur, thread), name="dabbler-cancel", daemon=True).start()
@@ -110,8 +110,8 @@ class QueryRunner(QtCore.QObject):
 
     def wait(self, timeout: float = 10) -> None:
         """Waits for the query thread to end (after cancel(), when shutting down)."""
-        if self.thread is not None:
-            self.thread.join(timeout)
+        if self.query_thread is not None:
+            self.query_thread.join(timeout)
 
     def _run(self, generation: int, cur: duckdb.DuckDBPyConnection, sql: str, limit, registered: list[str]) -> None:
         start = time.perf_counter()

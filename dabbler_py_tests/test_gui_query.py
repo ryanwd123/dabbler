@@ -93,7 +93,7 @@ def test_cancel_right_after_starting(db):
     runner.run("select sum(i) from range(100000000000) t(i)", None)
     runner.cancel()
     runner.wait(10)
-    assert not runner.thread.is_alive()
+    assert not runner.query_thread.is_alive()
     deadline = time.time() + 5
     while not results and time.time() < deadline:
         QtWidgets.QApplication.processEvents()
