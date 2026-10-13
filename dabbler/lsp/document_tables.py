@@ -21,7 +21,7 @@ from lark import Token, Tree
 
 from dabbler.common import check_name
 from dabbler.lsp.db_data import CompletionItemKind
-from dabbler.lsp.parser import Columns, norm_name, norm_part, rename_columns, split_name, sql_parser
+from dabbler.lsp.parser import Columns, norm_part, rename_columns, split_name, sql_parser
 from dabbler.lsp.sql_regions import sql_regions
 from dabbler.lsp.sql_utils import CmpItem
 
