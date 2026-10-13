@@ -62,11 +62,23 @@ def get_parser():
 
 sql_parser = get_parser()
 
+Columns = list[tuple[Union[str, None], Union[str, None]]]
+"""(column name, type) pairs; the type is None when it isn't known. The name is
+None for unaliased expressions: they don't get completions, but they keep their
+position so column alias lists like t(a, b) line up."""
+
+
+def token_value(node: Union[Tree, Token]) -> str:
+    """The text of a child the grammar always makes a token."""
+    assert isinstance(node, Token), node
+    return node.value
+
+
 @dataclass
 class Cte:
     name: str
     sql: str
-    projection: Union[list[tuple[str,Union[str,None]]], None]
+    projection: Union[Columns, None]
     cte_start: int
     self_start: int
     col_aliases: Union[list[str], None] = None
@@ -84,18 +96,12 @@ def with_clause(ctes: dict[str, Cte]):
     return "with " + ",\n".join(c.definition for c in ctes.values())
 
 
-def rename_columns(projection, col_aliases: Union[list[str], None]):
+def rename_columns(projection: Union[Columns, None], col_aliases: Union[list[str], None]) -> Union[Columns, None]:
     """Applies a column alias list like t(a, b) to the first columns of a projection."""
     if not projection or not col_aliases:
         return projection
-    renamed = [(alias, col[1]) for alias, col in zip(col_aliases, projection)]
-    return renamed + list(projection[len(col_aliases):])
-
-
-Columns = list[tuple[Union[str, None], Union[str, None]]]
-"""(column name, type) pairs; the type is None when it isn't known. The name is
-None for unaliased expressions: they don't get completions, but they keep their
-position so column alias lists like t(a, b) line up."""
+    renamed: Columns = [(alias, col[1]) for alias, col in zip(col_aliases, projection)]
+    return renamed + projection[len(col_aliases):]
 
 
 def norm_part(part: str) -> str:
@@ -187,12 +193,12 @@ def _star_item(star: Tree, regex: Union[str, None] = None) -> SelectItem:
             item.qualifier = child.value
         elif isinstance(child, Tree) and child.data == "exclude":
             # EXCLUDE (a, t.b): the column is the last name
-            item.exclude = [c.children[-1].value for c in child.children if isinstance(c, Tree)]
+            item.exclude = [token_value(c.children[-1]) for c in child.children if isinstance(c, Tree)]
         elif isinstance(child, Tree) and child.data == "replace":
-            item.replace = [c.children[-1].value for c in child.children if isinstance(c, Tree)]
+            item.replace = [token_value(c.children[-1]) for c in child.children if isinstance(c, Tree)]
         elif isinstance(child, Tree) and child.data == "rename":
             item.rename = {
-                c.children[-2].value: c.children[-1].value for c in child.children if isinstance(c, Tree)
+                token_value(c.children[-2]): token_value(c.children[-1]) for c in child.children if isinstance(c, Tree)
             }
         elif isinstance(child, Tree) and child.data == "columns_exp":
             return _columns_item(child)
@@ -224,7 +230,7 @@ def select_items(col_exps: Tree) -> list[SelectItem]:
             qualifier, column = first.children[0], first.children[-1]
             if isinstance(column, Token):
                 source = (qualifier.value if isinstance(qualifier, Token) else None, column.value)
-        name = alias.children[0].value if isinstance(alias, Tree) else (source[1] if source else None)
+        name = token_value(alias.children[0]) if isinstance(alias, Tree) else (source[1] if source else None)
         items.append(SelectItem(
             name=name, source=source, aliased=isinstance(alias, Tree), end_pos=getattr(col.meta, "end_pos", None)
         ))
@@ -244,7 +250,7 @@ class Ctes:
 class Query:
     ctes: Union[Ctes,None]
     sql: str
-    projection: Union[list[tuple[str, Union[str,None]]], None]
+    projection: Union[Columns, None]
     from_refs: dict[str, 'FromRef']
     start_pos: int
     end_pos: int
@@ -296,7 +302,7 @@ class FromRef:
     name: str
     sql: Union[str,None] = None
     start_pos: Union[int,None] = None
-    projection: Union[list[tuple[str,str]],None] = None
+    projection: Union[Columns, None] = None
     col_aliases: Union[list[str],None] = None
 
 
@@ -545,7 +551,7 @@ class GetQueries(Visitor):
          return
       name = ".".join(t.value for t in names[0].children if isinstance(t, Token))
       aliases = [c for c in tree.children if isinstance(c, Tree) and c.data == "alias"]
-      alias = aliases[0].children[0].value if aliases else table_alias(name)
+      alias = token_value(aliases[0].children[0]) if aliases else table_alias(name)
       from_refs = {alias: FromRef(kind=FromRefKind.table, alias=alias, name=name)}
       for x in tree.children:
          if isinstance(x, Tree) and x.data == "from_ref":
@@ -559,7 +565,7 @@ class GetQueries(Visitor):
          return
       name = ".".join(t.value for t in names[0].children if isinstance(t, Token))
       aliases = [c for c in tree.children if isinstance(c, Tree) and c.data == "alias"]
-      alias = aliases[0].children[0].value if aliases else table_alias(name)
+      alias = token_value(aliases[0].children[0]) if aliases else table_alias(name)
       from_refs = {alias: FromRef(kind=FromRefKind.table, alias=alias, name=name)}
       for x in tree.children:
          if isinstance(x, Tree) and x.data in TABLE_REF_KINDS:
@@ -850,11 +856,12 @@ class SqlParserNew:
         
         
         for q in queries.queries_list:
-            # queries closed off with filler tokens can end without a position
+            # queries closed off with filler tokens can end without a position;
+            # lark's stubs say meta positions are always ints, so checkers think these can't run
             if q.start_pos is None:
-                q.start_pos = 0
+                q.start_pos = 0  # type: ignore
             if q.end_pos is None:
-                q.end_pos = len(sql)
+                q.end_pos = len(sql)  # type: ignore
 
         resolver = ProjectionResolver(queries, self.table_columns)
         for q in queries.queries_list:
