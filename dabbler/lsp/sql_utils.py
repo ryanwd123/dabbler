@@ -56,10 +56,10 @@ class CmpItem:
         
         return CompletionItem(
             label=label,
-            kind=self.kind, # type: ignore
+            kind=self.kind,
             sort_text=self.sort,
             filter_text=self.label.lower(),
-            documentation=self.doc, # type: ignore
+            documentation=self.doc,
             label_details=CompletionItemLabelDetails(
                 description=description),
                 detail=self.detail,

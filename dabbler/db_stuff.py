@@ -185,7 +185,7 @@ def file_databases(db: duckdb.DuckDBPyConnection) -> list[tuple[str, str]]:
     """(catalog, path) of the DuckDB database files attached to a connection."""
     return db.execute(
         "select database_name, path from duckdb_databases() where path is not null and not internal and type = 'duckdb'"
-    ).fetchall()  # type: ignore
+    ).fetchall()
 
 
 def database_file_db_data(db_data: dict, catalog: str, path: str) -> dict:

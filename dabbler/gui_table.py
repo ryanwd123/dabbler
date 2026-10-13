@@ -16,7 +16,7 @@ from dabbler.gui_qt import (
 
 
 # from qtpy import QtWidgets, QtCore, QtGui
-# from qtpy.QtCore import Qt, Signal, Slot     # type: ignore
+# from qtpy.QtCore import Qt, Signal, Slot
 # from qtpy.QtGui import QFont, QFontMetrics, QKeySequence, QShortcut
 from typing import Union
 

@@ -117,7 +117,7 @@ def default_cache_path() -> Path:
         return Path(os.environ[CACHE_PATH_ENV])
     from dabbler.paths import get_datadir
 
-    return Path(get_datadir()) / CACHE_FILE_NAME  # type: ignore
+    return Path(get_datadir()) / CACHE_FILE_NAME
 
 
 def normalize_path(path: Union[str, Path]) -> str:

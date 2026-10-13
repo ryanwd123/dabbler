@@ -454,7 +454,7 @@ class MyApp(QtCore.QObject):
         self.windows = [w for w in self.windows if w.isVisible()]
         active = QtWidgets.QApplication.activeWindow()
         if active in self.windows:
-            return active  # type: ignore
+            return active
         return self.windows[-1] if self.windows else None
 
     def update_tables(self):

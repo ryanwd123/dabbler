@@ -126,7 +126,7 @@ class SqlCompleter:
         self.catalog = Catalog(cache, source_file)
         info = self.catalog.info
         settings = {"cwd": info.cwd, "file_search_path": info.file_search_path, "loaded_extensions": info.extensions}
-        self.path_completer = PathCompleter(info.cwd, info.file_search_path)  # type: ignore
+        self.path_completer = PathCompleter(info.cwd, info.file_search_path)
         self.file_search_path = search_path_for(settings)
         self.log = logging.getLogger("completer")
         # DuckDB is only used to describe table functions (reading files); the schema comes from the cache
