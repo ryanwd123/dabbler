@@ -1,10 +1,11 @@
-"""Hover text for names in SQL: functions, tables, CTEs, aliases and columns."""
+"""Hover text for names in SQL: statements, functions, tables, CTEs, aliases and columns."""
 import re
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Union
 
 from dabbler.lsp.parser import lookup, norm_name
 from dabbler.lsp.sql_utils import CmpItem
+from dabbler.lsp.statement_docs import statement_doc
 
 if TYPE_CHECKING:
     from dabbler.lsp.completer import SqlCompleter
@@ -79,6 +80,11 @@ def hover(completer: "SqlCompleter", sql: str, pos: int) -> Union[HoverText, Non
 
     def result(markdown: Union[str, None]):
         return HoverText(start, end, markdown) if markdown else None
+
+    if len(parts) == 1:
+        statement = statement_doc(sql, start, end)
+        if statement is not None:
+            return HoverText(*statement)
 
     if found.is_last and sql[found.chain_end:].lstrip().startswith("("):
         info = completer.catalog.function_info(name)

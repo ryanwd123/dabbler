@@ -70,3 +70,25 @@ def test_schema_qualified_table(completer):
 )
 def test_nothing(completer, sql):
     assert hover_at(completer, sql) == (None, None)
+
+
+@pytest.mark.parametrize("sql", [
+    "create seq|uence serial start 1",
+    "cre|ate sequence serial start 1",
+    "CREATE OR REPLACE TEMP SEQUEN|CE IF NOT EXISTS serial",
+])
+def test_create_sequence_statement(completer, sql):
+    text, word = hover_at(completer, sql)
+    assert word.lower().startswith("create") and word.lower().endswith("sequence")
+    assert "**CREATE SEQUENCE**" in text
+    assert "INCREMENT BY" in text
+
+
+def test_sequence_name_is_not_the_statement(completer):
+    text, _ = hover_at(completer, "create sequence seq|uence")
+    assert text is None or "**CREATE SEQUENCE**" not in text
+
+
+def test_create_table_has_no_statement_doc(completer):
+    text, _ = hover_at(completer, "cre|ate table t (a int)")
+    assert text is None or "**CREATE SEQUENCE**" not in text
