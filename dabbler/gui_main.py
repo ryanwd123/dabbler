@@ -148,7 +148,9 @@ class TableSelectionArea(QtWidgets.QWidget):
             return
 
         self.selected_table = item.data(0, 0)
-        tbl_db = f"{item.parent().data(0,0)}."
+        parent = item.parent()
+        assert parent is not None  # tables sit under their database
+        tbl_db = f"{parent.data(0,0)}."
         if tbl_db == "system_info." or tbl_db == "dataframes.":
             tbl_db = ""
 

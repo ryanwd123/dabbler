@@ -568,7 +568,7 @@ class DfView(QtWidgets.QWidget):
     calcWidths = Signal(int, pl.DataFrame, QFont, list)
     searchDf = Signal(str)
 
-    def __init__(self, parent=None, app:Union[QtWidgets.QApplication,None] = None):
+    def __init__(self, parent=None, app:Union[QtCore.QObject,None] = None):
         super(DfView, self).__init__(parent)
         self.setup_table()
         self.col_widths = []
