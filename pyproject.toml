@@ -89,3 +89,8 @@ select = ["E9", "F"]
 
 [tool.ruff.lint.per-file-ignores]
 "dabbler/gui_qt.py" = ["F401"]  # re-exports the Qt binding
+
+[tool.pyrefly]
+project-includes = ["dabbler"]
+preset = "default"
+python-version = "3.12"

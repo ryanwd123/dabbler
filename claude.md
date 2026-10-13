@@ -5,6 +5,15 @@ Dabbler is a Python tool to help with writing SQL within Python files. Dabbler h
 A goal is for the auto-completion to be very full-featured, and that is still a work in progress.
 
 
+## Type checking
+
+Pyrefly checks `dabbler/` (config in `pyproject.toml`; CI runs it pinned to 1.3.2). After changing code, run it and fix new errors before committing:
+
+    pyrefly check --python-interpreter-path C:\Users\ryanw\.virtualenvs\dabbler-F30Abi41\Scripts\python.exe
+
+Prefer fixing the annotation or the code over adding `# type: ignore`; when an ignore is needed, say why in a comment.
+
+
 ## Git workflow
 
 - After completing each change or task, commit it automatically. Don't ask first.
